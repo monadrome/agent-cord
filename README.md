@@ -17,7 +17,7 @@
 - [4. 60 秒看懂架构与生命周期](#4-60-秒看懂架构与生命周期)
 - [5. 核心机制一览](#5-核心机制一览)
 - [6. 做什么 / 不做什么](#6-做什么--不做什么)
-- [7. 架构决策速览（ADR-0001 ~ ADR-0016）](#7-架构决策速览adr-0001--adr-0016)
+- [7. 架构决策速览（ADR-0001 ~ ADR-0020）](#7-架构决策速览adr-0001--adr-0020)
 - [8. 当前状态与参与方式](#8-当前状态与参与方式)
 - [9. 文档导航](#9-文档导航)
 
@@ -204,9 +204,9 @@
 
 ---
 
-## 7. 架构决策速览（ADR-0001 ~ ADR-0016）
+## 7. 架构决策速览（ADR-0001 ~ ADR-0020）
 
-**本节回答**：16 条已定稿的架构决策分别是什么。
+**本节回答**：20 条已定稿的架构决策分别是什么。
 
 完整决策记录（背景、备选、理由、被否方案）见 [docs/adr/](./docs/adr/)，每条形如 `ADR-000N-<slug>.md`。
 
@@ -222,14 +222,18 @@
 | [ADR-0008](./docs/adr/ADR-0008-prototype-split.md) | 原型两分：开源基座（通用协议与机制）+ 内部 SDLC 示例实现（对接内部平台的部分统称 DevMaster（某公司内部平台），不含业务数据） |
 | [ADR-0009](./docs/adr/ADR-0009-language-runtime.md) | 语言与运行形态：TypeScript + 常驻 daemon 核心 + 薄 CLI 客户端（本地 IPC/HTTP）；核心代码同时以库形式导出 |
 | [ADR-0010](./docs/adr/ADR-0010-ssot-storage.md) | SSOT 存储 = 纯文件 + git + 文件夹内 JSONL 事件流 + `ledger.yaml`；frontmatter 仅显示层；事件流进 git（union merge driver 防合并丢事件）；SQLite FTS5 派生索引为后置可插拔增强 |
-| [ADR-0011](./docs/adr/ADR-0011-agent-runtime.md) | agent 运行时 = 每任务 subprocess 驱动 headless CLI（claude / codex / kimi / gemini），统一 `AgentDriver` 接口；否决常驻池与 SDK 内嵌 |
+| [ADR-0011](./docs/adr/ADR-0011-agent-runtime.md) | agent 运行时 = 每任务 subprocess 驱动 headless CLI（claude / codex / kimi 等；协议层 = ACP 直连，见 ADR-0017），统一 `AgentDriver` 接口；否决常驻池与 SDK 内嵌 |
 | [ADR-0012](./docs/adr/ADR-0012-events-im-adapters.md) | 事件与通信 = 文件夹内 append-only 事件流（`events.jsonl`，唯一事实与顺序来源）+ 进程内 dispatcher + watcher 仅作对账探针 + webhook 仅作公网 ingress 前端；IM 用官方 SDK 薄适配器，统一 `NormalizedEvent` |
 | [ADR-0013](./docs/adr/ADR-0013-vote-executor.md) | 投票执行器 = `ProviderAdapter` 直连模型 API（锁模型版本、temperature=0、结构化输出、逐次 usage 采集）；生成侧角色 agent 才用 coding CLI |
 | [ADR-0014](./docs/adr/ADR-0014-workflow-gate-dsl.md) | 工作流/门禁定义 = apiVersion 化 YAML + 三级校验器（内置枚举 / CEL 表达式 / 外部 IPC 插件）；gate 与 checker 双注册表，新增 gate 零代码 |
-| [ADR-0015](./docs/adr/ADR-0015-knowledge-base.md) | 知识库 = Markdown + frontmatter 唯一 SSOT + SQLite FTS5 派生索引（trigram 中文分词）；起步走符号/词法检索不走 embedding（审计性优先），embedding 后置为可插拔增强 |
+| [ADR-0015](./docs/adr/ADR-0015-knowledge-base.md) | 知识库 = Markdown + frontmatter 唯一 SSOT + SQLite FTS5 派生索引（中文 unigram/bigram 预分词，2026-09-24 实测校准）；起步走符号/词法检索不走 embedding（审计性优先），embedding 后置为可插拔增强 |
 | [ADR-0016](./docs/adr/ADR-0016-distribution-plugins.md) | 分发 = npm CLI；插件三层（纯配置组合 / 声明式 markdown / IPC 进程插件），插件协议 v1 冻结（`check` / `capabilities` / `health`）；冷启动 = 官方插件集 + GitHub 模板市场仓库 |
+| [ADR-0017](./docs/adr/ADR-0017-agent-driver-acp.md) | agent 驱动协议 = ACP（Agent Client Protocol）直连为 `AgentDriver` 第一实现；裸 headless 降级、PTY 兜底；不复用 `@ai-sdk/harness` |
+| [ADR-0018](./docs/adr/ADR-0018-workflow-dsl-kernel-impl.md) | 工作流 DSL 自研（借 OWS 事件词表）+ CEL 求值器端口隔离（`@marcbachmann/cel-js`）+ 编排内核 = 自研薄执行器 + XState v5 |
+| [ADR-0019](./docs/adr/ADR-0019-plugin-protocol-mcp.md) | 外部校验器插件协议 = MCP over stdio，不自造线协议 |
+| [ADR-0020](./docs/adr/ADR-0020-event-protocol-reducer.md) | 事件协议与确定性 reducer = EventEnvelope v1（ULID + 血统内 seq + prev_event_hash 因果链）+ 单写者原子追加 + reducer 版本与校验和 + 并发冲突转人工 |
 
-ADR-0001 ~ ADR-0008 回答「这个平台是什么、边界在哪」，ADR-0009 ~ ADR-0016 回答「这个平台用什么造」；16 条全部为 `accepted`，但 `accepted` 不等于已实现。决策地图与置信度总览见 [docs/adr/README.md](./docs/adr/README.md)。
+ADR-0001 ~ ADR-0008 回答「这个平台是什么、边界在哪」，ADR-0009 ~ ADR-0016 回答「这个平台用什么造」，ADR-0017 ~ ADR-0020 是依据 2026-09-24 开源实现调研与对抗性设计评审（[docs/research/](./docs/research/)）拍板的实现选型；20 条全部为 `accepted`，但 `accepted` 不等于已实现。决策地图与置信度总览见 [docs/adr/README.md](./docs/adr/README.md)。
 
 ---
 
@@ -265,6 +269,7 @@ ADR-0001 ~ ADR-0008 回答「这个平台是什么、边界在哪」，ADR-0009 
 | 风险与开放问题 | [docs/11-risks.md](./docs/11-risks.md) |
 | 验证实验设计 | [docs/12-experiments.md](./docs/12-experiments.md) |
 | 开源运营 | [docs/13-open-source.md](./docs/13-open-source.md) |
-| 16 条架构决策记录 | [docs/adr/](./docs/adr/) |
+| 20 条架构决策记录 | [docs/adr/](./docs/adr/) |
+| 开源实现与竞品调研归档（2026-09-24） | [docs/research/](./docs/research/) |
 
 术语以 [docs/INDEX.md](./docs/INDEX.md) 的术语速查为准；全文统一使用，不设别名。

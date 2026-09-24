@@ -92,7 +92,7 @@
 
 1. **frontmatter schema 要版本化**。字段清单与取值以 [docs/08-self-evolution.md §8.2.2](../08-self-evolution.md) 为权威：`schema_version / id / type(rule|term|pitfall|convention) / title / status(candidate|active|deprecated|retired) / confidence / tags / source_anchors[{kind, anchor}] / verified_by / supersedes / contradicts / applies_to / created / last_reviewed / review_due`；锚点字段统一为 `{kind, anchor}`，行号只作显示层、不写入 `source_anchors`。schema 变更走 ADR，解析器容忍缺省值。
 2. **条目 ID 是锚点，必须稳定**。`KB-xxxx` 一旦发放终身不改；文件名可含标题但解析以 ID 为准（防重命名断链）；被推翻条目**保留全文**（软删除 = `status: retired` + 检索默认排除 + 注入永不允许）。
-3. **中文分词**：FTS5 默认分词器不切中文，起步用 `trigram`（需确认 SQLite 3.34+）并验证跨平台编译选项；若召回不满意再换外挂分词——属于索引层内部替换，不动文件层。这正是「文件为源」架构的容错红利。
+3. **中文分词（2026-09-24 实测校准，复现记录见 [docs/research/2026-09-24-04](../research/2026-09-24-04-event-sourcing-file-ssot.md)）**：trigram 分词器存在硬边界——`MATCH` 查询少于 3 个字符恒 0 命中（官方文档明示，已在 SQLite 3.51 实测复现），而中文 2 字词（「锚点」「共识」「门禁」）极高频，原「起步用 trigram」假设不成立；且 bm25 在 trigram 上对中文无区分度，不能作相关性排序主力。修订为：起步用**应用侧 unigram + bigram 预分词**（索引与查询两侧同规则展开，零依赖、确定性、支持 1–2 字查询，代价是索引体积约翻倍），或 `Intl.Segmenter('zh-CN')` 双侧同分词器 + unicode61 短语匹配（零依赖，但 ICU 词典升级可能改变分词结果，需重建索引——恰由「索引即缓存」保证）；`LIKE '%…%'` 可作短查询兜底但为 O(n) 全表扫描、不参与 bm25 排序；词级分词（@node-rs/jieba）与 embedding 一样属索引层后续增强，不动文件层。
 4. **索引即缓存**：全量重建必须是一条秒级命令且进 CI（防索引与文件漂移后静默劣化）；写入只走门禁钩子，**不存在第二条写路径**。
 5. **候选 → 生效的三个条件必须都能机验**（复述检验通过 / 锚点机验有效 / 人工确认事件存在），否则晋升逻辑会退化为人工流程。
 6. **推翻率高的条目自动降置信度、强制投票**：检索时 `confidence` 参与排序加权，**不硬过滤**（防「查不到旧结论」导致重复踩坑）。
@@ -114,3 +114,4 @@
 8. 生命周期状态在检索与发现层被强制排除的工程先例（治理是操作性执行而非建议性）：Registry-Governed Agent Lifecycle（arXiv 2607.00345, 2026）https://arxiv.org/html/2607.00345v1
 9. 符号检索 vs 语义检索的分野与混合选择框架：https://www.instaclustr.com/education/retrieval-augmented-generation/graph-rag-vs-vector-rag-3-differences-pros-and-cons-and-how-to-choose/
 10. 项目内部：方案提案 §6.7（自进化能力最小机制集：bad case 回流、规则抽取、介入学习、知识保鲜；复述检验原则）、§6.3（推翻率回流）、§6.5（Issue 密度衰减）；工作清单 W3.3（知识库与回流）、W3.4（自进化最小闭环）、R12；配套调研（2026-09）Q4（两层上下文包 schema、符号路线优于 embedding 的倾向被 2026 年趋势加强）、Q2（复述检验的异构与锚点重合约束来源）。
+11. 开源实现调研归档（2026-09-24）：FTS5 trigram 中文边界的本地复现实验（少于 3 字查询恒 0 命中、bm25 无区分度）、unigram+bigram 预分词与 Intl.Segmenter 两套替代方案的实测、MiniSearch 等 SQLite 外备选：[docs/research/2026-09-24-04-event-sourcing-file-ssot.md](../research/2026-09-24-04-event-sourcing-file-ssot.md)

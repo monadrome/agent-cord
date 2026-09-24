@@ -215,5 +215,5 @@ agent-cord 的继承与修正：
 | 路线图与验收标准 | [`./10-roadmap.md`](./10-roadmap.md) |
 | 风险、待校准参数与开放问题 | [`./11-risks.md`](./11-risks.md) |
 | 验证实验设计（含回放实验协议） | [`./12-experiments.md`](./12-experiments.md) |
-| 16 条 ADR 决策全集 | [`./adr/README.md`](./adr/README.md) |
+| 20 条 ADR 决策全集 | [`./adr/README.md`](./adr/README.md) |
 | 全文档导航 | [`./INDEX.md`](./INDEX.md) |

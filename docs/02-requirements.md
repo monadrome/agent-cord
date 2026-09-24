@@ -366,5 +366,5 @@ flowchart LR
 | §3.5 上下文包、§4.3 文档防腐的实现 | [`./07-context.md`](./07-context.md) |
 | §4.5 知识自进化与复述检验的实现 | [`./08-self-evolution.md`](./08-self-evolution.md) |
 | §1 度量指标的实验校准（含回放实验协议） | [`./12-experiments.md`](./12-experiments.md) |
-| 16 条 ADR 决策全集 | [`./adr/README.md`](./adr/README.md) |
+| 20 条 ADR 决策全集 | [`./adr/README.md`](./adr/README.md) |
 | 全文档导航 | [`./INDEX.md`](./INDEX.md) |

@@ -518,7 +518,7 @@ CLI 与 daemon 之间走本地 HTTP（localhost + token 文件）或 Unix socket
 
 ## 相关文档
 
-- [ADR 索引](./adr/README.md)：16 条决策的完整论证——[ADR-0009 语言与运行形态](./adr/ADR-0009-language-runtime.md)、[ADR-0010 SSOT 存储](./adr/ADR-0010-ssot-storage.md)、[ADR-0011 agent 运行时](./adr/ADR-0011-agent-runtime.md)、[ADR-0012 事件与 IM 适配](./adr/ADR-0012-events-im-adapters.md)、[ADR-0013 投票执行器](./adr/ADR-0013-vote-executor.md)、[ADR-0014 工作流与门禁定义](./adr/ADR-0014-workflow-gate-dsl.md)、[ADR-0015 知识库](./adr/ADR-0015-knowledge-base.md)、[ADR-0016 分发与插件](./adr/ADR-0016-distribution-plugins.md)
+- [ADR 索引](./adr/README.md)：20 条决策的完整论证——[ADR-0009 语言与运行形态](./adr/ADR-0009-language-runtime.md)、[ADR-0010 SSOT 存储](./adr/ADR-0010-ssot-storage.md)、[ADR-0011 agent 运行时](./adr/ADR-0011-agent-runtime.md)、[ADR-0012 事件与 IM 适配](./adr/ADR-0012-events-im-adapters.md)、[ADR-0013 投票执行器](./adr/ADR-0013-vote-executor.md)、[ADR-0014 工作流与门禁定义](./adr/ADR-0014-workflow-gate-dsl.md)、[ADR-0015 知识库](./adr/ADR-0015-knowledge-base.md)、[ADR-0016 分发与插件](./adr/ADR-0016-distribution-plugins.md)、[ADR-0017 agent 驱动协议（ACP）](./adr/ADR-0017-agent-driver-acp.md)、[ADR-0018 工作流 DSL 与编排内核实现](./adr/ADR-0018-workflow-dsl-kernel-impl.md)、[ADR-0019 插件协议（MCP）](./adr/ADR-0019-plugin-protocol-mcp.md)、[ADR-0020 事件协议与确定性 reducer](./adr/ADR-0020-event-protocol-reducer.md)
 - [04-consensus-ledger.md](./04-consensus-ledger.md)：账本条目 schema、证据锚点三层结构、状态机与推翻流程
 - [05-voting.md](./05-voting.md)：盲评投票、难度门、锚点独立度检查的完整设计
 - [06-gates-workflow.md](./06-gates-workflow.md)：预定义有向图、gate schema、三级校验器、触发式升级

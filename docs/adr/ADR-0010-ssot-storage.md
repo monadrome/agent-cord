@@ -3,6 +3,7 @@
 - 状态：accepted（设计定稿，代码未实现）
 - 日期：2026-09-24
 - 关联：ADR-0003（共识载体）、ADR-0005（账本条目 schema）、ADR-0012（事件模型与分发）、ADR-0015（知识库存储）
+- 补充：ADR-0020（事件协议与确定性 reducer：seq 血统语义、因果链、合并全序、投影契约，2026-09-24 拍板）
 - 来源：本方案技术选型调研（2026-09，内部调研纪要）——SSOT / 共识快照的存储与版本化；落实 CP-11、CP-12、CP-18、CP-19 的相关取舍
 
 ## 背景
@@ -111,6 +112,11 @@ cord/                              # SSOT 根目录
 8. **知识库位置与索引边界**：`cord/knowledge/` 是唯一跨需求目录；需求归档后其 confirmed 条目的**抽取**（不是移动）入 knowledge。索引层（SQLite FTS5）只索引 `knowledge/` + 各 `ledger.yaml`，标记为 derived，进 git 或 gitignore 均可，但必须提供 `cord index --rebuild` 全量重建命令——再生成本高的索引不允许存在。索引实现细节见 ADR-0015。
 9. **体量控制与快照事件**：单需求事件流预计千行级，无需快照折叠；若长期项目膨胀，定义一条 `snapshot` 事件类型（「截至此事件的折叠状态」），回放从最近 snapshot 起——标准事件溯源做法，不需要自定义机制。
 10. **证据锚点的三层结构（与账本 schema 联动）**：**符号锚点（活，参与判定）+ commit SHA 与内容 hash（存档）+ 行号（仅显示层）**。防腐求交在符号级做，行号不参与判定（漂移与巧合重合都会污染）。配套降误伤手段：符号级求交、格式化提交豁免清单（`.git-blame-ignore-revs` 式）、`git blame -M -C` 内容追踪。三级解析全部失败才判定锚点失效，条目降回「临时」——锚点失效本身是信号。
+11. **git union 合并的实测边界（2026-09-24 校准，复现记录见 [docs/research/2026-09-24-04](../research/2026-09-24-04-event-sourcing-file-ssot.md)）**：
+    - union 是 git **内建** driver，但不去重、不排序（官方文档明示合并后行序随机），且对「一侧原地修改 + 对侧追加」会无冲突地产生重复记录——已实测复现。因此注意点 1 的自定义 driver（按 `event_id` 去重 + 按 `(seq, event_id)` 排序覆写 `%A`）是必需项，不是可选项；读侧一律按逻辑时钟排序，不依赖文件行序。
+    - **`ledger.yaml` 及任何结构化文件严禁挂 union**：原地修改 + union = 重复记录；结构化文件双侧同改时 union 还会产出语法无效的 YAML。`ledger.yaml` 必须是 `events.jsonl` 经确定性 reducer 派生的产物（与注意点 4 的投影关系一致），合并只发生在事件流层、由 merge driver 解决。
+    - **`event_id` 必须全局唯一（ULID），禁止由内容哈希派生**：两侧追加逐字节相同的行会被三路合并静默折叠成一条——两个投票 agent 投出内容相同的票若共用 ID 会被合并成一票，共识计数直接错。
+    - 自定义 merge driver 定义在 `.git/config`，**不随仓库分发**：`cord init` 负责注册 `.gitattributes` 与 driver，`cord doctor` 必须检测「当前 clone 是否已挂上 driver」，否则新克隆会静默退回文本合并。
 
 ## 证据来源
 
@@ -125,3 +131,4 @@ cord/                              # SSOT 根目录
 9. 决策记录入仓 + supersede 链接 + 状态机流转的实践：MADR https://github.com/adr/madr ；log4brains https://github.com/thomvaill/log4brains
 10. 证据锚点三层结构与降误伤手段：配套调研（2026-09）Q3（五种锚点形式对比、`git blame -M -C` 内容追踪与 LLVM 的跨项目移动约定 https://releases.llvm.org/7.0.1/docs/Proposals/GitHubMove.html 、`.git-blame-ignore-revs` 豁免、difftastic AST diff https://github.com/Wilfred/difftastic 、SWHID 内容寻址标识符 https://swhid.org/swhid-specification/v1.2/6.Qualified_identifiers/ ）。
 11. 项目内部：2026-09-24 项目协作群关于共识快照与 SSOT 维护的讨论；方案提案 §6.1（账本 schema 与证据锚点）、§6.4（防腐钩子与行号漂移风险）；工作清单 W1.3（事件溯源、可中断恢复）、W3.1。
+12. 开源实现调研归档（2026-09-24）：git union 合并的实测复现（原地修改产生重复记录、行序随机、逐字节相同行被折叠）、merge driver 配置不随仓库分发、「`ledger.yaml` 严禁 union、由事件流经 reducer 派生」的结论：[docs/research/2026-09-24-04-event-sourcing-file-ssot.md](../research/2026-09-24-04-event-sourcing-file-ssot.md)

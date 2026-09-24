@@ -120,6 +120,7 @@
 12. 决策点入投票队列前过三个硬条件（门禁配置，非代码）：① **非重点**——不在重点决策点清单内；② **可机验性**——证据锚点类型 ∈ {代码, 用例}（存在可机器执行的验证信号）；③ **可逆性**——不在「不可逆动作清单」内。不满足任一条件者不进队列，直接落 `needs_verification` 交人工。
 13. 软信号（触发式升级同款哲学）：决策点标签 ∈ {契约, 跨模块语义} → 即使可机验也强制 k=3 而非 k=2；历史推翻率高的标签类别 → 自动降置信度并强制投票（推翻率回流机制的消费端）。
 14. 判定逻辑本身是门禁 schema 的一个校验器实现（`checks: [难度门]`），新增判定规则 = 改配置，符合零代码原则。
+15. **ProviderAdapter 的实现底座（2026-09-24 拍板）**：适配器实现基于 Vercel AI SDK provider 层（`ai` + `@ai-sdk/*`，Apache-2.0）+ zod 结构化输出（`generateText` + `Output.object`；注意 `generateObject` 自 v6 起已 deprecated）。本 ADR 的接口决策不变——平台自定义 `ProviderAdapter` 接口，AI SDK 类型不得泄漏到平台核心。**明确不接受 Python sidecar**（LiteLLM 等仅可作为可选 HTTP upstream 网关，不进核心依赖图），保持单运行时。另注意：temperature=0 不保证各家 API 的确定性，「锁模型版本 + 结构化输出 + 多票一致性 + 锚点机验」的组合才是可信来源（ADR-0006）。依据：[docs/research/2026-09-24-03](../research/2026-09-24-03-blind-voting-llm-judge.md)。
 
 ## 证据来源
 
