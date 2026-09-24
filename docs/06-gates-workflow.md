@@ -7,7 +7,7 @@
 
 ## 本章回答什么问题
 
-一个需求从进入到上线，到底按什么路线走？路线是谁定的、写在哪里？路上哪些位置必须停下来校验、由谁校验、校验不过会怎样？以及最关键的一问：**为什么 Conclave 不允许 agent 自己决定流程，而是坚持"预定义的有向图 + 可配置门禁"**——这看起来比"让 agent 自由编排"更笨，本章要给出证据与理由。
+一个需求从进入到上线，到底按什么路线走？路线是谁定的、写在哪里？路上哪些位置必须停下来校验、由谁校验、校验不过会怎样？以及最关键的一问：**为什么 agent-cord 不允许 agent 自己决定流程，而是坚持"预定义的有向图 + 可配置门禁"**——这看起来比"让 agent 自由编排"更笨，本章要给出证据与理由。
 
 读者读完本章应能：写出一个能跑的需求流程定义（含多个门禁），知道新增一个门禁为什么不需要改平台代码，以及流程在什么信号下会自动升级为重型通道。
 
@@ -20,7 +20,7 @@
 | 组成 | 含义 | 落在哪里 |
 |---|---|---|
 | **节点（node）** | 一个阶段，七个：进入 → 对齐与共识 → 计划 → 执行 → 验证 → 防腐 → 上线回流 | 流程定义 YAML（`gates/*.yaml`） |
-| **出口（artifact）** | 节点完成时必须存在的**里程碑文档**：`prd.md` / `adr.md` / `plan.md` / `findings.md`（封闭枚举，外加执行阶段的代码产物）；与门禁写回目标（`write_back`）是两个不同字段 | 共识快照文件夹 `conclave/<req-id>/` |
+| **出口（artifact）** | 节点完成时必须存在的**里程碑文档**：`prd.md` / `adr.md` / `plan.md` / `findings.md`（封闭枚举，外加执行阶段的代码产物）；与门禁写回目标（`write_back`）是两个不同字段 | 共识快照文件夹 `cord/<req-id>/` |
 | **门禁（gate）** | 挂在节点上的检查点：角色 × 时机 × 校验 × 放行 | 同上，与节点定义同文件或独立文件 |
 | **边（edge）** | 阶段之间的推进，以及**触发式升级**形成的旁路边（轻量通道 → 重型通道） | 由节点顺序 + 触发器声明共同决定 |
 
@@ -40,7 +40,7 @@
 | ④ | 执行 | 实现 agent（弱模型，Draft-only） | 代码产物：Draft PR / diff（含契约文件变更） | 派发门（该工作单元的上下文包是否齐备） | `session_event` |
 | ⑤ | 验证 | 验证 agent（强模型，与生成 agent 异构） | `findings.md` 追加验证报告（PASS / WARN / FAIL 摘要 + 链接） | 验证门（单测、集成测试、截图比对、对抗 review 投票） | `consensus_ledger` + `session_event` |
 | ⑥ | 防腐 | 提交前置钩子 + 证据锚点索引 | 快照文档的**块级更新**（只更新已有的 `prd.md` / `adr.md` / `plan.md` / `findings.md`，不新增文档类型） | 影响检查门（diff ∩ 证据锚点，命中即确认共识仍成立） | `doc_block_draft` |
-| ⑦ | 上线回流 | 系统 | 无新增里程碑文档（知识条目落 `conclave/knowledge/`，见 [`./08-self-evolution.md`](./08-self-evolution.md)） | 回流门（复述检验通过才获得权威） | `knowledge_entry` |
+| ⑦ | 上线回流 | 系统 | 无新增里程碑文档（知识条目落 `cord/knowledge/`，见 [`./08-self-evolution.md`](./08-self-evolution.md)） | 回流门（复述检验通过才获得权威） | `knowledge_entry` |
 
 关于出口的四条规则：
 
@@ -55,7 +55,7 @@
 
 这是本章最重要的一节。业界的反面证据已经足够密集：
 
-| 自由编排的失败模式 | 证据 | Conclave 的对应结构 |
+| 自由编排的失败模式 | 证据 | agent-cord 的对应结构 |
 |---|---|---|
 | **agent 间错位**：A 不知道 B 已改方案、对话重置、重复劳动 | MAST 对 AutoGen / ChatDev / CrewAI 等 7 个框架、1600+ 条真实执行轨迹的分析（[arXiv 2503.13657](https://arxiv.org/abs/2503.13657)）把 14 种失败模式归为三类，其中"agent 间错位（inter-agent misalignment）"直接源于无中介的自由对话；同一研究还指出多 agent 系统相对单 agent 的增益常常极小 | agent 不互聊，只与**结构化状态**交互（ADR-0004）；阶段边界固定，交接物是里程碑文档而非对话记录 |
 | **验证与终止缺陷**：agent 会跳过验证、不终止 | 同上，MAST 第三类失败；AutoGen / CrewAI 均无内建验证层 | 验证是图上的**独立强制节点**，不指望 agent 自觉；门禁由引擎在执行层强制（不是"请 agent 调用审批步骤"） |
@@ -65,7 +65,7 @@
 同时要说清**"预定义"的边界**，避免读者误以为这是一个重型流程引擎：
 
 - 预定义的是**骨架**（七个阶段、出口枚举、门禁挂载点），不是每个团队的具体严格程度。严格程度由模板分档 + 触发式升级决定（§5、§7），默认走最轻的那一档。
-- 有节点与出口、但没有依赖图、没有门禁挂载点、没有升级触发器的做法也不够。主流 SDD 工具（spec-kit、Kiro 类）是"每阶段一个文件 + 一个命令"，适合单 agent 单需求，缺的正是这三样——所以 Conclave 借鉴它们的模板分档思想，而不采用它们的流程模型。
+- 有节点与出口、但没有依赖图、没有门禁挂载点、没有升级触发器的做法也不够。主流 SDD 工具（spec-kit、Kiro 类）是"每阶段一个文件 + 一个命令"，适合单 agent 单需求，缺的正是这三样——所以 agent-cord 借鉴它们的模板分档思想，而不采用它们的流程模型。
 - 引擎选型上刻意**不引入持久化工作流运行时**：这是协作流程，不是长事务。session 的事件溯源 + 显式状态机足够（见 [`./03-architecture.md`](./03-architecture.md) §2.5），没必要为一个 DAG 背上分布式运行时的固定成本。
 
 ---
@@ -88,7 +88,7 @@
 ### 2.2 单个门禁的定义示例
 
 ```yaml
-apiVersion: conclave.dev/gates/v1        # 引擎同时接受 vN 与 vN-1（§8）
+apiVersion: agent-cord.dev/gates/v1        # 引擎同时接受 vN 与 vN-1（§8）
 kind: Gate
 metadata: { id: contract-freeze, name: 契约冻结 }
 spec:
@@ -283,7 +283,7 @@ confidence: 0.0-1.0
 配置落点：
 
 ```
-conclave.toml          # 选用的模板、组织最低集引用、布局/事件 schema 版本（见 ADR-0010）
+cord.toml              # 选用的模板、组织最低集引用、布局/事件 schema 版本（见 ADR-0010）
 gates/*.yaml           # 团队覆盖后的流程与门禁定义（与代码同仓，随 PR 评审）
 checkers/              # 仅当团队引入新种类校验逻辑时存在
 ```
@@ -295,7 +295,7 @@ checkers/              # 仅当团队引入新种类校验逻辑时存在
 ## 7. 完整示例：一个含三个门禁的需求流程
 
 ```yaml
-apiVersion: conclave.dev/gates/v1
+apiVersion: agent-cord.dev/gates/v1
 kind: Workflow
 metadata: { id: standard-feature, name: 中等需求标准流程 }
 spec:
@@ -307,10 +307,10 @@ spec:
     - { id: execute, stage: 执行,       artifact: code_artifact,    gates: [] }   # 执行阶段的产物是代码变更（Draft PR / diff）
     - { id: verify,  stage: 验证,       artifact: findings.md,      gates: [acceptance-check] }
     - { id: submit,  stage: 防腐,       gates: [anchor-impact] }   # 无里程碑文档出口：只对已有文档做块级更新（写回目标才是 doc_block_draft）
-    - { id: upturn,  stage: 上线回流,   gates: [] }                # 无里程碑文档出口：知识条目写 conclave/knowledge/（写回目标才是 knowledge_entry）
+    - { id: upturn,  stage: 上线回流,   gates: [] }                # 无里程碑文档出口：知识条目写 cord/knowledge/（写回目标才是 knowledge_entry）
   enforced: [plan-freeze, anchor-impact]      # 组织最低集：不可被团队覆盖删除
 ---
-apiVersion: conclave.dev/gates/v1
+apiVersion: agent-cord.dev/gates/v1
 kind: Gate
 metadata: { id: intake-check, name: 需求可执行性 }
 spec:
@@ -329,7 +329,7 @@ spec:
   escalate: { to: heavy-requirement-review, approve_by: [product] }
   permissions: { write: [session_event] }
 ---
-apiVersion: conclave.dev/gates/v1
+apiVersion: agent-cord.dev/gates/v1
 kind: Gate
 metadata: { id: plan-freeze, name: 计划冻结 }
 spec:
@@ -353,7 +353,7 @@ spec:
   permissions: { write: [consensus_ledger, doc_block_draft] }
   timeout: { after: 24h, on_timeout: escalate_human }
 ---
-apiVersion: conclave.dev/gates/v1
+apiVersion: agent-cord.dev/gates/v1
 kind: Gate
 metadata: { id: anchor-impact, name: 影响检查（防腐） }
 spec:
@@ -366,7 +366,7 @@ spec:
     - ref: anchor-intersect@official
       with:
         granularity: symbol                      # 符号级求交 + 文件级粗筛
-        ignore_revs: .conclave-blame-ignore-revs
+        ignore_revs: .cord-blame-ignore-revs
     - ref: ledger-still-valid@official           # 命中即要求确认条目仍成立
   pass: { require: all, human_confirm: true }    # 命中后的放行 = 人确认，或走推翻流程
   on_fail: block                                 # 未命中不触发本门禁；命中未确认即阻断
@@ -385,12 +385,12 @@ spec:
 
 流程定义与门禁定义是长期资产，必须能演进：
 
-1. **每个定义文件头带 `apiVersion`**（当前 `conclave.dev/gates/v1`），解析器据此分派；`kind` 区分 `Workflow` / `Gate` / `Checker`。workflow / gate / agent / 知识条目 frontmatter 全在同一版本策略下。
+1. **每个定义文件头带 `apiVersion`**（当前 `agent-cord.dev/gates/v1`），解析器据此分派；`kind` 区分 `Workflow` / `Gate` / `Checker`。workflow / gate / agent / 知识条目 frontmatter 全在同一版本策略下。
 2. **仓库内置 JSON Schema，严格校验**：`additionalProperties: false`——未知字段直接拒绝加载，而不是静默忽略。静默忽略会让"我明明配了但没生效"变成常态。
 3. **引擎同时接受 N 与 N-1 两个版本**（对标 Kubernetes CRD 的多版本与转换策略）：新版本发布后，旧文件至少在一个大版本周期内继续可加载，给出弃用告警。
 4. **非破坏性变更留在 v1 内**（新增可选字段、新增内置 checker、新增触发器 id）。
-5. **破坏性变更升 v2 + 提供迁移脚本**：语义变更（例如改变默认超时行为、改变 `on_fail` 默认值）必须升版本；配套 `conclave doctor` / `conclave upgrade --to v2` 做检测与批量迁移，且迁移结果以 diff 形式可评审。
-6. **事件 schema 同样带版本**：事件流里的每条事件带 `schema_version` 字段，`conclave.toml` 记录当前布局/事件版本；回放器按版本分派（见 [ADR-0010](./adr/ADR-0010-ssot-storage.md)）。
+5. **破坏性变更升 v2 + 提供迁移脚本**：语义变更（例如改变默认超时行为、改变 `on_fail` 默认值）必须升版本；配套 `cord doctor` / `cord upgrade --to v2` 做检测与批量迁移，且迁移结果以 diff 形式可评审。
+6. **事件 schema 同样带版本**：事件流里的每条事件带 `schema_version` 字段，`cord.toml` 记录当前布局/事件版本；回放器按版本分派（见 [ADR-0010](./adr/ADR-0010-ssot-storage.md)）。
 
 ---
 

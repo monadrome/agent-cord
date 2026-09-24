@@ -6,7 +6,7 @@
 
 ## 本章回答什么问题
 
-第一次接触 Conclave 的读者读完本章，应能回答八个问题：
+第一次接触 agent-cord 的读者读完本章，应能回答八个问题：
 
 1. 系统由哪几层构成，每层负责什么、明确不负责什么？
 2. 「全局 session」和「共识快照文件夹」是一个东西还是两个东西？
@@ -38,7 +38,7 @@
                                 │ ingress：IM 官方 SDK 长连接优先；
                                 │ webhook 只在需要公网的部署形态做前端
 ════════════════════════════════▼═══════════════════════════════════════════
- 翻译层 + 结构化状态层   conclave daemon（常驻核心；不持有不可重建的状态）
+ 翻译层 + 结构化状态层   cord daemon（常驻核心；不持有不可重建的状态）
 
    adapter ──▶ normalizer ──▶ append_event ──▶ dispatcher（进程内分发）
       ▲            │              │                 │
@@ -65,13 +65,13 @@
 ════════════════════════════════▼═══════════════════════════════════════════
  结构化状态层：共识快照文件夹（SSOT 的物化形态）
 
-   conclave/<req-id>/prd.md adr.md plan.md findings.md  最新层（人可编辑、可主动清理）
-   conclave/<req-id>/ledger.yaml                         机判层（事件流的确定性投影）
-   conclave/<req-id>/votes/                              投票记录全文（权威留痕，入 git）
-   conclave/<req-id>/events.jsonl                        历史层（append-only、永不清理、入 git）
-   conclave/knowledge/           跨需求知识库
-   conclave/.index/              派生索引（gitignore，可 `kb reindex` 重建）
-   conclave/conclave.toml        布局版本 / schema 版本 / 配置
+   cord/<req-id>/prd.md adr.md plan.md findings.md  最新层（人可编辑、可主动清理）
+   cord/<req-id>/ledger.yaml                         机判层（事件流的确定性投影）
+   cord/<req-id>/votes/                              投票记录全文（权威留痕，入 git）
+   cord/<req-id>/events.jsonl                        历史层（append-only、永不清理、入 git）
+   cord/knowledge/               跨需求知识库
+   cord/.index/                  派生索引（gitignore，可 `kb reindex` 重建）
+   cord/cord.toml                布局版本 / schema 版本 / 配置
    git = 版本化权威（事件流经 merge driver 并集合并）
 ════════════════════════════════════════════════════════════════════════════
 ```
@@ -89,13 +89,13 @@
 > **不是两层系统，是同一实体的两个视图。**
 >
 > - **全局 session = 逻辑视图**：一个需求的全部决策、变更、证据、交互的结构化载体。锚定单位是**单个需求**（一个需求 ↔ 一个全局 session）。它是领域模型里的概念，不占磁盘、不占进程。
-> - **共识快照文件夹 = 物理视图**：`conclave/<req-id>/` 目录，连同其中的快照文档、`ledger.yaml`、`events.jsonl` 与承载它的 git 历史。它是全局 session 在文件系统上的唯一物化形态。
+> - **共识快照文件夹 = 物理视图**：`cord/<req-id>/` 目录，连同其中的快照文档、`ledger.yaml`、`events.jsonl` 与承载它的 git 历史。它是全局 session 在文件系统上的唯一物化形态。
 
 因此下列说法在本方案中是等价的，不存在「同步两份东西」的问题：
 
 | 说法 | 落到的文件/对象 |
 |---|---|
-| 全局 session 的状态 | `conclave/<req-id>/` 目录的当前内容 + 事件流折叠出的状态 |
+| 全局 session 的状态 | `cord/<req-id>/` 目录的当前内容 + 事件流折叠出的状态 |
 | 把变更写入 session | 向 `events.jsonl` 追加一条事件，并投影到 `ledger.yaml` / 快照文档草案 |
 | session 的历史 | `events.jsonl` 全文 + git 提交历史 |
 | session 的当前共识 | `ledger.yaml` 的 confirmed 条目集合（机判）+ 快照文档（显示） |
@@ -206,7 +206,7 @@ daemon 是唯一的常驻进程，内部按职责切成九个模块。模块之�
 
 **接口**：入 = 需求归档时的账本条目（规则抽取）、bad case 回流信号、复述检验结果、人工确认；出 = 知识条目文件（Markdown + frontmatter）、FTS5 派生索引、注入上下文包的条目清单。
 
-**与快照文件夹的关系**：`conclave/knowledge/` 是唯一跨需求目录；从各需求 `ledger.yaml` **抽取**（不是移动）条目入库；索引是派生层，可 `kb reindex` 全量重建。
+**与快照文件夹的关系**：`cord/knowledge/` 是唯一跨需求目录；从各需求 `ledger.yaml` **抽取**（不是移动）条目入库；索引是派生层，可 `kb reindex` 全量重建。
 
 **边界**：文件是唯一 SSOT、数据库是缓存（ADR-0015）；起步走符号/词法检索（FTS5 BM25 + frontmatter 过滤 + 条目间链接），**不走 embedding**——条目注入上下文即获权威，「为什么注入这条」必须可解释；生命周期 = 状态机 + 门禁复用，生效需过**复述检验**（与抽取 agent 异构的 agent 盲写 + 固定问卷比对）**加人点确认**，废止为软删除且全文保留；写入只有一条路径（门禁钩子内同步更新索引）；注入配额——生效条目进上下文包层 1 且有硬上限，候选条目只进层 2 由 agent JIT 拉取。
 
@@ -338,7 +338,7 @@ interface VoteResult {
 工作流、门禁、agent、知识条目 frontmatter 的定义都是带 `apiVersion` 的 YAML，配 JSON Schema 校验（`additionalProperties: false`，未知字段拒绝加载）（ADR-0014）。
 
 ```yaml
-apiVersion: conclave.dev/gates/v1        # 引擎同时接受 vN 与 vN-1
+apiVersion: agent-cord.dev/gates/v1        # 引擎同时接受 vN 与 vN-1
 kind: Gate
 metadata: { id: contract-freeze, name: 契约冻结门禁 }
 spec:
@@ -359,7 +359,7 @@ spec:
   write_back: [consensus_ledger, session_event, doc_block_draft]   # 封闭枚举：consensus_ledger | session_event | doc_block_draft | knowledge_entry
 ```
 
-契约要点：**两类注册表分开**——门禁（编排）与校验器（执行体，含能力声明）分开注册，新增门禁只组合已有校验器，「零代码」因此在操作闭包上成立；**schema 演进**——非破坏性变更在 v1 内加字段，破坏性变更升 v2 并配迁移脚本，`conclave doctor/upgrade` 负责迁移，引擎同时接受 vN 与 vN-1；每个门禁与其下游写回目标都是封闭枚举，这是「防退化成脚本集合」的结构性保证。
+契约要点：**两类注册表分开**——门禁（编排）与校验器（执行体，含能力声明）分开注册，新增门禁只组合已有校验器，「零代码」因此在操作闭包上成立；**schema 演进**——非破坏性变更在 v1 内加字段，破坏性变更升 v2 并配迁移脚本，`cord doctor/upgrade` 负责迁移，引擎同时接受 vN 与 vN-1；每个门禁与其下游写回目标都是封闭枚举，这是「防退化成脚本集合」的结构性保证。
 
 ---
 
@@ -371,7 +371,7 @@ spec:
 
 | 步 | 阶段 | 谁在做 | 读 | 写 | 关键事件 | 人的介入 |
 |---|---|---|---|---|---|---|
-| ① | 需求进入 | adapter → normalizer → router → workflow engine | — | 建 `conclave/<req-id>/`；`events.jsonl`；空 `ledger.yaml`；`prd.md` 草案 | `im.message.received` → `req.opened` → `workflow.node.entered` | 无 |
+| ① | 需求进入 | adapter → normalizer → router → workflow engine | — | 建 `cord/<req-id>/`；`events.jsonl`；空 `ledger.yaml`；`prd.md` 草案 | `im.message.received` → `req.opened` → `workflow.node.entered` | 无 |
 | ② | 上下文剪裁 | coordinator（+ knowledge 检索） | `prd.md`、账本投影、`knowledge/` | 只记录包清单与 hash 的事件 | `context.pack_built` | 无 |
 | ③ | 探索与共识 | coordinator 派发 → 探索 agent（强模型）+ voting | 只读快照、代码只读 worktree、知识条目 | `ledger.yaml`（条目投影）、`findings.md` / `adr.md` 草案 | `ledger.entry.proposed/confirmed`、`vote.completed`、`gate.passed` | 结构性 gap → 选择题 |
 | ④ | 计划冻结 | coordinator 派发 → workflow engine | confirmed 条目、`adr.md` | `plan.md`（冻结）、`ledger.yaml` | `gate.passed(contract-freeze)`、`plan.frozen` | 契约冻结需人工确认 |
@@ -381,7 +381,7 @@ spec:
 
 ### 4.2 逐步说明
 
-**① 需求进入。** 人在群里发需求（文档链接、一段 PRD、或已有需求单 id）→ adapter 收下 → normalizer 去重与脱敏 → `append_event` 落 `im.message.received`（先落盘再处理）→ dispatcher 交给 router → router 分类为「新需求」并解析出 req-id → workflow engine 初始化图与状态机 → 创建 `conclave/<req-id>/`：初始化 `events.jsonl`、空 `ledger.yaml`、`prd.md` 草案（frontmatter 只有显示字段）。此时账本是空的，这是有意的：**无证据不入账**。
+**① 需求进入。** 人在群里发需求（文档链接、一段 PRD、或已有需求单 id）→ adapter 收下 → normalizer 去重与脱敏 → `append_event` 落 `im.message.received`（先落盘再处理）→ dispatcher 交给 router → router 分类为「新需求」并解析出 req-id → workflow engine 初始化图与状态机 → 创建 `cord/<req-id>/`：初始化 `events.jsonl`、空 `ledger.yaml`、`prd.md` 草案（frontmatter 只有显示字段）。此时账本是空的，这是有意的：**无证据不入账**。
 
 **② 上下文剪裁。** coordinator 组装上下文包：层 1（前置高信号）= 需求摘要 + 已有 confirmed 条目（带锚点）+ 生效知识条目（硬上限）；层 2（定位符）= 相关文档路径、符号路径、检索入口。包本体默认只在进程内构造，事件里记录清单与 hash（可审计、可复现，又不让派生数据污染仓库）。包由消费方 agent 直读，人审对象是账本条目而不是上下文包（见 [07-context.md](./07-context.md)）。
 
@@ -402,7 +402,7 @@ spec:
 ### 5.1 布局
 
 ```
-conclave/                              # SSOT 根目录（与代码同仓；clone 即拥有全部真相）
+cord/                                  # SSOT 根目录（与代码同仓；clone 即拥有全部真相）
 ├── <req-id>/                          # 一个需求一个快照文件夹 = 一个全局 session 的物化形态
 │   ├── prd.md                         # 快照文档：最新层，frontmatter 仅显示层
 │   ├── plan.md                        # 同上
@@ -413,10 +413,10 @@ conclave/                              # SSOT 根目录（与代码同仓；clon
 │   └── events.jsonl                   # 事件流：历史层，append-only，永不清理，入 git
 ├── knowledge/                         # 跨需求知识库（KB-xxxx，每条目一文件）
 ├── .index/                            # 派生索引（SQLite FTS5）：gitignore，可 `kb reindex` 重建
-└── conclave.toml                      # 布局版本、事件 schema 版本、索引与工作流配置
+└── cord.toml                          # 布局版本、事件 schema 版本、索引与工作流配置
 ```
 
-`conclave.toml` 是「文档支持版本」这条共识在工程上的落点：布局版本 + 事件 schema 版本 + 工作流/门禁/agent 定义的 apiVersion + 索引配置。任何迁移由 `conclave doctor` / `conclave upgrade` 执行，人不需要手工搬文件。
+`cord.toml` 是「文档支持版本」这条共识在工程上的落点：布局版本 + 事件 schema 版本 + 工作流/门禁/agent 定义的 apiVersion + 索引配置。任何迁移由 `cord doctor` / `cord upgrade` 执行，人不需要手工搬文件。
 
 `votes/` 与 `.index/` 是两个补充目录，性质完全不同：`votes/` 是**权威留痕**（投票记录全文，与账本条目内嵌的 `vote_record` 以 `vote_id` 对齐，两处都进 git），`.index/` 是**唯一纯粹的派生目录**（检索索引，可从 `knowledge/` 与账本全量重建），因此进 `.gitignore`、由 `kb reindex` 重建——它不属于 SSOT，删掉不丢任何真相。
 
@@ -431,18 +431,18 @@ conclave/                              # SSOT 根目录（与代码同仓；clon
 | 最新层 | `prd.md` / `plan.md` / `adr.md` / `findings.md` | 人工维护 + 机器产草案 | **放心清理**（历史在事件流与 git 里） | 人、coordinator、角色 agent |
 
 - **清理不再有心理负担**：快照文档瘦身只删显示层里的过时内容，审计线索在事件流与 git 里一条不少。
-- **投影可对账**：`conclave doctor` 会 fold 事件流得到期望状态并与 `ledger.yaml` 比对，不一致即报漂移；账本可整体重建，所以漂移是「修一下」而不是「数据丢了」。
+- **投影可对账**：`cord doctor` 会 fold 事件流得到期望状态并与 `ledger.yaml` 比对，不一致即报漂移；账本可整体重建，所以漂移是「修一下」而不是「数据丢了」。
 - **git 是版本化权威**：谁在何时把哪条共识改成什么，由 git 提交历史 + 事件流双重可追。
 
 ### 5.3 事件流与 git：合并冲突与解法
 
 append-only 日志与 git 有一处天然冲突：两个分支各自追加事件后合并，git 的三路合并会把同一文件末尾当冲突处理，而 `checkout --ours/--theirs` 任取一侧会**永久丢事件**（社区已有事故实录：多条工作流全部 approved，合并后状态板显示 0/N，<https://github.com/Priivacy-ai/spec-kitty/issues/569>）。解法按优先级：
 
-1. **注册 git merge driver（默认方案）**：`.gitattributes` 把 `conclave/**/events.jsonl` 指向自定义并集合并驱动，按 `event_id` 去重、按 `(seq, event_id)` 排序做并集，冲突不被静默丢弃。
+1. **注册 git merge driver（默认方案）**：`.gitattributes` 把 `cord/**/events.jsonl` 指向自定义并集合并驱动，按 `event_id` 去重、按 `(seq, event_id)` 排序做并集，冲突不被静默丢弃。
 2. **每事件一文件**（`events/<ulid>.json`）：git 天然无冲突，代价是可读性下降，作为需要时的降级方案。
 3. **分片**：按天或按里程碑切分事件文件，降低单文件冲突概率（与方案 1 组合最省事）。
 
-对账兜底：合并后 `conclave doctor` 校验 `seq` 连续性（无空洞）与 `event_id` 唯一性——**丢事件必须可见**，这是审计系统的最低要求（ADR-0010 已否决「事件流 gitignore + 定期 checkpoint」方案）。
+对账兜底：合并后 `cord doctor` 校验 `seq` 连续性（无空洞）与 `event_id` 唯一性——**丢事件必须可见**，这是审计系统的最低要求（ADR-0010 已否决「事件流 gitignore + 定期 checkpoint」方案）。
 
 ### 5.4 写入纪律
 
@@ -475,7 +475,7 @@ daemon 的**唯一状态就是快照文件夹**。内存里的东西（工作流
 
 ### 7.2 CLI 是薄客户端
 
-CLI 与 daemon 之间走本地 HTTP（localhost + token 文件）或 Unix socket。CLI 只做三件事：把输入交付给 daemon、把输出渲染给人、做初始化与诊断（`conclave doctor`、`kb reindex`、手动回放实验）。**CLI 不承载业务逻辑**：本地接口就是核心模块的函数签名，核心代码同时以库导出（同一核心的第三种暴露形式），由此保证 CLI 与 daemon 不会各自演化成两套逻辑。分发走 npm，`npx` 免安装即跑（ADR-0016）。
+CLI 与 daemon 之间走本地 HTTP（localhost + token 文件）或 Unix socket。CLI 只做三件事：把输入交付给 daemon、把输出渲染给人、做初始化与诊断（`cord doctor`、`kb reindex`、手动回放实验）。**CLI 不承载业务逻辑**：本地接口就是核心模块的函数签名，核心代码同时以库导出（同一核心的第三种暴露形式），由此保证 CLI 与 daemon 不会各自演化成两套逻辑。分发走 npm，`npx` 免安装即跑（ADR-0016）。
 
 ### 7.3 并发控制与崩溃隔离
 

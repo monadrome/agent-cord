@@ -25,7 +25,7 @@
 全局 session 是逻辑概念（一个需求全生命周期的结构化上下文），**共识快照**是它的物化形态：仓库里的一个文件夹，含四份快照文档 + 账本 + 投票记录 + 事件流，与代码同仓、同 PR 流程。完整布局与三层共存原理见 [`./03-architecture.md`](./03-architecture.md) §5；账本与事件流的分工见 [`./04-consensus-ledger.md`](./04-consensus-ledger.md) §6。本节只讲**维护动作**：谁来清、清什么、版本怎么表达、写坏了怎么办。
 
 ```
-conclave/<req-id>/
+cord/<req-id>/
 ├── prd.md / adr.md / plan.md / findings.md    # 快照文档（最新层，人可编辑、可主动清理）
 ├── ledger.yaml                                # 共识账本（机判层）
 ├── votes/                                     # 投票记录全文（V-xxxx.yaml，与账本内嵌记录以 vote_id 对齐）
@@ -52,11 +52,11 @@ conclave/<req-id>/
 
 - **权威 = git**。快照文件夹与代码同仓、同 PR 流程，所以"这份 prd 什么时候因为什么改的"由提交历史回答，不需要自造版本号体系。
 - **显示 = frontmatter**。`prd.md` 顶部的 `{id, status, 版本戳}` 是给 agent 和人的第一眼信息（agent 打开文件就看到"此文档 v3、confirmed 条目 12 条"），不必去跑 `git log`。**frontmatter 不参与判定**——它与 git 真实历史可能漂移，所以禁止放机判字段；可加一条 CI 告警"frontmatter 与账本状态不一致"，允许漂移可见，不允许漂移生效。
-- **版本语义按文档类型约定，写进 `conclave.toml`**：
+- **版本语义按文档类型约定，写进 `cord.toml`**：
   - `prd.md` / `adr.md` 用 **living**（现状即真相，历史在事件流；允许原地更新 + 主动瘦身）；
   - 里程碑类归档记录可用 **flow-forward**（归档即不可变历史记录，不再回改）。
 
-  这个三分法（living / flow-forward / flow-back）的来源是 spec-kit 的《Spec Persistence Models》官方文档，该文档明确"没有无副作用的默认值，策略留给团队约定"——所以我们把选择权显式写进配置，而不是替团队决定。`conclave.toml` 同时记录布局版本、事件 schema 版本、`apiVersion` 与索引配置，任何迁移由 `conclave doctor` / `conclave upgrade` 执行。
+  这个三分法（living / flow-forward / flow-back）的来源是 spec-kit 的《Spec Persistence Models》官方文档，该文档明确"没有无副作用的默认值，策略留给团队约定"——所以我们把选择权显式写进配置，而不是替团队决定。`cord.toml` 同时记录布局版本、事件 schema 版本、`apiVersion` 与索引配置，任何迁移由 `cord doctor` / `cord upgrade` 执行。
 
 ### 1.4 写入纪律与合并（两个必须提前处理的坑）
 
@@ -196,7 +196,7 @@ context_pack:
 
 ### 4.3 与"Spec 级"防腐的差异（为什么要做账本级）
 
-业界常见的做法是"定期巡检文档与代码的偏差，然后自动开 PR 修正文档"——那是**事后巡检、以文档为对象**。Conclave 走的是**事前拦截、以账本条目为对象**：
+业界常见的做法是"定期巡检文档与代码的偏差，然后自动开 PR 修正文档"——那是**事后巡检、以文档为对象**。agent-cord 走的是**事前拦截、以账本条目为对象**：
 
 | 维度 | 账本级（本方案） | Spec 级（典型做法） |
 |---|---|---|
@@ -265,7 +265,7 @@ context_pack:
 | 上下文包的 token 预算与两层配比 | 层 1 取 2–4k token 为初值（aider 的 repo map 约 1k，可作下界参考），无实证依据 | 随粒度 / 模型对照实验顺带采集（上下文长度 vs 完成度） |
 | 定位符命中率的健康区间 | 无先验数据 | 试点统计：包内定位符被实际拉取的比例，反向调整相关度排序 |
 | prompt cache 的实际收益 | 按 provider 标价推算，未实测 | 在试点中采集缓存命中率与单需求 token 成本 |
-| 文档版本语义的默认档 | living / flow-forward 已定，但"哪类文档默认哪档"需团队确认 | 首个 dogfooding 需求试用后写入 `conclave.toml` 模板 |
+| 文档版本语义的默认档 | living / flow-forward 已定，但"哪类文档默认哪档"需团队确认 | 首个 dogfooding 需求试用后写入 `cord.toml` 模板 |
 | L2 误伤率阈值 | 未定（三个降误伤手段已内建） | 在真实仓库运行一周，统计命中-确认-放行 / 拦截分布（实验四） |
 | AST diff 在本项目语言栈上的重构覆盖率 | 未实测 | 随误伤率实验一并测 |
 | 豁免清单的维护责任 | 未定（谁登记、谁审核） | 需在试点前约定，否则成为绕过点 |

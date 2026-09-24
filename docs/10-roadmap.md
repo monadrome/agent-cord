@@ -24,15 +24,15 @@ MVP = **开源基座的六个通用能力**可运行，并在一个真实需求�
 |---|---|---|---|
 | W1.1 | Agent 定义框架 | 角色 agent 是执行单元；没有注册式定义就没有"零代码新增 agent"这个验收点 | [ADR-0011](./adr/ADR-0011-agent-runtime.md)（agent 运行时） |
 | W1.2 | Gate 节点定义与编排 | 门禁是"角色×时机×校验×放行"的挂载点；没有它，流程只是一串脚本 | [ADR-0014](./adr/ADR-0014-workflow-gate-dsl.md)（工作流/门禁定义） |
-| W1.3 | 全局 session 存储 | 共识快照（`conclave/<req-id>/`）是 SSOT 的物化形态；没有它一切结论只存在于会话里 | [ADR-0010](./adr/ADR-0010-ssot-storage.md)（SSOT 存储） |
+| W1.3 | 全局 session 存储 | 共识快照（`cord/<req-id>/`）是 SSOT 的物化形态；没有它一切结论只存在于会话里 | [ADR-0010](./adr/ADR-0010-ssot-storage.md)（SSOT 存储） |
 | W1.4 | 事件路由总线 | 群消息→结构化事件→agent 的唯一通路；也是"事件流永不进 LLM 上下文"的实现处 | [ADR-0012](./adr/ADR-0012-events-im-adapters.md)（事件与 IM 适配） |
 | W1.5 | 通用投票机制 | 机器参与共识的协议本体（盲评、难度门、锚点独立度、判定异构） | [ADR-0006](./adr/ADR-0006-blind-voting.md)（盲评投票）+ [ADR-0007](./adr/ADR-0007-asymmetric-model-allocation.md)（非对称分配）+ [ADR-0013](./adr/ADR-0013-vote-executor.md)（投票执行器） |
 | W1.6 | 上下文剪裁 | 产出上下文包（前置高信号层 + 定位符层），决定 agent 看什么、不看什么 | [ADR-0003](./adr/ADR-0003-consensus-carrier.md)（剪裁的输入来自快照与账本，而非群聊） |
 
 MVP 的可运行定义（对应 M2）：
 
-- `conclave` 可被一条命令拉起（常驻 daemon + 薄 CLI 客户端，见 `./adr/ADR-0009-language-runtime.md`）；
-- 仓库内出现一个 `conclave/<req-id>/` 文件夹，含快照文档（`prd.md`/`adr.md`/`plan.md`/`findings.md`）、`ledger.yaml`（共识账本）、`events.jsonl`（append-only 事件流），且三者随流程推进被真实写入；
+- `cord` 可被一条命令拉起（常驻 daemon + 薄 CLI 客户端，见 `./adr/ADR-0009-language-runtime.md`）；
+- 仓库内出现一个 `cord/<req-id>/` 文件夹，含快照文档（`prd.md`/`adr.md`/`plan.md`/`findings.md`）、`ledger.yaml`（共识账本）、`events.jsonl`（append-only 事件流），且三者随流程推进被真实写入；
 - 能对一条决策点发起一次 k=2 的盲评投票，并落到判定三态之一（`confirmed` / `needs_verification` / `escalated_anchor_overlap`）；
 - **新增一个 agent、新增一个 gate 均只改配置，不改代码**（DoD 第一条的前半）。
 
@@ -179,7 +179,7 @@ MVP 的可运行定义（对应 M2）：
 
 | 维度 | 做法 |
 |---|---|
-| 平台第一个需求 | "管理本平台自己的开发"——需求 id 指向本项目的一条真实工作项，其全局 session 就落在本仓库的 `conclave/<req-id>/` |
+| 平台第一个需求 | "管理本平台自己的开发"——需求 id 指向本项目的一条真实工作项，其全局 session 就落在本仓库的 `cord/<req-id>/` |
 | 交互捕获层 | 本项目协作群 = 圆桌；群内的决策、变更、文档链接被解析为事件写入事件流 |
 | 门禁 | 本项目的方案评审、代码合入等节点用 gate schema 配置，校验器复用单测/CI/评审 |
 | 度量 | 本项目自身成为"Issue 密度随需求序号衰减"的观测序列之一；L2 防腐钩子在自身仓库上线 |

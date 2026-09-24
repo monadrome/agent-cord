@@ -4,7 +4,7 @@
 >
 > 读者：第一次接触本项目的外部开发者。
 
-**本章回答什么问题**：Conclave 的目标如何度量（以及为什么"零推翻率"和"难题桶 100% 一致"都是警报）？第一阶段做什么、不做什么？系统里的八个核心实体各自是什么、有哪些关键字段、状态如何流转？「全局 session」和「共识快照文件夹」到底是什么关系？需求的全量清单（R1–R12）是什么？全文使用的术语如何统一？
+**本章回答什么问题**：agent-cord 的目标如何度量（以及为什么"零推翻率"和"难题桶 100% 一致"都是警报）？第一阶段做什么、不做什么？系统里的八个核心实体各自是什么、有哪些关键字段、状态如何流转？「全局 session」和「共识快照文件夹」到底是什么关系？需求的全量清单（R1–R12）是什么？全文使用的术语如何统一？
 
 ---
 
@@ -78,7 +78,7 @@
 
 ### 3.1 地基：全局 session 与其物化形态
 
-> **全局 session 是逻辑概念，共识快照文件夹是它的物化形态；二者是同一实体的两面——session 的锚定单位是单个需求，即「一个需求 = 一个全局 session = 仓库内一个 `conclave/<req-id>/` 文件夹」。**
+> **全局 session 是逻辑概念，共识快照文件夹是它的物化形态；二者是同一实体的两面——session 的锚定单位是单个需求，即「一个需求 = 一个全局 session = 仓库内一个 `cord/<req-id>/` 文件夹」。**
 
 这个等式是全方案的地基：它同时决定了作用域（单需求）、SSOT 的物理位置（仓库内、与代码同仓、clone 即拥有全部共识）和人机协作的接口（文件夹人可读可改，机判数据在结构化层）。
 
@@ -100,7 +100,7 @@
 标准目录布局（权威定义见 [`./03-architecture.md`](./03-architecture.md) §5.1）：
 
 ```
-conclave/                          # SSOT 根目录（与代码同仓）
+cord/                              # SSOT 根目录（与代码同仓）
 ├── <req-id>/                      # 一个需求一个共识快照文件夹
 │   ├── prd.md                     # frontmatter: id / 状态 / 版本戳（显示层）
 │   ├── plan.md                    # 同上
@@ -111,7 +111,7 @@ conclave/                          # SSOT 根目录（与代码同仓）
 │   └── events.jsonl               # append-only 事件流（历史层，永不清理）
 ├── knowledge/                     # 跨需求知识条目（KB-xxxx，每条目一文件），供后续需求检索引用
 ├── .index/                        # 派生索引（SQLite FTS5）：gitignore，可 `kb reindex` 重建
-└── conclave.toml                  # 布局版本、事件 schema 版本、索引配置
+└── cord.toml                      # 布局版本、事件 schema 版本、索引配置
 ```
 
 三条与账本相关的写入规则（硬约定，不满足则不许入账）：
@@ -125,7 +125,7 @@ conclave/                          # SSOT 根目录（与代码同仓）
 | 实体 | 定义 | 关键字段 | 状态机 |
 |---|---|---|---|
 | **需求 Requirement** | 工作单元；全局 session 的锚定对象 | `req-id`、目标、验收边界、联系人 | 草稿 → 对齐中 → 执行中 → 验收 → 归档 |
-| **全局 session ⇄ 共识快照文件夹** | **同一实体的两面**：单需求全生命周期的结构化状态，唯一事实来源；物化为 `conclave/<req-id>/`（见 §3.1） | 需求 id、快照文件夹路径、快照文档集、`ledger.yaml`、`events.jsonl` | active → paused → archived |
+| **全局 session ⇄ 共识快照文件夹** | **同一实体的两面**：单需求全生命周期的结构化状态，唯一事实来源；物化为 `cord/<req-id>/`（见 §3.1） | 需求 id、快照文件夹路径、快照文档集、`ledger.yaml`、`events.jsonl` | active → paused → archived |
 | **共识条目 ConsensusEntry** | 带证据、可独立复核的结论；共识账本的基本单位，本质是 ADR 的字段增强版而非新文档类型 | `id`、需求、结论、证据锚点[]、状态、置信度来源（代码验证 / 投票一致 / 人确认）、投票记录、推翻记录、关联动作[] | 临时（`provisional`）→ `confirmed` → `overturned`（单向；回退须附新证据）；机读 token = `provisional` / `confirmed` / `overturned` |
 | **证据锚点 EvidenceAnchor** | 结论与代码/用例/知识条目的连接点；防腐钩子与锚点独立度检查的抓手 | 类型（代码 / 用例 / 知识库条目）、**符号锚点（活，参与判定）**、**commit SHA（存档）**、**行号（仅显示层）**、说明 | 有效 → 失效（漂移）→ 重验；失效即触发条目降回临时（`provisional`）身份 |
 | **门禁 Gate** | 流程节点上的可配置检查点，定义"什么角色、在什么时机、执行什么校验、结果写回哪里" | 挂载节点、角色（由 `pass.human_confirm` / `escalate.approve_by` 声明）、时机（触发器）、`checks[]`（校验器）、放行条件、结果语义（`pass` / `block` / `warn-and-continue`）、失败动作 `on_fail`（`block` / `warn` / `escalate`；`escalate` 直接进升级流程，不产生第四种结果）、写回目标 `write_back`（封闭枚举）、权限声明 | 启用 / 停用 |
@@ -172,7 +172,7 @@ id: C-002
 **门禁（gate）**
 
 ```yaml
-apiVersion: conclave.dev/gates/v1        # 门禁 schema 的权威定义见 06 章 §2.2
+apiVersion: agent-cord.dev/gates/v1        # 门禁 schema 的权威定义见 06 章 §2.2
 kind: Gate
 metadata: {id: contract-freeze, name: 契约冻结门禁}
 spec:
@@ -244,7 +244,7 @@ review_due: 2027-03-24
 
 ```mermaid
 flowchart LR
-  REQ["需求 Requirement"] -->|1:1 锚定| SESSION["全局 session<br/>物化 = 共识快照文件夹 conclave/&lt;req-id&gt;/"]
+  REQ["需求 Requirement"] -->|1:1 锚定| SESSION["全局 session<br/>物化 = 共识快照文件夹 cord/&lt;req-id&gt;/"]
   SESSION --> DOC["快照文档（最新层）<br/>prd / adr / plan / findings"]
   SESSION --> LEDGER["共识账本 ledger.yaml（机判层）"]
   SESSION --> EVENTS["事件流 events.jsonl（历史层，append-only）"]
@@ -334,7 +334,7 @@ flowchart LR
 
 | 术语 | 定义 |
 |---|---|
-| **共识快照** | 单个需求全部共识与状态的最新视图，物理形态为仓库内的 `conclave/<req-id>/` 文件夹；与「全局 session」是同一实体的两面（§3.1） |
+| **共识快照** | 单个需求全部共识与状态的最新视图，物理形态为仓库内的 `cord/<req-id>/` 文件夹；与「全局 session」是同一实体的两面（§3.1） |
 | **全局 session** | 一个需求全生命周期的结构化流程上下文，逻辑上的唯一事实来源；锚定单位 = 单个需求 |
 | **协调 agent（coordinator）** | 只持有最新快照上下文的守门 agent，用于防止幻觉。隔离采用三层防御：注入层剪裁（主）、文件层只读副本（纵深）、协议层写操作必经路由（兜底） |
 | **共识账本（`ledger.yaml`）** | 共识条目的集合，机判层；带证据锚点、状态机、投票记录与推翻记录 |

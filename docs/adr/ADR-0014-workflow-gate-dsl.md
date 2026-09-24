@@ -59,7 +59,7 @@
 2. **门禁四要素 + 三个防退化字段**：角色（`role`）、时机（`attach`，含触发器）、校验（`checks`）、写回（`write_back`，封闭枚举：`consensus_ledger` / `session_event` / `doc_block_draft` / `knowledge_entry`），加结果语义（`pass` / `on_fail`）、超时（`timeout`）、最小权限声明（`permissions`）。**字段级权威定义见 [docs/06-gates-workflow.md](../06-gates-workflow.md)，下面的示例仅示意形态**：
 
 ```yaml
-apiVersion: conclave.dev/gates/v1
+apiVersion: agent-cord.dev/gates/v1
 kind: Gate
 metadata: { id: contract-check, name: 契约校验 }
 spec:

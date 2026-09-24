@@ -65,7 +65,7 @@
 4. **标准布局**（落在仓库根，与代码同仓，clone 即拥有全部 SSOT）：
 
 ```
-conclave/                          # SSOT 根目录
+cord/                              # SSOT 根目录
 ├── <req-id>/                      # 一个需求一个快照文件夹
 │   ├── prd.md                     # frontmatter: id/状态/版本戳（显示层）
 │   ├── plan.md
@@ -76,10 +76,10 @@ conclave/                          # SSOT 根目录
 │   └── events.jsonl               # append-only 事件流（历史层，永不编辑）
 ├── knowledge/                     # 跨需求知识条目（供检索与引用）
 ├── .index/                        # 派生索引（SQLite FTS5）：gitignore，可重建
-└── conclave.toml                  # 布局版本、事件 schema 版本、索引配置
+└── cord.toml                      # 布局版本、事件 schema 版本、索引配置
 ```
 
-5. **文档版本语义借用三档模型**做团队约定：`prd/adr` 用 living（现状即真相，历史在事件流）、里程碑类文档可用 flow-forward（归档即不可变历史记录），写进 `conclave.toml` 供 agent 读取。
+5. **文档版本语义借用三档模型**做团队约定：`prd/adr` 用 living（现状即真相，历史在事件流）、里程碑类文档可用 flow-forward（归档即不可变历史记录），写进 `cord.toml` 供 agent 读取。
 
 ## 理由（第一性原理推导）
 
@@ -97,18 +97,18 @@ conclave/                          # SSOT 根目录
 - **备选 A（纯文档无事件流）**：作为目标形态否决——机判逻辑无结构化载体，投票/锚点/状态机/门禁中至少五条需求无法落地。它可作为早期脚手架的退化形态，但不是设计目标。
 - **「frontmatter 版本字段为权威」**：否决——双写权威必然漂移；且与「显示层不参与判定」的原则冲突。文档持久化的语义本身就没有无副作用的默认值，业界成熟工具的官方立场也是「留给团队约定」，因此我们显式约定：git 与事件流权威，frontmatter 只显示。
 - **「`events.jsonl` gitignore + 定期 checkpoint 提交进 git」**：**明确否决**。理由有三：① 可审计性是本项目的核心卖点，把事件流排除在版本控制之外意味着 clone 得到的不是完整 SSOT，审计链要依赖外部产物；② checkpoint 是派生视图，用它替代事件流就等于把「历史层」降级为「定期快照」，丢失事件级顺序与幂等语义；③ 成本论证不支持——单需求生命周期内事件量在千行级，文本 JSONL 的 git 体积与 diff 成本可接受，而合并冲突有成熟工程解（union merge driver + 分片）。checkpoint 仍作为**回放优化**保留（见注意点 9），但它是派生品，不是替代品。
-- **「每事件一个文件（`events/<ulid>.json`）」**：不作为主方案。它确实消除合并冲突，但对象数量膨胀、目录噪声大、grep 与 diff 的可用性差；保留为极端冲突场景下的备选形态（在 `conclave.toml` 中可切换）。
+- **「每事件一个文件（`events/<ulid>.json`）」**：不作为主方案。它确实消除合并冲突，但对象数量膨胀、目录噪声大、grep 与 diff 的可用性差；保留为极端冲突场景下的备选形态（在 `cord.toml` 中可切换）。
 
 ## 关键实现注意点
 
 1. **JSONL 事件流 × git 合并冲突（最大的坑）**：两个分支各自追加事件后 merge，git 按文本三路合并必出内容冲突，而任取一侧都会**永久丢事件**（已有生产事故先例：多个工作包全部 approved，合并后状态板显示 0/N）。解法按推荐度：(a) 注册 git merge driver（`.gitattributes` + 自定义 driver），按 `event_id` 去重、按 `(seq, event_id)` 排序做并集合并；(b) 每事件一文件（git 天然无冲突）；(c) 事件按日/按里程碑分片降低冲突概率。本项目采用 **(a) + (c) 组合**。
 2. **写入路径收敛**：所有写事件（CLI、git hook、IM 路由、agent 工具调用）必须汇聚到单一 `append_event` 函数——只有集中写路径才能保证脱敏、时间戳规范化、状态流转逻辑不被某个入口绕过。特别注意**凭证脱敏默认开启**（事件流会进 git，一次粘贴的 token 会永久留在历史里）。
-3. **事件 schema 必须带 `schema_version` 字段**：布局会演进，解析器按版本分派；`conclave.toml` 记录当前布局版本，提供 `doctor` / `upgrade` 命令做迁移。
+3. **事件 schema 必须带 `schema_version` 字段**：布局会演进，解析器按版本分派；`cord.toml` 记录当前布局版本，提供 `doctor` / `upgrade` 命令做迁移。
 4. **快照文档与事件流的边界**：`prd.md` 等允许人工直接编辑（这是「主动清理」的落点），但凡是状态机流转（confirmed / overturned）、投票、门禁判定，**只能经 `append_event` 写事件流**，再投影/同步进 `ledger.yaml`；否则事件流与现状漂移，审计链断裂。建议提供确定性检查命令（fold 事件流得到的期望状态 vs ledger 实际状态）并纳入 CI。
 5. **事件流不进 LLM 上下文**：协调 agent 与各角色 agent 只消费投影（快照文档 + 上下文包）；事件流是人审计与程序查询用的。别让「我们有完整历史」变成「把历史全塞进 prompt」——那是上下文腐化的直接来源。
 6. **协调 agent 隔离三层防御的逐条落实**：(1) 注入层——coordinator 只挂载上下文包（前置高信号层 + 定位符层），会话里不给快照文件夹路径的写权限，可给 JIT 读白名单；(2) 文件层——本地运行时把快照文件夹以只读方式提供（只读挂载或只读 checkout 副本），kernel 级强制、无性能开销；(3) 协议层——agent 要推动作必须经路由写入。三层是纵深，不是三选一。
 7. **frontmatter 规范**：只放 `{id, status, 版本戳, 依赖文档 id}` 等显示性字段，禁止放机判字段；CI 可加一条「frontmatter 与 ledger 状态不一致即告警」——显示层漂移可容忍但应可见。
-8. **知识库位置与索引边界**：`conclave/knowledge/` 是唯一跨需求目录；需求归档后其 confirmed 条目的**抽取**（不是移动）入 knowledge。索引层（SQLite FTS5）只索引 `knowledge/` + 各 `ledger.yaml`，标记为 derived，进 git 或 gitignore 均可，但必须提供 `conclave index --rebuild` 全量重建命令——再生成本高的索引不允许存在。索引实现细节见 ADR-0015。
+8. **知识库位置与索引边界**：`cord/knowledge/` 是唯一跨需求目录；需求归档后其 confirmed 条目的**抽取**（不是移动）入 knowledge。索引层（SQLite FTS5）只索引 `knowledge/` + 各 `ledger.yaml`，标记为 derived，进 git 或 gitignore 均可，但必须提供 `cord index --rebuild` 全量重建命令——再生成本高的索引不允许存在。索引实现细节见 ADR-0015。
 9. **体量控制与快照事件**：单需求事件流预计千行级，无需快照折叠；若长期项目膨胀，定义一条 `snapshot` 事件类型（「截至此事件的折叠状态」），回放从最近 snapshot 起——标准事件溯源做法，不需要自定义机制。
 10. **证据锚点的三层结构（与账本 schema 联动）**：**符号锚点（活，参与判定）+ commit SHA 与内容 hash（存档）+ 行号（仅显示层）**。防腐求交在符号级做，行号不参与判定（漂移与巧合重合都会污染）。配套降误伤手段：符号级求交、格式化提交豁免清单（`.git-blame-ignore-revs` 式）、`git blame -M -C` 内容追踪。三级解析全部失败才判定锚点失效，条目降回「临时」——锚点失效本身是信号。
 

@@ -41,16 +41,16 @@
 
 | 层 | 位置 | 谁维护 | 权威性 |
 |---|---|---|---|
-| **共识账本**（判定层） | `conclave/<req-id>/ledger.yaml` | 只能经事件流写入（见 §6.3），不允许手工改状态字段 | 机判逻辑的唯一查询对象：门禁放行、投票结果、锚点求交都查它 |
-| **共识快照文档**（最新层） | `conclave/<req-id>/{prd,adr,plan,findings}.md` | 人可编辑、可主动清理 | 给人读的最新视图，不参与判定；frontmatter 只是显示层 |
-| **事件流**（历史层） | `conclave/<req-id>/events.jsonl` | append-only，永不清理 | 唯一的事实与顺序来源 |
+| **共识账本**（判定层） | `cord/<req-id>/ledger.yaml` | 只能经事件流写入（见 §6.3），不允许手工改状态字段 | 机判逻辑的唯一查询对象：门禁放行、投票结果、锚点求交都查它 |
+| **共识快照文档**（最新层） | `cord/<req-id>/{prd,adr,plan,findings}.md` | 人可编辑、可主动清理 | 给人读的最新视图，不参与判定；frontmatter 只是显示层 |
+| **事件流**（历史层） | `cord/<req-id>/events.jsonl` | append-only，永不清理 | 唯一的事实与顺序来源 |
 
 - **账本是 ADR 的字段增强版，不是新的文档类型。** 一条架构决策在 `adr.md` 里仍以人类可读的 ADR 段落呈现（含 supersede 链接），同时在 `ledger.yaml` 里是一条带证据锚点、状态机、投票记录和推翻记录的条目。`adr.md` 是显示层，账本是判定层——两者不是双写权威，因为一切判定只查账本与事件流。
 - **frontmatter 与文档措辞都不参与判定。** `prd.md` 的 frontmatter 里放 `{id, status, 版本戳}` 这类显示性字段，供 agent 打开文件第一眼就知道"这是第几版、有多少条 confirmed"，但规则是死的：**判定一律查事件流/账本，frontmatter 只是显示层**（ADR-0010）。这与证据锚点里"行号只是显示层"是同一条原则，见 §4。
 - **快照文件夹的标准布局**（与代码同仓，`clone` 即拥有全部 SSOT）：
 
 ```
-conclave/
+cord/
 ├── <req-id>/                      # 一个需求一个快照文件夹 = 一个全局 session 的物化形态
 │   ├── prd.md                     # 快照文档（最新层，人可编辑 + 主动清理）
 │   ├── adr.md
@@ -61,7 +61,7 @@ conclave/
 │   └── votes/V-0007.yaml          # 投票记录全文（见 05 章）
 ├── knowledge/                     # 跨需求知识条目 KB-xxxx
 ├── .index/                        # 派生索引（可重建，gitignore；权威始终是上述文件与事件流）
-└── conclave.toml                  # 布局版本、事件 schema 版本、索引配置
+└── cord.toml                      # 布局版本、事件 schema 版本、索引配置
 ```
 
 ---
@@ -71,7 +71,7 @@ conclave/
 ### 2.1 schema 示例
 
 ```yaml
-# conclave/<req-id>/ledger.yaml
+# cord/<req-id>/ledger.yaml
 # 判定层：状态字段由事件流投影而来，禁止手工修改（见 §6.3）
 schema_version: 1
 req_id: REQ-2026-042
@@ -389,7 +389,7 @@ entries:
 
 ### 6.4 防漂移检查
 
-`ledger.yaml` 是投影，投影就可能与源头漂移。提供一条确定性检查命令（`conclave doctor`），做三件事：
+`ledger.yaml` 是投影，投影就可能与源头漂移。提供一条确定性检查命令（`cord doctor`），做三件事：
 
 1. **fold 对账**：从事件流折叠（fold）出每个条目的期望状态，与 `ledger.yaml` 实际状态逐条比对，不一致即告警；确认投影有误时，直接由事件流**重建** `ledger.yaml`（投影可再生，这是它敢被称为派生层的底气）。
 2. **事件流完整性校验**：校验 `seq` 连续性（无空洞）与 `event_id` 唯一性——**丢事件必须可见**，这是审计系统的最低要求。
@@ -401,7 +401,7 @@ entries:
 
 事件流必须进 git（它是权威历史，不能 gitignore），但 append-only 的 JSONL 在分支合并时会踩一个已知的坑：两个分支各自追加事件后 merge，git 的三路合并按散文处理必出内容冲突，而无论选 `--ours` 还是 `--theirs` 都会**永久丢事件**。采用的做法：
 
-- **union merge driver**：在 `.gitattributes` 中为 `conclave/**/events.jsonl` 注册自定义合并驱动，按 `event_id` 去重、按 `(seq, event_id)` 排序做并集合并（这是 spec-kitty 等项目的生产事故与修复方案给出的路子）；合并后由 `doctor` 校验 `seq` 连续性与 `event_id` 唯一性（§6.4）。
+- **union merge driver**：在 `.gitattributes` 中为 `cord/**/events.jsonl` 注册自定义合并驱动，按 `event_id` 去重、按 `(seq, event_id)` 排序做并集合并（这是 spec-kitty 等项目的生产事故与修复方案给出的路子）；合并后由 `doctor` 校验 `seq` 连续性与 `event_id` 唯一性（§6.4）。
 - 备选（事件量增长后启用）：每事件一文件（`events/<ulid>.json`，git 天然无冲突），或按里程碑/按日分片以降低冲突概率。
 
 被否决的方案是把事件流 `gitignore` 掉、只定期提交 checkpoint——它会让"事件流是唯一事实与顺序来源"在分支场景下失效，也让事件流失去 diff/PR 可评审性。

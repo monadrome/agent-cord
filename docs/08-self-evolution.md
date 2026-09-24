@@ -152,7 +152,7 @@ review_due: 2027-03-24           # 到期触发保鲜门禁，见 8.4
 
 ```text
 <repo>/
-  conclave/
+  cord/
     <req-id>/                # 全局 session 的物化形态：快照文档 + ledger.yaml + events.jsonl
     knowledge/               # 知识库：每条目一个文件
       KB-0009-term-snapshot.md
@@ -160,7 +160,7 @@ review_due: 2027-03-24           # 到期触发保鲜门禁，见 8.4
     .index/
       kb.sqlite              # 派生索引（FTS5）；不进 git，可随时删除重建
       session.sqlite         # 后置可插拔增强：会话侧全文索引（ADR-0010）
-    conclave.toml            # 布局版本、事件 schema 版本、索引与工作流配置
+    cord.toml                # 布局版本、事件 schema 版本、索引与工作流配置
 ```
 
 选它的理由是四条约束的同向推导：SSOT 只能有一个（多一个数据库就多一次双写与漂移）；SSOT 必须人可读可改（`git diff` 就是知识变更评审）；知识条目要能被 LLM 直接读写（Markdown + frontmatter 是 LLM 最稳的读写格式）；本项目已有一套 git 版本化 + 人工合入的流程，知识库无需自建一套。
@@ -274,7 +274,7 @@ review_due: 2027-03-24           # 到期触发保鲜门禁，见 8.4
 不新造机制。本方案已有两处「状态机 + 门禁 + 人工确认」的组合（共识条目状态机、流程节点门禁），知识条目是**第三个消费者**，直接复用 ADR-0014 的双注册表结构：
 
 ```yaml
-apiVersion: conclave.dev/gates/v1        # 引擎同时接受 vN 与 vN-1
+apiVersion: agent-cord.dev/gates/v1        # 引擎同时接受 vN 与 vN-1
 kind: Gate
 metadata: { id: kb-promotion, name: 知识条目晋升 }
 spec:
