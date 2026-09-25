@@ -1,6 +1,8 @@
 # 04 · 共识账本与证据锚点
 
-> 状态：**设计定稿，代码未实现**（本文档描述的是已定型的机制设计，仓库中尚无对应实现）
+> 参考性质：详细机制说明。当前账本协议速查见 [`./protocol.md`](./protocol.md)，行为以源码和测试为准。
+
+> 状态：详细机制说明；当前实现已落地，协议速查见 [`./protocol.md`](./protocol.md)。
 > 相关章节：[`./05-voting.md`](./05-voting.md)（投票机制，账本条目 `投票记录` 字段的载体）、[`./03-architecture.md`](./03-architecture.md)（事件信封与事件家族命名、快照文件夹在架构中的位置）、[`./07-context.md`](./07-context.md)（防腐钩子的挂载与实现、锚点重锚定细节）、[`./06-gates-workflow.md`](./06-gates-workflow.md)（门禁与校验器如何消费条目状态）、[`./08-self-evolution.md`](./08-self-evolution.md)（`knowledge` 类型锚点与 KB 条目生命周期）
 > 相关决策：[ADR-0003](./adr/ADR-0003-consensus-carrier.md)（共识载体=结构化快照+事件流）、[ADR-0005](./adr/ADR-0005-ledger-over-spec.md)（共识账本=证据条目集合，不做统一 Spec）、[ADR-0010](./adr/ADR-0010-ssot-storage.md)（SSOT 存储=纯文件+git+JSONL 事件流+ledger.yaml）；完整 ADR 记录见 [`./adr/`](./adr/)
 

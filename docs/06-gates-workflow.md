@@ -1,6 +1,8 @@
 # 06 · 工作流与门禁（Workflow & Gates）
 
-> 状态：**设计定稿，代码未实现**（本方案文档集全部为设计定稿，尚无实现代码）
+> 参考性质：详细 workflow 设计。当前实现入口见 [`./protocol.md`](./protocol.md) 和 `src/workflow/`。
+
+> 状态：详细机制说明；当前实现入口见 [`./protocol.md`](./protocol.md) 和 `src/workflow/`。
 > 关联决策：[ADR-0001](./adr/ADR-0001-positioning.md)（不做激进全自动）、[ADR-0002](./adr/ADR-0002-lightweight-default.md)（默认轻量通道 + 触发式升级）、[ADR-0012](./adr/ADR-0012-events-im-adapters.md)（事件与通信）、[ADR-0014](./adr/ADR-0014-workflow-gate-dsl.md)（工作流/门禁定义语言）、[ADR-0016](./adr/ADR-0016-distribution-plugins.md)（分发与插件三层）
 > 关联需求：**R10**（到达配置了门禁的节点时，必须执行校验并按结果放行/拦截/升级）；触发式升级的提议与"角色可直接发起校验"不另立编号，作为本机制的设计细节承载（编号口径见 [`./02-requirements.md`](./02-requirements.md) §4）
 > 相邻章节：[`./02-requirements.md`](./02-requirements.md)（需求基准与术语）、[`./04-consensus-ledger.md`](./04-consensus-ledger.md)（门禁消费的账本条目与证据锚点）、[`./05-voting.md`](./05-voting.md)（门禁中的投票类校验器）、[`./07-context.md`](./07-context.md)（门禁与防腐钩子共享同一套证据锚点索引）

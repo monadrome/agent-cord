@@ -1,6 +1,8 @@
 # 08 · 自进化知识库
 
-> **状态**：设计定稿，代码未实现 ｜ **读者**：第一次接触本项目的外部开发者
+> 参考性质：规划中的知识库和自进化设计，当前尚未完整实现。
+
+> **状态**：规划中的知识库和自进化设计，当前尚未完整实现 ｜ **读者**：第一次接触本项目的外部开发者
 > **依赖的已定稿决策**：ADR-0003（共识载体=结构化快照+事件流）、ADR-0005（共识账本=证据条目集合，不做统一 Spec）、ADR-0010（SSOT 存储=纯文件+git+JSONL 事件流+ledger.yaml，frontmatter 仅显示层）、ADR-0011（agent 运行时=每任务 subprocess）、ADR-0013（投票执行器直连模型 API）、ADR-0014（工作流/门禁=apiVersion 化 YAML + 三级校验器）、ADR-0015（知识库=Markdown+frontmatter 唯一 SSOT + SQLite FTS5 派生索引）
 > **相关章节**：《投票机制》（[05-voting.md](./05-voting.md)）、《安全与权限模型》（[09-security.md](./09-security.md)）
 

@@ -1,6 +1,6 @@
 # agent-cord 控制台与平台化方案
 
-状态：方案草案，尚未进入实现
+状态：历史方案，已由实现替代（2026-09-25）。当前 server、console、SDLC 和数据边界以 [`./current-architecture.md`](./current-architecture.md) 为准；本文件保留原始目标、取舍和验收背景，供 ADR-0021/0022 追溯。
 
 ## 1. 目标
 

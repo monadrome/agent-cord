@@ -131,8 +131,9 @@ POST /doctor
 
 ## 文档入口
 
-- [方案文档索引](./docs/INDEX.md)：完整设计、术语和阅读路径。
-- [控制台平台方案](./docs/proposal-console-platform.md)：server、console、SDLC 和验收边界。
+- [文档入口](./docs/INDEX.md)：当前实现、协议、ADR 和设计归档的阅读路径。
+- [当前实现架构](./docs/current-architecture.md)：server、console、数据布局和运行路径。
+- [核心协议速查](./docs/protocol.md)：事件、账本、workflow、gate 和 voting 的实现契约。
 - [ADR 目录](./docs/adr/)：架构决策记录，当前包含 ADR-0001 ~ ADR-0022。
 - [安全与权限模型](./docs/09-security.md)
 - [路线图](./docs/10-roadmap.md)

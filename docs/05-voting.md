@@ -1,6 +1,8 @@
 # 05 · 通用投票机制
 
-> 状态：**设计定稿，代码未实现**（本文档描述的是已定型的机制设计，仓库中尚无对应实现）
+> 参考性质：详细投票设计。当前投票实现入口见 [`./protocol.md`](./protocol.md) 和 `src/voting/`。
+
+> 状态：详细机制说明；当前实现入口见 [`./protocol.md`](./protocol.md) 和 `src/voting/`。
 > 相关章节：[`./04-consensus-ledger.md`](./04-consensus-ledger.md)（共识账本与证据锚点，投票结果写回的对象）、[`./03-architecture.md`](./03-architecture.md)（三层架构、单机器人路由、`vote.completed` 事件）、[`./06-gates-workflow.md`](./06-gates-workflow.md)（校验器与触发式升级：难度门是 gate 的一个 checker）、[`./12-experiments.md`](./12-experiments.md)（实验一的可执行协议与全部阈值校准）、[`./08-self-evolution.md`](./08-self-evolution.md)（复述检验=投票机制在知识库的特化）
 > 相关决策：[ADR-0002](./adr/ADR-0002-lightweight-default.md)（默认轻量 + 触发式升级）、[ADR-0006](./adr/ADR-0006-blind-voting.md)（独立盲评投票，不辩论）、[ADR-0007](./adr/ADR-0007-asymmetric-model-allocation.md)（非对称模型分配：生成弱/判定强，判定与生成必异构）、[ADR-0011](./adr/ADR-0011-agent-runtime.md)（agent 运行时：每任务 subprocess 驱动 headless CLI）、[ADR-0013](./adr/ADR-0013-vote-executor.md)（投票执行器=ProviderAdapter 直连模型 API）；完整 ADR 记录见 [`./adr/`](./adr/)
 
