@@ -28,6 +28,7 @@ import {
   Section,
   StatusBadge,
 } from "../ui.js";
+import { MarkdownPreview } from "../markdown.js";
 
 export const DETAIL_TABS = ["overview", "docs", "ledger", "votes", "events", "approvals"] as const;
 export type DetailTab = (typeof DETAIL_TABS)[number];
@@ -482,15 +483,24 @@ function DocsTab({ reqId, docs }: { reqId: string; docs: Record<SnapshotDocName,
       </div>
       <ErrorBanner message={error} onClose={() => setError(null)} />
       <NoticeBanner message={notice} />
-      <textarea
-        className="editor mono"
-        rows={18}
-        value={content}
-        disabled={loading}
-        onChange={(event) => setContent(event.target.value)}
-        placeholder={loading ? "加载中…" : "在此编写文档内容（Markdown）"}
-        aria-label={`${doc}.md 内容`}
-      />
+      <div className="doc-workspace">
+        <div className="doc-pane">
+          <div className="doc-pane-title">Markdown 原文</div>
+          <textarea
+            className="editor mono"
+            rows={18}
+            value={content}
+            disabled={loading}
+            onChange={(event) => setContent(event.target.value)}
+            placeholder={loading ? "加载中…" : "在此编写文档内容（Markdown）"}
+            aria-label={`${doc}.md 内容`}
+          />
+        </div>
+        <div className="doc-pane">
+          <div className="doc-pane-title">渲染预览</div>
+          {loading ? <div className="markdown-empty">加载中…</div> : <MarkdownPreview source={content} />}
+        </div>
+      </div>
       <div className="form-actions">
         <button type="button" className="btn btn-primary" disabled={busy || !dirty} onClick={() => void save()}>
           {busy ? "保存中…" : "保存"}
