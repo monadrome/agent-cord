@@ -1,270 +1,152 @@
 # agent-cord
 
-> **状态：方案设计定稿，代码尚未实现。** 本仓库当前是方案文档集，描述的是设计，不是已实现的行为。
-> 读者：第一次接触本项目的外部开发者。
+> **状态：M2 最小闭环 + 控制台 MVP 已实现（2026-09-25）。**
 
-**一句话定位**：agent-cord 是一个开源的多 agent 共识协作基座——让「系统应该怎么表现」的每一个结论都带证据、可独立复核、可度量。
+agent-cord 是一个多 agent 共识协作基座：把需求、决策、证据和人工审核放进同一条可追溯的工作流。agent 只产 Draft，最终合入和高风险决策保留人工参与。
 
-**30 秒电梯陈述**：验证环节（测试、截图比对、流水线）早已高度自动化，共识环节——人脑里的业务模型与代码现实对齐——却没有。agent-cord 把共识物化为结构化对象：一条结论 = 一条带证据锚点的条目，写进仓库里的**共识快照文件夹**（`cord/<req-id>/`），随 git 版本化，任何人 clone 下来就能复核。多个异构模型对决策点做**独立盲评投票**（不辩论），门禁按信号自动放行或升级，人只出现在四类位置：**兜底、补充事实与上下文、决策、纠偏**。群聊只是交互入口，不是档案。
+## 能做什么
 
----
+- 为每个需求维护一个共识快照目录：Markdown 文档、`ledger.yaml` 账本和 `events.jsonl` 事件流。
+- 用证据锚点记录结论；无证据不入账，账本由事件流确定性重建。
+- 用 YAML 定义 SDLC 节点和 gate，默认流程为：`intake → align → plan → implement → verify → review → done`。
+- 用独立盲评投票处理适合自动化的决策点，分歧和高风险情况升级人工。
+- 通过 Fastify server 和 React 控制台查看需求、编辑文档、观察事件、启动 run、处理人工 gate 和管理 SDLC 版本。
 
-## 目录
+## 快速开始
 
-- [1. 名字：为什么叫 agent-cord](#1-名字为什么叫-agent-cord)
-- [2. 30 秒读懂 agent-cord](#2-30-秒读懂-agent-cord)
-- [3. 为什么存在](#3-为什么存在)
-- [4. 60 秒看懂架构与生命周期](#4-60-秒看懂架构与生命周期)
-- [5. 核心机制一览](#5-核心机制一览)
-- [6. 做什么 / 不做什么](#6-做什么--不做什么)
-- [7. 架构决策速览（ADR-0001 ~ ADR-0016）](#7-架构决策速览adr-0001--adr-0016)
-- [8. 当前状态与参与方式](#8-当前状态与参与方式)
-- [9. 文档导航](#9-文档导航)
+要求 Node.js `>=22.5.0`。
 
----
-
-## 1. 名字：为什么叫 agent-cord
-
-**本节回答**：项目叫什么、名字从哪来、还有哪些候选、命名上有什么风险。
-
-**agent-cord** 拆开是两段：**agent** 指明参与者（人 + 各角色的 agent），**cord** 是双关——既取 **accord**（一致、协议），直接命中本项目的核心口径「共识是目标本身，不是副产品」；也取 **coordination**（协调），对应「多个 agent 在同一需求上的协调与流转」。合起来，它是「把人与 agent 编在一起的那根纽带」：本项目不是又一个 agent 框架，而是让人与多个 agent 对齐在同一份共识上的载体。
-
-两个词根各落在一组设计上：
-
-- **accord → 共识是被物化的对象**：每条结论必须带证据锚点、可独立复核、可度量，共识是交付物而不是副产品；
-- **coordination → 协调而非辩论**：盲评投票、门禁放行、触发式升级、单一写路径，都是把多个 agent 编排进同一条流程的机制。
-
-### 候选对比
-
-| 候选 | 语义贴合度 | 主要风险 | 判断 |
-|---|---|---|---|
-| **agent-cord** | **最高**：accord（共识即目标）+ coordination（多 agent 协调）+「人与 agent 的纽带」，两层语义都覆盖 | 两个词根拼合后需要一次解释；npm 包名需在建仓时自查是否被占用 | **采用** |
-| Conclave | 中：独立盲评投票 + 隔绝，只覆盖投票机制 | npm 公开包名已被占用；宗教/仪式色彩可能引起部分人联想；语义覆盖不到「多 agent 协调」与「共识是目标」 | 降级为投票子系统代号（见下） |
-| Concord | 中：和谐、一致，正面且中性 | 辨识度低，同名项目多（协和客机、Concord 语言、多家公司产品），搜索与传播都会被稀释 | 备选 |
-| Agora | 中：古希腊广场 = 人机同席的圆桌，贴合交互捕获层 | 开源重名严重（已有多个同名 SDK/项目）；且只映射了交互一层，映射不到共识机制 | 备选 |
-
-**结论：agent-cord。** 三个理由：**可用性**——`agent-cord` 是不需要 scope 即可直接使用的普通 npm 包名，不必靠 `@org/cli` 兜底；**语义覆盖**——accord + coordination 同时覆盖「共识是目标」与「多 agent 协调」，而 conclave 只覆盖投票机制这一层；**无宗教联想**——cord 是中性拼写，不带仪式 / 宗教意象，没有这层传播阻力。
-
-### 保留的代号：conclave
-
-**Conclave 保留为投票子系统的代号。** 它的本义（枢机主教被锁进一间与外界隔绝的密室，在选出结果之前不能与外部通声气，各自独立投票，直到达成共识）依然精确对应该子系统的核心设计：
-
-- **盲评独立投票**：投票 agent 之间不共享中间推理、不辩论，各自独立探索后提交——代号里的「隔绝」正是独立性保证的隐喻；
-- **共识就是目标本身**：密议的产出不是某个交付物，而是「一群人真的对齐了」，这正是投票子系统要产出的东西；
-- **「隔绝」的第二层对应**：事件流永不进 LLM 上下文、协调 agent 只持有最新快照（防上下文腐化），都是同一族隔离设计。
-
-于是「run a conclave」= 发起一轮盲评投票，隐喻依然成立。术语约定：**项目名一律写 agent-cord，conclave 只作为投票子系统的代号**，出现在投票相关章节（见 [05-voting.md](./docs/05-voting.md)）。
-
----
-
-## 2. 30 秒读懂 agent-cord
-
-**本节回答**：如果只读一段话，应该记住什么。
-
-1. **共识是目标，不是副产品。** 衡量成功的不是「少写了多少代码」，而是「多少结论是带证据、可复核的」。
-2. **共识有物理载体。** 一个需求一个文件夹：最新快照文档 + `ledger.yaml`（共识账本）+ `events.jsonl`（只增不删的事件流），git 是版本化权威。这就是 SSOT 的物化形态，也是本项目的核心创新点。
-3. **机器能参与共识，但必须被约束。** 独立盲评投票而非辩论；难题不投票（难度门前置）；判定模型必须与生成模型异构；结论一致但证据锚点重合时，视为疑似同源错误，强制升级人工。
-4. **人只做四件事**：兜底、补充事实与上下文、决策、纠偏。系统给人的是选择题，不是论述题。
-5. **agent 全程只产 Draft，合入永远人工。** 不做激进全自动。
-
----
-
-## 3. 为什么存在
-
-**本节回答**：当前 AI 辅助开发的哪些成本反复被观察到、为什么这些成本没有被现有工具解决。
-
-### 3.1 五类可指认的痛点
-
-| # | 痛点 | 具体表现 |
-|---|---|---|
-| P1 | 碎片化交互成本高 | 人与 AI 反复分步交互，大量时间消耗在需求对齐和等待输出上 |
-| P2 | 前期对齐负担重 | 接手新需求需与产品、设计、后端、测试逐一对齐，常以天计 |
-| P3 | AI 输出校验负担重 | 长周期产出体量大，全量 review 不现实，且存在幻觉 |
-| P4 | 需求变更无统一载体 | 变更散落在私聊和群聊里，极易遗漏 |
-| P5 | 上下文切换成本高 | 多会话、多沟通群之间来回切换，重复粘贴历史信息 |
-
-### 3.2 一个决定投入方向的结构性事实
-
-**验证环节已经高度自动化，共识环节没有。**
-
-测试、截图比对、CI 流水线这些「产物是否符合规格」的检查，工业界已经有成熟且廉价的自动化方案；而「人脑中的业务模型是否与代码现实一致」这件事，仍然完全依赖人反复对齐。大部分项目时间实际消耗在共识上。这个不对称决定了本项目的投入方向：不重复造验证轮子（已有的测试、截图比对、流水线直接接入），只做共识的机制增量。
-
-### 3.3 两个更底层的认知问题
-
-**认知黑盒。** 需求天然是模糊的，不经澄清无法收敛到明确边界。更要命的是方向不对称：模型不知道自己不知道，人也不知道模型不知道，甚至有些东西人自己都不知道自己知道。不解决这个共同认知基础问题，自动化程度越高，错误被放大得越大——这也是本项目把边界定在「人做兜底、决策、纠偏」而不是追求全自动的第一性理由（见 [ADR-0001](./docs/adr/ADR-0001-positioning.md)）。
-
-**上下文腐化。** 错误信息被反复引用之后会获得权威——一条错误的结论被写进文档、被后续任务检索命中、被当作高优先级指令注入上下文，它在系统里的地位反而越来越稳固。公开文章《再见 SDD》把这类现象连同「文档周转税」「从代码反向生成 Spec 等于认知洗白（分不清业务意图、当前行为、Bug 与临时兼容）」一起讨论过，本项目的账本状态机、无证据不入账、锚点独立度检查、复述检验，都是对这类失效的直接防御。
-
-### 3.4 现有形态为什么不够
-
-| 现有形态 | 它解决了什么 | 它没解决什么 |
-|---|---|---|
-| 单 agent coding 工具 | 单个任务的编码与校验闭环 | 多 agent + 多人协作在同一需求上的共识与流转 |
-| 以群聊为载体的协作 | 沟通成本低、人机同席 | 群聊非结构化、易失、有噪声；变更散落其中等于没有载体 |
-| 重型流程/Spec 平台 | 覆盖率与规范性 | 默认重型、用户可以逃；小需求杀鸡用牛刀，最终被用脚投票弃用 |
-| 多 agent 自由互聊/辩论 | 表面上的协作 | benchmark 与理论证据都表明辩论不能稳定跑赢盲评投票，且成本显著更高 |
-
-**差异点一句话**：harness 类工具解决「单 agent 任务的校验闭环」，agent-cord 解决「多 agent + 多人多角色在同一需求上的共识与流转」。
-
----
-
-## 4. 60 秒看懂架构与生命周期
-
-**本节回答**：系统由哪几层组成、一个需求在系统里走完哪些步骤。
-
-### 4.1 三层架构
-
-```
-┌─ 交互捕获层 ───────────────────────────────────────────────────────────────┐
-│ IM 群 = 圆桌：人 + 角色 agent 同席，一切输入都从这里进来                   │
-│ 人在这里说话、发文档、发标注、发命令                                       │
-│ 命令协议：slash command / @ 提及（门禁的触发入口，不是独立命令）           │
-└────────────────────────────────────────────────────────────────────────────┘
-        │  原始消息（非结构化）
-        ▼
-┌─ 翻译层 ───────────────────────────────────────────────────────────────────┐
-│ 单机器人路由：群里只出现一个机器人                                         │
-│ 向下：非结构化输入 → 结构化事件（解析不确定时反问，不猜）                  │
-│ 向上：状态变化 → 群里的摘要 / 选择题（给人选择题不给论述题）               │
-└────────────────────────────────────────────────────────────────────────────┘
-        │  读写（写操作必经路由）
-        ▼
-┌─ 结构化状态层：共识快照文件夹 = SSOT 的物化形态 ───────────────────────────┐
-│ cord/<req-id>/                                                             │
-│   prd.md · adr.md · plan.md · findings.md ← 最新快照层（可人工编辑）       │
-│   ledger.yaml                             ← 共识账本（机判层）             │
-│   events.jsonl                            ← 事件流（append-only，永不删）  │
-│ git 为版本化权威；角色 agent 是这一层的后端 worker，不进群界面             │
-└────────────────────────────────────────────────────────────────────────────┘
+```bash
+npm install
+npm run build:all
+npm test
 ```
 
-三层的职责边界是本项目最容易误解的地方：**群是会场，账本是档案。** 把群聊当 SSOT，等于回到「变更散落群聊无统一载体」的现状；把账本当聊天记录，则丢掉了独立复核所需的证据锚点。详见 [03-architecture.md](./docs/03-architecture.md)。
+启动控制台服务：
 
-### 4.2 一个需求的七步
+```bash
+npm run serve
+```
 
-> 口径说明：下表是**数据流视角**的七步（谁在动、读写哪些文件、落什么事件）；**工作流图视角**的七个节点（进入 → 对齐与共识 → 计划 → 执行 → 验证 → 防腐 → 上线回流）见 [06-gates-workflow.md](./docs/06-gates-workflow.md) §1.2，两个视图的逐项映射也在那里。
+然后打开 <http://127.0.0.1:7250>。服务默认使用当前目录作为工作区，也可以通过 `CORD_ROOT` 和 `CORD_PORT` 修改：
 
-| 步骤 | 谁做 | 上下文从哪来 | 验证信号 | 人的介入点 |
-|---|---|---|---|---|
-| ① 需求进入 | 产品把 PRD 发给机器人 | 新建全局 session，PRD 落盘 | — | 无 |
-| ② 上下文剪裁 | 系统 | 仓库文档压缩为最小上下文包（相关模块文档 + 接口面 + 历史账本条目） | — | 无 |
-| ③ 探索与共识 | 探索 agent（强模型）+ 投票 agent 组 | 剪裁包 + 代码只读 | 每条结论带证据锚点入账；难度门内的关键决策盲投票 | 事实缺口的填空题 → 给产品选择题 |
-| ④ 计划冻结与派发 | 协调 agent（coordinator） | confirmed 条目转任务图 | 粒度由依赖图自然产生 | 无（门禁已布好） |
-| ⑤ 执行与验证 | 实现 agent（弱模型）+ 验证 agent（强模型，异构） | 任务只传接口面 | 单测（源自 confirmed 条目）+ 集成测试全自动 + 对抗 review 投票 | 对抗分歧 → 并列证据，人选边 |
-| ⑥ 提交与防腐 | 提交钩子 | diff 与账本证据锚点求交 | 命中则要求确认共识仍成立 | 仅冲突时拦人 |
-| ⑦ 上线与回流 | 系统 | 观察期数据 | 推翻率采集、知识沉淀 | 无 |
+```bash
+CORD_ROOT=/path/to/workspace CORD_PORT=7250 npm run serve
+```
 
-步骤 ③ 与 ⑤ 体现的是同一个原则：**默认轻量，出现高风险信号才触发式升级**。重型流程不是默认值，而是系统主动提议、人一键确认的例外路径。
+只想验证核心闭环，可以运行离线 demo：
 
----
+```bash
+npm run cord -- demo
+```
 
-## 5. 核心机制一览
+## 用控制台跑一个需求
 
-**本节回答**：支撑上面这套流程的关键机制各是什么、分别在哪一章展开。
+1. 在「需求」页创建需求并填写 PRD。
+2. 进入需求详情，在「文档」页编辑 `prd.md`、`plan.md`、`adr.md` 或 `findings.md`。
+3. 点击「启动默认 SDLC run」。
+4. 在「概览」和「事件」页观察节点进度与证据 gate。
+5. 流程到达 `review/human-review` 后，需求会进入「等待人工」状态。
+6. 在「审批」页选择「确认放行」或「拒绝放行」。
+7. 在「账本」页查看投影结果，在「事件」页复核完整事件链。
 
-| 机制 | 一句话 | 展开 |
-|---|---|---|
-| **共识账本** | 每条结论都是一条带证据锚点的条目：无证据不入账，状态机单向流转（临时 → confirmed → overturned），推翻必须附新证据留痕 | [04-consensus-ledger.md](./docs/04-consensus-ledger.md) |
-| **盲评投票** | k=2~3 个异构模型独立盲评、不辩论；难度门只放行非重点且可机验、可逆的决策点；2/2 一致且锚点可机验才 confirmed，语义类即使 2/2 也落 needs_verification，2:1 必须留少数派理由；锚点重合（Jaccard ≥ 0.5 为初值，待实验一校准）视为疑似同源错误强制升级人工 | [05-voting.md](./docs/05-voting.md) |
-| **文档防腐** | 提交钩子拿 diff 与账本锚点求交，命中就要求确认该条共识仍然成立；粒度是块级而非文档级；本质是「强制确认共识仍有效」，文档更新只是确认动作的副产品 | [07-context.md](./docs/07-context.md) |
-| **流程门禁** | 工作流是预定义有向图：节点 = 阶段，节点出口 = 里程碑文档，节点上挂 gate（角色 × 时机 × 校验 × 放行条件）；新增 gate 只需组合已有校验器，零代码 | [06-gates-workflow.md](./docs/06-gates-workflow.md) |
-| **上下文剪裁** | 协调 agent 只持有最新快照（防幻觉）；上下文按「前置高信号层 + 定位符层」两层打包；事件流永不进 LLM 上下文。隔离三层防御：注入层剪裁为主、只读副本为纵深、写操作必经路由为兜底 | [07-context.md](./docs/07-context.md) |
-| **自进化知识库** | 知识条目（KB-xxxx）走「候选 → 生效 → 过期/废止」生命周期，入库须过复述检验，bad case 回流；Issue 密度随需求序号衰减是飞轮生效的直接证据 | [08-self-evolution.md](./docs/08-self-evolution.md) |
+控制台只展示 server 投影，不复制 reducer 或工作流状态机。所有写操作都经过事件流，并要求 `Idempotency-Key` 防止重复提交。
 
-一个贯穿全部机制的度量取向：**共识质量侧**看证据覆盖率、独立一致度、推翻率；**人介入负担侧**看 Issue 密度、单介入耗时、跨角色介入总负担。指标口径与陷阱见 [02-requirements.md](./docs/02-requirements.md) 与 [11-risks.md](./docs/11-risks.md)。
+## 数据布局
 
----
+```text
+cord/
+├── <req-id>/
+│   ├── prd.md
+│   ├── adr.md
+│   ├── plan.md
+│   ├── findings.md
+│   ├── ledger.yaml       # 事件流的确定性投影
+│   └── events.jsonl      # append-only 事实来源
+├── .sdlc/                # 发布的 SDLC 版本
+└── .index/               # 可删除、可重建的 SQLite 派生索引
+```
 
-## 6. 做什么 / 不做什么
+核心规则：`events.jsonl` 是事实来源，`ledger.yaml` 是 reducer 投影，`.index` 只保存幂等键和运行登记。删除派生索引不会丢失需求事实。
 
-**本节回答**：第一阶段的边界在哪里，哪些事情明确不做。
+## 项目结构
 
-### 做（第一阶段，作用域 = 单个需求）
+```text
+src/                       # 领域内核、事件协议、reducer、workflow、voting、driver、CLI
+apps/server/               # Fastify REST + SSE + run runner + SDLC 服务
+apps/console/              # React + Vite 控制台
+tests/                     # 内核、workflow、driver、CLI、e2e 测试
+docs/                      # 方案文档与 ADR
+```
 
-- 单需求全局 session：共识快照文件夹（快照文档 + `ledger.yaml` + `events.jsonl`），上下文贯通、变更同步；
-- 共识账本与度量：条目 schema、状态机、推翻流程、三指标采集；
-- 通用投票机制：难度门、放行规则、独立性保证、锚点独立度检查；
-- 可插拔门禁与**触发式升级**：契约变更、跨仓库、高风险验证信号触发升级提议；
-- 文档防腐：提交前置校验钩子的三级演进（L1 关联需求 id → L2 影响检查 → L3 自动生成更新草稿）；
-- 交互层：IM 群 + 单机器人路由（解析群内输入为结构化事件，推回摘要与选择题）；
-- 自进化知识库最小闭环：bad case 回流、规则抽取、知识保鲜。
+常用命令：
 
-### 不做
+```bash
+npm run build              # 构建领域内核
+npm run build:all          # 构建内核和控制台
+npm run typecheck          # 检查所有 workspace
+npm test                   # 运行全部离线测试
+npm run dev:console        # 单独启动 Vite 前端，默认代理到 7250
+npm run cord -- init       # 初始化 cord/ 目录
+npm run cord -- doctor     # 检查事件流和账本投影
+npm run cord -- events ID  # 查看需求事件流
+```
 
-| 不做 | 理由 |
-|---|---|
-| 零人工介入的全自动开发 | 需求天然模糊，共识问题不解决时自动化只是错误放大器（ADR-0001） |
-| 把群聊/IM 记录当事实来源 | 群聊是交互捕获层，不是 SSOT；把群当档案等于延续现状痛点（ADR-0003） |
-| 维护一份承诺完整覆盖的统一 Spec | 会制造「六份材料变七份」的同步负担；账本只覆盖被变更触碰的切片，证据才是权威（ADR-0005） |
-| 多 agent 自由辩论来达成共识 | 公开 benchmark 与理论证据均不支持辩论稳定优于盲评投票，且成本更高（ADR-0006） |
-| 绑定特定厂商 / IM / 模型 / 云端能力 | 通用能力优先，适配器可插拔，优先本地开发工具链 |
-| 跨需求调度与多需求并发编排 | 第二阶段议题；第一阶段先把单需求的共识闭环做扎实 |
-| 强制固定流程模板 | 可插拔门禁 + 默认轻量；重型流程是例外路径而不是默认值（ADR-0002） |
-| agent 直接合入代码 | 权限最简模型：agent 全程只产 Draft，合入永远人工 |
+## API
 
----
+server 提供 `/api/v1` 接口，以下路径均省略此前缀：
 
-## 7. 架构决策速览（ADR-0001 ~ ADR-0016）
+```text
+GET  /health
+GET  /dashboard
+GET  /requirements
+POST /requirements
+POST /requirements/:req_id/runs
+GET  /requirements/:req_id/timeline
+GET  /requirements/:req_id/ledger
+GET  /requirements/:req_id/events/stream   # SSE，支持 Last-Event-ID
+GET  /requirements/:req_id/approvals
+POST /requirements/:req_id/approvals/:approval_id/decide
+GET  /sdlcs
+POST /sdlcs/:sdlc_id/versions/validate
+POST /sdlcs/:sdlc_id/versions/publish
+POST /doctor
+```
 
-**本节回答**：16 条已定稿的架构决策分别是什么。
+写命令必须携带 `Idempotency-Key`。错误统一返回 `{ code, message, details, request_id }`。
 
-完整决策记录（背景、备选、理由、被否方案）见 [docs/adr/](./docs/adr/)，每条形如 `ADR-000N-<slug>.md`。
+## 当前边界
 
-| 编号 | 决策要点 |
-|---|---|
-| [ADR-0001](./docs/adr/ADR-0001-positioning.md) | 定位 = 人机协作效率放大器，不做激进全自动；人只做兜底、补充事实与上下文、决策、纠偏 |
-| [ADR-0002](./docs/adr/ADR-0002-lightweight-default.md) | 默认轻量通道 + 触发式升级；升级由系统提议、人一键确认，降级不需要理由 |
-| [ADR-0003](./docs/adr/ADR-0003-consensus-carrier.md) | 共识载体 = 结构化快照 + 事件流；群聊只是交互捕获层，不是事实来源 |
-| [ADR-0004](./docs/adr/ADR-0004-single-bot-routing.md) | 单机器人路由做入口，角色 agent 做后端 worker，不出现在群界面 |
-| [ADR-0005](./docs/adr/ADR-0005-ledger-over-spec.md) | 共识账本 = 带证据的条目集合，不做统一 Spec；不承诺完整覆盖，有失效机制 |
-| [ADR-0006](./docs/adr/ADR-0006-blind-voting.md) | 共识形成用独立盲评投票，不辩论（不共享中间推理） |
-| [ADR-0007](./docs/adr/ADR-0007-asymmetric-model-allocation.md) | 非对称模型分配：生成侧用弱模型、判定侧用强模型；判定 agent 与生成 agent 必须异构 |
-| [ADR-0008](./docs/adr/ADR-0008-prototype-split.md) | 原型两分：开源基座（通用协议与机制）+ 内部 SDLC 示例实现（对接内部平台的部分统称 DevMaster（某公司内部平台），不含业务数据） |
-| [ADR-0009](./docs/adr/ADR-0009-language-runtime.md) | 语言与运行形态：TypeScript + 常驻 daemon 核心 + 薄 CLI 客户端（本地 IPC/HTTP）；核心代码同时以库形式导出 |
-| [ADR-0010](./docs/adr/ADR-0010-ssot-storage.md) | SSOT 存储 = 纯文件 + git + 文件夹内 JSONL 事件流 + `ledger.yaml`；frontmatter 仅显示层；事件流进 git（union merge driver 防合并丢事件）；SQLite FTS5 派生索引为后置可插拔增强 |
-| [ADR-0011](./docs/adr/ADR-0011-agent-runtime.md) | agent 运行时 = 每任务 subprocess 驱动 headless CLI（claude / codex / kimi / gemini），统一 `AgentDriver` 接口；否决常驻池与 SDK 内嵌 |
-| [ADR-0012](./docs/adr/ADR-0012-events-im-adapters.md) | 事件与通信 = 文件夹内 append-only 事件流（`events.jsonl`，唯一事实与顺序来源）+ 进程内 dispatcher + watcher 仅作对账探针 + webhook 仅作公网 ingress 前端；IM 用官方 SDK 薄适配器，统一 `NormalizedEvent` |
-| [ADR-0013](./docs/adr/ADR-0013-vote-executor.md) | 投票执行器 = `ProviderAdapter` 直连模型 API（锁模型版本、temperature=0、结构化输出、逐次 usage 采集）；生成侧角色 agent 才用 coding CLI |
-| [ADR-0014](./docs/adr/ADR-0014-workflow-gate-dsl.md) | 工作流/门禁定义 = apiVersion 化 YAML + 三级校验器（内置枚举 / CEL 表达式 / 外部 IPC 插件）；gate 与 checker 双注册表，新增 gate 零代码 |
-| [ADR-0015](./docs/adr/ADR-0015-knowledge-base.md) | 知识库 = Markdown + frontmatter 唯一 SSOT + SQLite FTS5 派生索引（trigram 中文分词）；起步走符号/词法检索不走 embedding（审计性优先），embedding 后置为可插拔增强 |
-| [ADR-0016](./docs/adr/ADR-0016-distribution-plugins.md) | 分发 = npm CLI；插件三层（纯配置组合 / 声明式 markdown / IPC 进程插件），插件协议 v1 冻结（`check` / `capabilities` / `health`）；冷启动 = 官方插件集 + GitHub 模板市场仓库 |
+已实现：事件协议与 reducer、工作流执行器、内置 checker、盲评投票底座、ACP/headless agent driver、CLI、REST/SSE server、人工 gate、默认和自定义 SDLC、React 控制台。
 
-ADR-0001 ~ ADR-0008 回答「这个平台是什么、边界在哪」，ADR-0009 ~ ADR-0016 回答「这个平台用什么造」；16 条全部为 `accepted`，但 `accepted` 不等于已实现。决策地图与置信度总览见 [docs/adr/README.md](./docs/adr/README.md)。
+尚未实现：飞书等 IM 适配、多用户鉴权、run 取消、CEL 和外部 checker 插件、知识库检索、文档防腐钩子，以及默认 SDLC 中的真实投票产出。详细计划见 [docs/10-roadmap.md](./docs/10-roadmap.md)。
 
----
+## 设计原则
 
-## 8. 当前状态与参与方式
+- 共识必须带证据，事件流是唯一事实来源。
+- 状态变更只有一个写路径：`session.events.append`。
+- checker 无法判定时 fail-closed，不静默放行。
+- agent 默认只写 Draft，代码合入和关键门禁由人决定。
+- 文件和 git 保持可读、可导出，SQLite 只做派生索引。
 
-**本节回答**：现在能跑吗、接下来做什么、以什么许可开源。
+## 文档入口
 
-- **实现状态**：**尚无代码**。本仓库当前只包含方案文档；文档中的 schema、目录布局、接口名都处于「设计定稿、待实现校准」阶段。凡标注为待实验校准的参数（如投票 k 值、防腐钩子误伤率上限），文档会显式标注，不会被写成既成事实。
-- **里程碑**（一律相对表述）：M1 = 方案定稿后一周内（方案评审通过、现状计时基线启动）；M2 = 方案定稿后第 2-3 周（最小闭环可运行 Demo）；M3 = 方案定稿后约一个月（自举跑通一个真实需求）；M4 = 方案定稿后约六周（实验出数、指标仪表盘首版、自进化闭环演示一轮）。详细边界与退出标准见 [10-roadmap.md](./docs/10-roadmap.md)。
-- **License**：Apache-2.0（建议方案，理由与替代项见 [13-open-source.md](./docs/13-open-source.md)）。
-- **贡献与边界**：贡献模型、仓库结构、以及开源基座与内部实现之间的关系边界，见 [13-open-source.md](./docs/13-open-source.md)。
+- [文档入口](./docs/INDEX.md)：当前实现、协议、ADR 和设计归档的阅读路径。
+- [当前实现架构](./docs/current-architecture.md)：server、console、数据布局和运行路径。
+- [核心协议速查](./docs/protocol.md)：事件、账本、workflow、gate 和 voting 的实现契约。
+- [ADR 目录](./docs/adr/)：架构决策记录，当前包含 ADR-0001 ~ ADR-0022。
+- [安全与权限模型](./docs/09-security.md)
+- [路线图](./docs/10-roadmap.md)
+- [风险与开放问题](./docs/11-risks.md)
 
----
+## 贡献
 
-## 9. 文档导航
+代码、注释、CLI 输出和文档使用中文；模块间契约集中在 `src/core/schema.ts` 与 `src/core/ports.ts`，修改前需要同步 ADR。提交前至少运行：
 
-**本节回答**：想深入了解某个主题，该读哪一份文档。
+```bash
+npm run typecheck
+npm test
+npm run build:all
+```
 
-完整章节索引（含每章一句话摘要与阅读路径建议）见 **[docs/INDEX.md](./docs/INDEX.md)**。
-
-| 想了解 | 读 |
-|---|---|
-| 定位与设计哲学、做什么/不做什么的第一性推导 | [docs/01-vision.md](./docs/01-vision.md) |
-| 领域模型、需求条目 R1-R12、度量指标 | [docs/02-requirements.md](./docs/02-requirements.md) |
-| 三层架构、模块划分、数据流、运行形态 | [docs/03-architecture.md](./docs/03-architecture.md) |
-| 共识账本与证据锚点 | [docs/04-consensus-ledger.md](./docs/04-consensus-ledger.md) |
-| 盲评投票机制 | [docs/05-voting.md](./docs/05-voting.md) |
-| 工作流与门禁 | [docs/06-gates-workflow.md](./docs/06-gates-workflow.md) |
-| 上下文工程、协调 agent、文档防腐 | [docs/07-context.md](./docs/07-context.md) |
-| 自进化知识库 | [docs/08-self-evolution.md](./docs/08-self-evolution.md) |
-| 安全与权限模型 | [docs/09-security.md](./docs/09-security.md) |
-| MVP 边界与路线图 | [docs/10-roadmap.md](./docs/10-roadmap.md) |
-| 风险与开放问题 | [docs/11-risks.md](./docs/11-risks.md) |
-| 验证实验设计 | [docs/12-experiments.md](./docs/12-experiments.md) |
-| 开源运营 | [docs/13-open-source.md](./docs/13-open-source.md) |
-| 16 条架构决策记录 | [docs/adr/](./docs/adr/) |
-
-术语以 [docs/INDEX.md](./docs/INDEX.md) 的术语速查为准；全文统一使用，不设别名。
+项目采用 Apache-2.0 License。

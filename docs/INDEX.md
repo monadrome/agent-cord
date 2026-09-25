@@ -1,78 +1,47 @@
-# agent-cord 方案文档 · 索引
+# agent-cord 文档索引
 
-> **文档集状态：设计定稿，代码未实现。** 本目录描述的是设计与协议，不是已实现的行为。
-> 读者：第一次接触本项目的外部开发者。建议先读 [../README.md](../README.md) 建立整体印象，再按下面的阅读路径进入正题。
+> 当前实现状态：M2 最小闭环 + 控制台 MVP 已实现（2026-09-25）。先看当前实现，再按需要阅读协议、ADR 和设计归档。
 
----
+## 主文档
 
-## 1. 章节导航
-
-| 章节 | 一句话摘要 |
+| 文档 | 内容 |
 |---|---|
-| [01-vision.md](./01-vision.md) | 定位与设计哲学——从痛点与结构性事实做第一性原理推导，明确做什么/不做什么。 |
-| [02-requirements.md](./02-requirements.md) | 需求定义——领域模型 8 实体、EARS 需求 R1-R12、度量指标体系。 |
-| [03-architecture.md](./03-architecture.md) | 总体架构——三层架构与共识快照的融合、模块划分、接口边界、数据流、运行形态。 |
-| [04-consensus-ledger.md](./04-consensus-ledger.md) | 共识账本与证据锚点——共识的物理载体、条目 schema、状态机与推翻流程。 |
-| [05-voting.md](./05-voting.md) | 通用投票机制——盲评独立投票的完整设计：难度门、放行规则、隔离实现、锚点独立度检查。 |
-| [06-gates-workflow.md](./06-gates-workflow.md) | 工作流与门禁——预定义有向图、gate schema、三级校验器、触发式升级。 |
-| [07-context.md](./07-context.md) | 上下文工程——共识快照维护、协调 agent、两层上下文包、文档防腐钩子。 |
-| [08-self-evolution.md](./08-self-evolution.md) | 自进化知识库——知识条目存储检索、生命周期、复述检验、bad case 回流。 |
-| [09-security.md](./09-security.md) | 安全与权限模型——Draft-only 边界、凭证策略、agent 权限分级、沙箱。 |
-| [10-roadmap.md](./10-roadmap.md) | MVP 边界与路线图——工作分解 W1-W4、里程碑 M1-M4、验收标准。 |
-| [11-risks.md](./11-risks.md) | 风险与开放问题——每项标注现状（已缓解/接受/开放）与验证方式。 |
-| [12-experiments.md](./12-experiments.md) | 验证实验设计——回放实验等四个实验的可执行协议。 |
-| [13-open-source.md](./13-open-source.md) | 开源运营——License、仓库结构、贡献模型、与内部实现的关系边界。 |
-| [adr/](./adr/) | 架构决策记录 ADR-0001~0016（含技术选型总览）。 |
+| [README.md](../README.md) | 安装、运行、控制台操作和当前能力边界。 |
+| [current-architecture.md](./current-architecture.md) | 当前代码的分层、数据布局、运行路径、API 和非目标。 |
+| [protocol.md](./protocol.md) | 事件、账本、workflow、gate 和 voting 的实现协议速查。 |
+| [10-roadmap.md](./10-roadmap.md) | 后续工作、已完成项和未实现能力。 |
+| [adr/](./adr/) | 不可替代的架构决策记录。 |
+| [research/](./research/) | 调研和设计评审归档，不作为当前实现说明。 |
 
----
+## 阅读路径
 
-## 2. 阅读路径建议
+| 目的 | 顺序 |
+|---|---|
+| 只想运行项目 | [README](../README.md) |
+| 想理解当前代码 | [current-architecture.md](./current-architecture.md) → [protocol.md](./protocol.md) |
+| 想修改跨模块协议 | [protocol.md](./protocol.md) → [adr/](./adr/) → 源码和测试 |
+| 想了解未来设计或风险 | [10-roadmap.md](./10-roadmap.md) → 旧章节 → [research/](./research/) |
 
-| 你的目的 | 建议顺序 | 大约耗时 |
+如果时间只够读一份技术文档，读 [current-architecture.md](./current-architecture.md)。它描述的是当前代码，而不是未来设计。
+
+## 术语速查
+
+| 术语 | 当前含义 | 入口 |
 |---|---|---|
-| 只想搞懂这个项目在做什么 | [README](../README.md) → 01 → 03 → 04 | 15 分钟 |
-| 要评估方案是否靠谱、找出问题 | [README](../README.md) → 01 → 02 → 03 → 04 / 05 / 06 → 11 → 12 | 1 小时 |
-| 准备动手实现或贡献代码 | 01 → 02 → 03 → 04 ~ 09 → [adr/](./adr/) → 10 → 13 | 半天 |
-| 只关心风险与未解决问题 | 11 → 12（配合 05 的度量口径与 09 的权限模型） | 20 分钟 |
+| **共识快照** | 单个需求的文件夹，含快照文档、账本和事件流。 | [current-architecture.md](./current-architecture.md) |
+| **全局 session** | 以单个需求为锚定单位的流程上下文。 | [02-requirements.md](./02-requirements.md) |
+| **账本** | `ledger.yaml` 中的带证据结论集合，由事件流确定性投影。 | [protocol.md](./protocol.md) |
+| **事件流** | `events.jsonl` 中的 append-only 事实来源。 | [protocol.md](./protocol.md) |
+| **门禁** | workflow 节点上的可配置检查点。 | [protocol.md](./protocol.md) |
+| **校验器** | gate 引用的具体校验能力；未知或异常时 fail-closed。 | [protocol.md](./protocol.md) |
+| **盲评投票** | k=2~3 票独立提交结论和证据锚点。 | [protocol.md](./protocol.md) |
+| **证据锚点** | 结论与代码、测试、契约、知识或文档的可审计连接点。 | [04-consensus-ledger.md](./04-consensus-ledger.md) |
+| **上下文包** | 提供给工作单元的最小上下文派生视图。 | [07-context.md](./07-context.md) |
 
-如果时间只够读一份机制文档，读 [04-consensus-ledger.md](./04-consensus-ledger.md)——它定义了本项目最基本的数据结构，其余机制都是围绕它的读写与治理。
+## 参考文档约定
 
----
-
-## 3. 术语速查
-
-全方案统一使用下表术语，不设别名。若在某章读到与此处不一致的表述，以本表为准（并视为文档缺陷）。
-
-| 术语 | 含义 | 展开 |
-|---|---|---|
-| **共识快照** | 单个需求的结构化状态在人可读层面的物化：一个需求一个文件夹，含最新快照文档 + 账本 + 事件流。它是 SSOT 的物质载体。 | [03](./03-architecture.md) |
-| **全局 session** | 逻辑概念：以单个需求为锚定单位的流程上下文。其物化形态就是共识快照文件夹。 | [02](./02-requirements.md) |
-| **协调 agent（coordinator）** | 只持有最新快照上下文的 agent，负责路由、剪裁与汇总；隔离设计的前提是不让它看见历史与全量仓库。 | [07](./07-context.md) |
-| **共识账本（`ledger.yaml`）** | 共识条目的集合，机判层：条目状态、证据锚点、投票记录都在这里。 | [04](./04-consensus-ledger.md) |
-| **共识条目** | 账本里的原子单元：一条带证据锚点的结论，带状态机与投票 / 推翻记录；状态枚举 `provisional` / `confirmed` / `overturned`（中文叙述写作「临时（provisional）」）。 | [04](./04-consensus-ledger.md) |
-| **事件流（`events.jsonl`）** | append-only、永不清理的历史层，是唯一的事实与顺序来源；进 git，但永不进 LLM 上下文。 | [03](./03-architecture.md) |
-| **快照文档** | `prd.md` / `adr.md` / `plan.md` / `findings.md` 等最新层文档，允许人工编辑与主动清理；frontmatter 只是显示层。 | [07](./07-context.md) |
-| **里程碑文档** | 节点出口的封闭枚举：`prd.md` / `adr.md` / `plan.md` / `findings.md`（外加执行阶段的代码产物）。它是节点出口字段（`artifact`）的取值，与门禁写回目标字段（`write_back`）是两个不同字段，不可混用。 | [06](./06-gates-workflow.md) |
-| **证据锚点** | 结论与代码/用例/知识条目的连接点。三层结构：符号锚点（活，参与判定）+ commit SHA（存档）+ 行号（仅显示层）。 | [04](./04-consensus-ledger.md) |
-| **门禁（gate）** | 流程节点上的可配置检查点：角色 × 时机 × 校验 × 放行条件。 | [06](./06-gates-workflow.md) |
-| **校验器（checker）** | 门禁引用的具体校验能力。新增 gate 零代码 = 组合已有 checker。 | [06](./06-gates-workflow.md) |
-| **触发式升级** | 默认走轻量通道，出现高风险信号时系统提议升级为重型流程，人一键确认；降级不需要理由。 | [06](./06-gates-workflow.md) |
-| **盲评投票** | k=2~3 个异构模型独立评审同一决策点：不共享中间推理、不辩论，各自提交结论与证据锚点。 | [05](./05-voting.md) |
-| **难度门** | 投票的前置筛选：只投「非重点 + 可机验 + 可逆」的决策点，难题不投票反而升级人工。 | [05](./05-voting.md) |
-| **锚点独立度** | 票与票之间证据锚点的重合程度（Jaccard ≥ 0.5 或一方为另一方的子集即判为疑似同源错误，强制升级人工；阈值 0.5 为初值，由实验一校准）。 | [05](./05-voting.md) |
-| **上下文包** | 提供给某个工作单元的最小上下文：前置高信号层（带锚点、有预算）+ 定位符层（按需 JIT 拉取）。 | [07](./07-context.md) |
-| **知识条目（KB-xxxx）** | 跨需求沉淀的可复用事实或规则，走「候选 → 生效 → 过期/废止」生命周期；ID 一经发放终身不改。 | [08](./08-self-evolution.md) |
-| **复述检验** | 知识条目入库前的门槛：另一个 agent 能用自己的话讲清来源与边界，并能检索到证据。讲不清就不许获得权威。 | [08](./08-self-evolution.md) |
-| **单机器人路由** | 群里只出现一个机器人，按内容与 @ 对象把事件路由到后端角色 agent，并把结果翻译回群；解析不确定时反问而非猜测。 | [03](./03-architecture.md) |
-
----
-
-## 4. 文档约定
-
-- **验证句式**：需求条目用 EARS 模板书写（普遍式/事件式/状态式/可选式/异常式）；规格关键词沿用 RFC 2119 语义（**必须** = 强制，**应该** = 强烈建议，**可以** = 可选）。
-- **决策引用**：一律引用 ADR 编号（ADR-0001 ~ ADR-0016），完整记录见 [adr/](./adr/)；文中不重新论证已定稿决策，只说明它在本文档中的落点。
-- **待确认项**：方案期的确认点用 CP 编号引用；已确认的结论按定稿口径书写，不再标注为待定。
-- **时间表述**：里程碑与排期一律用相对表述（如「M1：方案定稿后一周」），不写死日历日期。
-- **未验证参数**：所有需实验校准的数值（投票 k 值、误伤率上限、观察期时长等）会显式标注来源与校准方式，不得被当作已验证结论引用。
-- **外部证据**：引用外部结论时保留来源（论文/项目/URL），并标注置信度；内部平台一律以「DevMaster（某公司内部平台）」指代，不含公司内部业务信息。
-- **链接约定**：文档间链接使用相对路径；文件名即编号，正文按编号引用章节。
+- 当前代码以 `src/`、`apps/` 和测试为准；当前行为入口见 [current-architecture.md](./current-architecture.md)。
+- 跨模块契约以 `src/core/schema.ts`、`src/core/ports.ts` 和 [protocol.md](./protocol.md) 为准。
+- 架构取舍以 [ADR](./adr/) 为准；正文不重复论证已经定稿的方案。
+- `01`~`09`、`11`~`13` 和 `proposal-console-platform.md` 保留为历史设计和详细背景，不作为当前实现说明。
+- `research/` 保存调研快照，外部版本、star、限额等信息需要重新核验后才能作为当前事实。

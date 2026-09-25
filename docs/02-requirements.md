@@ -1,6 +1,8 @@
 # 02 · 需求定义
 
-> **状态：设计定稿，代码未实现。** 本文描述的目标、范围、领域模型与需求均为设计约定，尚无对应实现。
+> 参考性质：历史需求模型与指标设计。当前实现范围见 [`./current-architecture.md`](./current-architecture.md)。
+
+> **状态：历史需求模型。** 本文保留目标、范围和需求基线；当前实现范围见 `docs/current-architecture.md`。
 >
 > 读者：第一次接触本项目的外部开发者。
 
@@ -366,5 +368,5 @@ flowchart LR
 | §3.5 上下文包、§4.3 文档防腐的实现 | [`./07-context.md`](./07-context.md) |
 | §4.5 知识自进化与复述检验的实现 | [`./08-self-evolution.md`](./08-self-evolution.md) |
 | §1 度量指标的实验校准（含回放实验协议） | [`./12-experiments.md`](./12-experiments.md) |
-| 16 条 ADR 决策全集 | [`./adr/README.md`](./adr/README.md) |
+| 20 条 ADR 决策全集 | [`./adr/README.md`](./adr/README.md) |
 | 全文档导航 | [`./INDEX.md`](./INDEX.md) |

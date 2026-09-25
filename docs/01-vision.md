@@ -1,6 +1,8 @@
 # 01 · 定位与设计哲学
 
-> **状态：设计定稿，代码未实现。** 本文及本方案文档集中的所有机制均为设计方案，尚未有可运行实现；凡涉及实现细节的表述，均指设计意图而非现状。
+> 参考性质：历史设计背景。当前实现范围见 [`./current-architecture.md`](./current-architecture.md)。
+
+> **状态：历史设计背景。** 本文保留定位和设计动机；可运行实现见 `README.md` 与 `docs/current-architecture.md`。
 >
 > 读者：第一次接触本项目的外部开发者。本文不假设你读过任何其他材料。
 
@@ -215,5 +217,5 @@ agent-cord 的继承与修正：
 | 路线图与验收标准 | [`./10-roadmap.md`](./10-roadmap.md) |
 | 风险、待校准参数与开放问题 | [`./11-risks.md`](./11-risks.md) |
 | 验证实验设计（含回放实验协议） | [`./12-experiments.md`](./12-experiments.md) |
-| 16 条 ADR 决策全集 | [`./adr/README.md`](./adr/README.md) |
+| 20 条 ADR 决策全集 | [`./adr/README.md`](./adr/README.md) |
 | 全文档导航 | [`./INDEX.md`](./INDEX.md) |

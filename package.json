@@ -1,0 +1,52 @@
+{
+  "name": "agent-cord",
+  "version": "0.0.0",
+  "description": "Multi-agent consensus collaboration substrate: evidence-anchored consensus ledger, blind voting, gate workflow",
+  "type": "module",
+  "license": "Apache-2.0",
+  "workspaces": [
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "bin": {
+    "cord": "./dist/cli.js",
+    "cord-merge-driver": "./dist/merge-driver.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:all": "npm run build && npm run build -w @agent-cord/console",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit && npm run typecheck --workspaces --if-present",
+    "cord": "tsx src/cli.ts",
+    "serve": "node --conditions=development --import tsx apps/server/src/main.ts",
+    "dev:console": "npm run dev -w @agent-cord/console"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^1.5.0",
+    "@dagrejs/graphlib": "^4.0.5",
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "ai": "^6.0.0",
+    "execa": "^10.0.1",
+    "ulid": "^3.0.0",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

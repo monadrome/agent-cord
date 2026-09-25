@@ -3,6 +3,7 @@
 - 状态：accepted（设计定稿，代码未实现）
 - 日期：2026-09-24
 - 关联：ADR-0006（盲评隔离）、ADR-0009（语言与运行形态）、ADR-0013（投票执行器走 API 而非 CLI）、ADR-0016（agent schema 与权限声明）
+- 部分取代：决策中「驱动协议采用裸 CLI headless 接口」一句由 ADR-0017 取代为「ACP 直连」（2026-09-24）；本 ADR 其余决策（每任务 subprocess、盲评隔离、超时预算三层防线）不变
 - 来源：本方案技术选型调研（2026-09，内部调研纪要）——agent 运行时与现有 AI CLI 驱动方式
 
 ## 背景
@@ -103,6 +104,11 @@
 7. **审计与回放**：事件流（`events.jsonl`）全量落盘进需求文件夹，投票与回放实验的产物落 `votes/` 子目录（`findings.md` 是快照文档、不是目录），作为回放实验与锚点重合检查的原始数据源；`session_id` 与 transcript 路径写入 `VoteRecord`，transcript 本身随 `VoteRecord` 的引用落在 `votes/` 下。
 8. **coordinator 的运行时形态**：coordinator 本身是无长会话的短任务驱动者（取快照 → 派任务 → 收结果 → 写事件），因此它天然走 A 形态；不要把 coordinator 做成常驻会话 agent，否则「只看最新快照」的防幻觉设计会被长会话的历史累积侵蚀。
 9. **与 ADR-0013 的分工必须写进入接文档**：生成侧角色 agent 走本 ADR 的 CLI 驱动；判定/投票走 ADR-0013 的 ProviderAdapter 直连 API。两个执行器并存是设计，不是不一致。
+10. **2026-09-24 校准（开源实现调研，见 [docs/research/2026-09-24-02](../research/2026-09-24-02-headless-agent-drivers.md)）**：
+    - **CLI 名单更新**：Gemini CLI 自 2026-06-18 起停止服务免费/Pro/Ultra 消费者账号，官方后继为 Antigravity CLI（`agy`，闭源，仅可经 ACP 或子进程驱动）；gemini-cli 仅在 BYO API key 场景可用。Aider 自 2026-05-22 后无维护性提交且存在未修复 RCE（CVE-2026-10175），移出首版支持列表。
+    - **驱动协议层出现标准答案**：ACP（**Agent Client Protocol**，Zed 发起，勿与 IBM 的 Agent Communication Protocol 混淆）协议 v1 已稳定，官方 TS SDK `@agentclientprotocol/sdk`（Apache-2.0），registry 已覆盖 41 个 agent（含 kimi 原生 `kimi acp`、官方 claude-acp / codex-acp 适配器）；其 `session/request_permission` 与 `session/load` 分别天然对应门禁人工放行与会话恢复。`AgentDriver` 的第一实现应为 ACP client，非 ACP 的 CLI 保留裸 headless 降级驱动。这不动摇本 ADR 的核心决策（每任务 subprocess、供应商无关）——ACP 本身即「agent 作为 client 的子进程 + JSON-RPC over stdio」。
+    - **PTY 抓屏路线已被证伪**（coder/agentapi 已归档 deprecated）；仅对无结构化接口的 agent 作最后兜底。
+    - **Claude Agent SDK / claude-code npm 包为专有许可**：仅可作为用户本机 BYO 凭证的可选适配器，不进核心依赖树；daemon 不代管任何厂商凭据。
 
 ## 证据来源
 
@@ -116,3 +122,4 @@
 8. 非交互模式的安全加固实践（默认拒绝工具、显式 opt-in 才自动批准）：https://github.com/duanyytop/agents-radar/issues/1328
 9. 多 agent 失败模式（状态污染、错位、不终止是长驻复用的风险来源）：MAST https://arxiv.org/abs/2503.13657
 10. 项目内部：方案提案 §6.6（对抗执行与集成测试自动化）、§7.A（agent 定义最小 schema）；工作清单 W1.1（Agent 定义框架：注册式、新增 agent 零代码）；配套调研（2026-09）Q1、Q9（agent 权限分级表与凭证策略）。
+11. 开源实现调研归档（2026-09-24）：ACP（Agent Client Protocol）协议 v1 与 registry 现状（41 个 agent）、Gemini CLI 停服与 Antigravity 后继、Aider 停滞 + CVE-2026-10175、PTY 抓屏路线证伪（coder/agentapi 归档）、Claude SDK 专有许可与 BYO 凭证边界：[docs/research/2026-09-24-02-headless-agent-drivers.md](../research/2026-09-24-02-headless-agent-drivers.md)

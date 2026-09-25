@@ -1,6 +1,8 @@
 # 07 · 上下文工程：共识快照维护、协调 agent 与文档防腐
 
-> 状态：**设计定稿，代码未实现**（本方案文档集全部为设计定稿，尚无实现代码）
+> 参考性质：规划中的上下文与防腐设计。当前已实现范围见 [`./current-architecture.md`](./current-architecture.md)。
+
+> 状态：规划中的上下文与防腐设计；当前实现范围见 [`./current-architecture.md`](./current-architecture.md)。
 > 关联决策：[ADR-0003](./adr/ADR-0003-consensus-carrier.md)（共识载体 = 结构化快照 + 事件流，群聊只是交互捕获层）、[ADR-0004](./adr/ADR-0004-single-bot-routing.md)（单机器人路由）、[ADR-0007](./adr/ADR-0007-asymmetric-model-allocation.md)（非对称模型分配）、[ADR-0010](./adr/ADR-0010-ssot-storage.md)（SSOT 存储 = 文件 + git + JSONL 事件流 + `ledger.yaml`）、[ADR-0015](./adr/ADR-0015-knowledge-base.md)（知识库 = Markdown + frontmatter + 派生索引）
 > 关联需求：**R1**（变更必须写入全局 session 并同步所有工作单元）、**R2**（执行期为每个工作单元提供剪裁后的上下文包）、**R3**（结论必须带证据锚点写入，禁止只存在于单会话）、**R8**（提交触碰锚点区域时必须确认共识仍成立）、**R9**（禁止不留痕地改共识去迁就实现）
 > 相邻章节：[`./03-architecture.md`](./03-architecture.md)（快照布局、协调 agent 隔离的实现分层）、[`./04-consensus-ledger.md`](./04-consensus-ledger.md)（账本条目与证据锚点 schema）、[`./05-voting.md`](./05-voting.md)、[`./06-gates-workflow.md`](./06-gates-workflow.md)（防腐门禁的挂载与放行语义）、[`./08-self-evolution.md`](./08-self-evolution.md)（知识条目如何进入前置高信号层）

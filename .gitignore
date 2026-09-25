@@ -1,0 +1,15 @@
+# 依赖与构建产物（dist 由 npm run build 再生，不进 SSOT）
+node_modules/
+dist/
+*.tsbuildinfo
+
+# cord 派生索引与临时文件（ADR-0010 注意点 8：可删可再生；cord/ 的文档与事件流本身是 SSOT，必须入库）
+cord/.index/
+cord/**/*.tmp
+
+# 编辑器 / 系统
+.DS_Store
+.idea/
+.vscode/
+*.log
+coverage/
