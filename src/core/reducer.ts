@@ -207,8 +207,23 @@ function commit(state: EntryState, entry: LedgerEntry, event: EventEnvelope): vo
   state.last_event_hash = hashEvent(event);
 }
 
+/**
+ * 合并后的事件流按 event_id 去重；doctor 仍会把重复 id 报为损坏，
+ * reducer 只保证重复事实不会被第二次应用改变投影（ADR-0020 决策 3）。
+ */
+function dedupeEventIds(events: readonly EventEnvelope[]): EventEnvelope[] {
+  const seen = new Set<string>();
+  const unique: EventEnvelope[] = [];
+  for (const event of events) {
+    if (seen.has(event.event_id)) continue;
+    seen.add(event.event_id);
+    unique.push(event);
+  }
+  return unique;
+}
+
 export function reduceEvents(events: readonly EventEnvelope[]): Ledger {
-  const ordered = orderEvents(events);
+  const ordered = orderEvents(dedupeEventIds(events));
   const entries = new Map<string, EntryState>();
   const order: string[] = [];
 

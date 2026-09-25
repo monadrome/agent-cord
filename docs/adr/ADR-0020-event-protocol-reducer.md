@@ -1,6 +1,6 @@
 # ADR-0020 ｜ 事件协议与确定性 reducer：seq 语义、因果链、合并全序与投影契约
 
-- 状态：accepted（设计定稿，代码未实现）
+- 状态：accepted（设计定稿，M2 事件协议与 reducer 已实现）
 - 日期：2026-09-24
 - 关联：ADR-0010（SSOT 存储与合并策略）、ADR-0012（事件信封与分发）、ADR-0018（编排内核的恢复语义建立在事件流之上）、ADR-0013（投票结果只经事件入账）
 - 来源：Codex 对抗性设计评审（2026-09-24，[docs/research/2026-09-24-codex-design-review.md](../research/2026-09-24-codex-design-review.md)）暴露的协议空缺；2026-09-24 人工拍板

@@ -78,6 +78,8 @@ export class JsonlEventStore implements EventStore {
   private queue: Promise<unknown> = Promise.resolve();
   private lastSeq = 0;
   private lastHash: string | null = null;
+  /** 写入结果不确定时禁止继续追加，避免把损坏行后再接上合法事件。 */
+  private writeUncertain = false;
 
   private constructor(options: JsonlEventStoreOptions) {
     this.sessionId = options.sessionId;
@@ -99,6 +101,9 @@ export class JsonlEventStore implements EventStore {
   }
 
   async append(draft: EventDraft): Promise<EventEnvelope> {
+    if (this.writeUncertain) {
+      throw new Error("事件流写入结果不确定：请重新打开 EventStore 后再追加");
+    }
     const run = this.queue.then(() => this.appendSerialized(draft));
     this.queue = run.then(
       () => undefined,
@@ -129,6 +134,9 @@ export class JsonlEventStore implements EventStore {
   }
 
   private async appendSerialized(draft: EventDraft): Promise<EventEnvelope> {
+    if (this.writeUncertain) {
+      throw new Error("事件流写入结果不确定：请重新打开 EventStore 后再追加");
+    }
     const parsed = EventDraftSchema.parse(draft);
     if (parsed.session_id !== this.sessionId) {
       throw new Error(
@@ -142,7 +150,13 @@ export class JsonlEventStore implements EventStore {
       timestamp: this.now().toISOString(),
     });
     const line = `${canonicalJson(event)}\n`;
-    await this.persistLine(this.filePath, line);
+    try {
+      await this.persistLine(this.filePath, line);
+    } catch (error) {
+      // persistLine 可能已经写入了部分内容后才失败；此时不能在同一实例上继续追加。
+      this.writeUncertain = true;
+      throw error;
+    }
     this.lastSeq = event.seq;
     this.lastHash = hashEvent(event);
     this.dispatch(event);
@@ -179,10 +193,15 @@ export class JsonlEventStore implements EventStore {
       }
     }
     const lines = await this.readCompleteLines();
-    const tail = lines[lines.length - 1];
+    if (this.notes.some((note) => note.kind === "unparsable_line")) {
+      this.writeUncertain = true;
+    }
+    // merge driver 可能让文件行序与因果序不同，追加游标必须从拓扑序末端继承。
+    const ordered = orderEvents(lines.map(({ event }) => event));
+    const tail = ordered[ordered.length - 1];
     if (tail !== undefined) {
-      this.lastSeq = tail.event.seq;
-      this.lastHash = hashEvent(tail.event);
+      this.lastSeq = tail.seq;
+      this.lastHash = hashEvent(tail);
     }
   }
 

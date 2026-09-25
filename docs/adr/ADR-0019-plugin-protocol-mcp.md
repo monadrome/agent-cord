@@ -1,6 +1,6 @@
 # ADR-0019 ｜ 外部校验器插件协议：MCP over stdio，不自造线协议
 
-- 状态：accepted（设计定稿，代码未实现）
+- 状态：accepted（设计定稿，MCP 外部 checker 待 M3 实现）
 - 日期：2026-09-24
 - 关联：ADR-0016（分发与插件机制——本 ADR 把其「外部进程 IPC 插件 + 协议 v1 冻结」落定为具体协议）、ADR-0014（三级校验器的第 3 级）、ADR-0017（AgentDriver 的 ACP，同属 JSON-RPC 族）
 - 来源：开源实现调研（2026-09-24，[docs/research/2026-09-24-05](../research/2026-09-24-05-gate-dsl-cel-policy-plugins.md)）；2026-09-24 人工拍板

@@ -12,7 +12,7 @@
 - **流程门禁与工作流**：apiVersion 化 YAML 定义有向图，gate 引用 checker 注册表，新增 gate 零代码。
 - **事件协议**：EventEnvelope v1（ULID + 血统内 seq + `prev_event_hash` 因果链），单写者原子追加，`ledger.yaml` 由确定性纯函数 reducer 从事件流投影而来。
 
-**当前状态**：M2 最小闭环已实现并提交进 git（约 5600 行 TypeScript，218 个测试用例全绿）：core 事件协议与 reducer、workflow 薄执行器、voting 盲评执行器、driver（ACP/headless）、cord CLI。未实现：IM 适配（飞书）、CEL/外部插件校验器、知识库检索、防腐钩子等（见 `docs/10-roadmap.md`）。`docs/` 是已定稿的方案文档集（13 章 + ADR-0001~0020 + 调研归档），设计与实现状态的权威表述以 README「当前状态与参与方式」为准。
+**当前状态**：M2 最小闭环与控制台 MVP 已实现（约 5600 行核心 TypeScript）：core 事件协议与 reducer、workflow 薄执行器、voting 盲评执行器、driver（ACP/headless）、cord CLI、事件流 merge driver，以及 `apps/server` REST/SSE 服务、进程内 runner、人工 gate 桥接和 `apps/console` React 控制台。控制台覆盖需求总览与待审批决策、需求列表与创建、详情（时间线与 gate 状态、快照文档查看/编辑、账本筛选、盲评投票、SSE 实时事件、人工审批）、SDLC 版本查看与校验/发布。未实现：IM 适配（飞书）、CEL/外部插件校验器、知识库检索、防腐钩子、多用户鉴权等（见 `docs/10-roadmap.md`）。`docs/` 是已定稿的方案文档集（13 章 + ADR-0001~0022 + 调研归档），设计与实现状态的权威表述以 README「当前状态与参与方式」为准。
 
 ## 技术栈与运行要求
 
@@ -25,14 +25,19 @@
 ## 常用命令
 
 ```bash
-npm run build       # tsc -p tsconfig.json → dist/
-npm test            # vitest run（全部测试，当前 218 个用例 / 20 个文件全绿）
-npm run typecheck   # tsc --noEmit
+npm run build       # tsc -p tsconfig.json → dist/（仅领域内核 src/）
+npm run build:all   # 内核 + 控制台前端（apps/console → dist/）
+npm test            # vitest run（tests/ + apps/*/tests/）
+npm run typecheck   # 内核 + 各 workspace 的 tsc --noEmit
 npm run cord -- <args>   # 开发期用 tsx 直接跑 src/cli.ts，如 npm run cord -- demo
 npx vitest run tests/core/store.test.ts   # 跑单个测试文件
+npm run serve       # 启动控制台后端（Fastify，默认 http://127.0.0.1:7250，CORD_PORT/CORD_ROOT 可改）
+npm run dev:console # 前端开发服务器（Vite，/api 代理到 7250）
 ```
 
 CLI（`bin` 名 `cord`，入口 `dist/cli.js`）：`cord init`（初始化 `cord/` SSOT 根，幂等）、`cord new <req-id>`、`cord doctor [--fix]`、`cord demo`（临时目录跑 M2 最小闭环，纯离线只用 MockProvider）、`cord events <req-id>`。
+
+HTTP API（ADR-0021）：server 是核心能力的 daemon 暴露形态，REST 写命令一律要求 `Idempotency-Key`；SSE 端点 `GET /api/v1/requirements/:req_id/events/stream`（id = 事件 seq，支持 Last-Event-ID 回放）；错误统一 `{ code, message, details }`。API DTO 契约在 `apps/server/src/contracts.ts`（console 经 `@agent-cord/server/contracts` 复用，不改 `src/core/schema.ts`）。
 
 ## 代码组织
 
@@ -58,8 +63,15 @@ src/
 ├── cli.ts           # cord CLI：只做薄编排，把命令转成对 core/workflow/voting 公共 API 的调用
 └── index.ts         # 库导出入口（CLI / daemon / 库导出是同一核心的三种暴露形式）
 
+apps/
+├── server/          # 控制台后端（ADR-0021）：Fastify REST + SSE；services/ 只经 core 公共 API，
+│                    #   写只经 session.events.append；cord/.index/server-index.sqlite 是
+│                    #   可删可重建的派生索引（幂等键 + runs 登记）；contracts.ts 是前后端共享 DTO
+└── console/         # 控制台前端（React + Vite）：只展示投影、发起命令、处理人工任务，
+                     #   不含 reducer / 工作流状态机的第二份实现
+
 tests/               # 目录结构镜像 src/：core/ voting/ workflow/ driver/ cli/ + e2e/
-docs/                # 方案文档：01~13 章、adr/（ADR-0001~0020）、research/（2026-09-24 调研归档）、INDEX.md
+docs/                # 方案文档：01~13 章、adr/（ADR-0001~0022）、research/（2026-09-24 调研归档）、INDEX.md
 ```
 
 每个模块目录有 `index.ts` 作为公共 API 出口（barrel），模块间只经 barrel 或 `core/ports.ts` 的接口依赖；provider SDK 类型（如 AI SDK 的 `LanguageModel`）不得泄漏出所在模块。
@@ -68,7 +80,7 @@ docs/                # 方案文档：01~13 章、adr/（ADR-0001~0020）、rese
 
 - **语言**：代码注释、文档、CLI 输出一律使用**中文**；标识符用英文 snake_case（如 `session_dir`、`prev_event_hash`）。新增代码须保持这一风格。
 - **契约权威**：`src/core/schema.ts` 与 `src/core/ports.ts` 是模块间契约的唯一权威，文件头明确标注「修改须经 ADR」。改动这两个文件前必须在 `docs/adr/` 新增或修订 ADR。
-- **ADR 引用**：注释中引用设计依据用 ADR 编号（如 `ADR-0020 决策 4`）；20 条 ADR 全部 accepted，但 accepted 不等于已实现。
+- **ADR 引用**：注释中引用设计依据用 ADR 编号（如 `ADR-0020 决策 4`）；22 条 ADR 全部 accepted，但 accepted 不等于已实现。
 - **确定性**：`core/hash.ts` 与 `core/reducer.ts` 只放纯函数——同输入同输出，**禁止读时钟与随机数**。
 - **单写路径**：一切状态变更只经 `session.events.append`；workflow 执行器等不写任何文件。事件先落盘、落盘成功后才向订阅者派发。
 - **fail-closed**：checker 无法判定时一律返回 `block`，不放行；「无证据不入账」对门禁结论同样成立。
@@ -79,7 +91,7 @@ docs/                # 方案文档：01~13 章、adr/（ADR-0001~0020）、rese
 
 ## 测试策略
 
-- 测试与源码同构镜像：`tests/<module>/<file>.test.ts`；vitest include 为 `tests/**/*.test.ts`。
+- 测试与源码同构镜像：`tests/<module>/<file>.test.ts`；apps 的测试在 `apps/<app>/tests/`；vitest include 为 `tests/**/*.test.ts` 与 `apps/*/tests/**/*.test.ts`（vitest 经 `resolve.conditions: ["development"]` 把 workspace 内的 `agent-cord` 解析到 `src/`，测试不依赖 dist 构建产物）。
 - **离线优先**：测试不发起网络调用。投票一律用 `MockProvider`（可按调用序编排响应、注入失败）；真实 provider 逻辑（`AiSdkProvider`）只测适配层。
 - **driver 测试**：用 `tests/driver/fixtures/` 下的假 CLI 脚本（`fake-cli.mjs`、`fake-acp-agent.mjs`）模拟子进程，覆盖超时杀进程树、permission 超时应答等防御路径。
 - **e2e**：`tests/e2e/m2-loop.test.ts` 用全部真实实现在临时目录里跑 M2 闭环（init → session → 事件流 → MockProvider k=2 投票 + 真文件锚点机验 → 内置门禁 → reducer 重建账本 → doctor 全绿），并含「执行中途被杀后恢复不重复产生事件」的用例。
@@ -95,9 +107,9 @@ docs/                # 方案文档：01~13 章、adr/（ADR-0001~0020）、rese
 - 代码中的具体体现：锚点机验器拒绝逃逸根目录的路径（`createAnchorVerifier` 校验 resolved path 前缀）；ACP 驱动对 permission request 有独立超时且永远应答，不让子 agent 挂死宿主。
 - 投票与检查逻辑**不做静默降级**：模型不可用、版本下线、解析失败一律显式记为异常/弃权，由编排层处理。
 
-## 已验证状态（2026-09-24）
+## 已验证状态（2026-09-25）
 
-- `npm test`：20 个测试文件、218 个用例全部通过。
-- `npm run typecheck`、`npm run build`：均通过。
-- `npm run typecheck`、`npm run build`：均通过。
-- README 与 docs/adr/README.md 的状态表述已与代码现实同步（M2 已实现）。
+- `npm test`：24 个测试文件、252 个用例全部通过（含 apps/server 13 个 API 用例、apps/console 13 个用例）。
+- `npm run typecheck`、`npm run build`、`npm run build:all`（内核 + console）：均通过。
+- smoke test（临时工作区 curl 全链路）：创建需求（幂等键重放不产生重复事件）→ 编辑 PRD → 启动默认 SDLC → SSE 回放与 Last-Event-ID → review 人工 gate 决策 → run completed → ledger 投影自洽 → doctor 全绿；server 重启与删除 `cord/.index` 后状态均从事件流恢复。
+- README 与 docs/adr/README.md 的状态表述已与代码现实同步（M2 + 控制台 MVP 已实现）。

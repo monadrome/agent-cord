@@ -227,6 +227,17 @@ describe("reducer：非法流转按冲突处理", () => {
 });
 
 describe("reducer：幂等、忽略与确定性", () => {
+  it("合并重复 event_id 不会把同一事实第二次应用成冲突", () => {
+    const events = chain([
+      { type: "ledger.entry.proposed", payload: propose() },
+      { type: "ledger.entry.confirmed", payload: { entry_id: "C-001", expected_status: "provisional" } },
+    ]);
+    const duplicate = { ...events[1]! };
+    const ledger = reduce([...events, duplicate]);
+    expect(entryOf(ledger, "C-001").status).toBe("confirmed");
+    expect(entryOf(ledger, "C-001").conflict).toBe(false);
+  });
+
   it("内容相同的重复提议是幂等空操作，内容不同则冲突（不覆盖）", () => {
     const idempotent = entryOf(
       reduce(

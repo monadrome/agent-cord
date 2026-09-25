@@ -32,18 +32,27 @@ export type {
   EventDraft,
   EventEnvelope,
   EventType,
+  GateAction,
+  GateDef,
+  GateResult,
   Ledger,
   LedgerEntry,
   LedgerStatus,
+  VoteRecord,
+  WorkflowDef,
 } from "./schema.js";
 
 export type {
+  Checker,
   CheckerContext,
+  CheckerRegistry,
   DoctorReport,
   EventStore,
+  HumanGate,
   NormalizedEvent,
   Reducer,
   SessionHandle,
+  WorkflowExecutor,
 } from "./ports.js";
 
 export {

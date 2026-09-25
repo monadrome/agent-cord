@@ -51,7 +51,7 @@ describe("cord init", () => {
 
     const commands = result.merge_driver_commands.join("\n");
     expect(commands).toContain(`git config merge.${MERGE_DRIVER_NAME}.name`);
-    expect(commands).toContain(`git config merge.${MERGE_DRIVER_NAME}.driver "node`);
+    expect(commands).toContain(`git config merge.${MERGE_DRIVER_NAME}.driver "cord-merge-driver`);
     expect(commands).toContain("%O %A %B");
   });
 

@@ -1,6 +1,6 @@
 # ADR-0018 ｜ 工作流 DSL 与编排内核的实现选型：自研 DSL + CEL 端口隔离 + 薄执行器/XState
 
-- 状态：accepted（设计定稿，代码未实现）
+- 状态：accepted（设计定稿，M2 薄执行器已实现；CEL/XState 集成待实现）
 - 日期：2026-09-24
 - 关联：ADR-0014（工作流与门禁定义语言——本 ADR 落地其实现选型，不改动「apiVersion YAML + 三级校验器」的形态决策）、ADR-0010（SSOT 存储——编排内核的恢复语义建立在事件流之上）、ADR-0019（外部校验器插件协议）
 - 来源：开源实现调研（2026-09-24，[docs/research/2026-09-24-01](../research/2026-09-24-01-orchestration-workflow-engines.md) 与 [docs/research/2026-09-24-05](../research/2026-09-24-05-gate-dsl-cel-policy-plugins.md)）；2026-09-24 人工拍板

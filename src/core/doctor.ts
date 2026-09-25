@@ -90,6 +90,12 @@ function checkLineageSeq(events: readonly EventEnvelope[], notes: readonly Event
     }
   }
 
+  for (const event of events) {
+    if (event.prev_event_hash === null && event.seq !== 1) {
+      violations.push(`血统根事件 seq=${event.seq}，应为 1（${event.event_id}）`);
+    }
+  }
+
   // 读侧无法解析的整行 = 事件已经丢了，必须可见（残行的截断属正常崩溃恢复，不算违例）
   for (const note of notes) {
     if (note.kind === "unparsable_line") violations.push(note.detail);
@@ -102,6 +108,20 @@ function checkLineageSeq(events: readonly EventEnvelope[], notes: readonly Event
       violations.length === 0
         ? `${events.length} 个事件、${linked} 条因果边，各血统内 seq 严格递增且无空洞`
         : `血统内 seq 校验失败：${summarize(violations)}`,
+  };
+}
+
+function checkSessionIdentity(events: readonly EventEnvelope[], sessionId: string): Check {
+  const foreign = events
+    .filter((event) => event.session_id !== sessionId)
+    .map((event) => `${event.event_id} 属于 ${event.session_id}`);
+  return {
+    name: "event_session_identity",
+    ok: foreign.length === 0,
+    detail:
+      foreign.length === 0
+        ? `全部 ${events.length} 个事件属于 session ${sessionId}`
+        : `发现非当前 session 的事件：${summarize(foreign)}`,
   };
 }
 
@@ -157,6 +177,7 @@ export async function runDoctor(session: SessionHandle): Promise<DoctorReport> {
   }
 
   const checks: Check[] = [
+    checkSessionIdentity(events, session.req_id),
     checkEventIdUnique(events),
     checkPrevChain(events),
     checkLineageSeq(events, notes),

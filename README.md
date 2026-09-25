@@ -1,6 +1,6 @@
 # agent-cord
 
-> **状态：M2 最小闭环已实现（218 个测试用例全绿，2026-09-24）。** 本仓库的 `docs/` 是方案文档集（设计与协议），`src/` 是已实现的代码；已实现范围见「当前状态与参与方式」。
+> **状态：M2 最小闭环 + 控制台 MVP 已实现（2026-09-25）。** 本仓库的 `docs/` 是方案文档集（设计与协议），`src/` 是领域内核，`apps/server` 与 `apps/console` 是控制台服务与前端；已实现范围见「当前状态与参与方式」。
 > 读者：第一次接触本项目的外部开发者。
 
 **一句话定位**：agent-cord 是一个开源的多 agent 共识协作基座——让「系统应该怎么表现」的每一个结论都带证据、可独立复核、可度量。
@@ -204,9 +204,9 @@
 
 ---
 
-## 7. 架构决策速览（ADR-0001 ~ ADR-0020）
+## 7. 架构决策速览（ADR-0001 ~ ADR-0022）
 
-**本节回答**：20 条已定稿的架构决策分别是什么。
+**本节回答**：22 条已定稿的架构决策分别是什么。
 
 完整决策记录（背景、备选、理由、被否方案）见 [docs/adr/](./docs/adr/)，每条形如 `ADR-000N-<slug>.md`。
 
@@ -232,8 +232,10 @@
 | [ADR-0018](./docs/adr/ADR-0018-workflow-dsl-kernel-impl.md) | 工作流 DSL 自研（借 OWS 事件词表）+ CEL 求值器端口隔离（`@marcbachmann/cel-js`）+ 编排内核 = 自研薄执行器 + XState v5 |
 | [ADR-0019](./docs/adr/ADR-0019-plugin-protocol-mcp.md) | 外部校验器插件协议 = MCP over stdio，不自造线协议 |
 | [ADR-0020](./docs/adr/ADR-0020-event-protocol-reducer.md) | 事件协议与确定性 reducer = EventEnvelope v1（ULID + 血统内 seq + prev_event_hash 因果链）+ 单写者原子追加 + reducer 版本与校验和 + 并发冲突转人工 |
+| [ADR-0021](./docs/adr/ADR-0021-console-server-layering.md) | 控制台与 server 分层 = Fastify REST 命令 + SSE 只读推送 + node:sqlite 派生索引（只存幂等键与运行登记）+ 人工 gate 经挂起 promise 桥接 REST |
+| [ADR-0022](./docs/adr/ADR-0022-sdlc-lifecycle.md) | SDLC 定制模型 = 现有 WorkflowDef 的文件化封装（draft → validated → published → archived），发布版本不可原地修改，run 绑定具体版本 |
 
-ADR-0001 ~ ADR-0008 回答「这个平台是什么、边界在哪」，ADR-0009 ~ ADR-0016 回答「这个平台用什么造」，ADR-0017 ~ ADR-0020 是依据 2026-09-24 开源实现调研与对抗性设计评审（[docs/research/](./docs/research/)）拍板的实现选型；20 条全部为 `accepted`，但 `accepted` 不等于已实现。决策地图与置信度总览见 [docs/adr/README.md](./docs/adr/README.md)。
+ADR-0001 ~ ADR-0008 回答「这个平台是什么、边界在哪」，ADR-0009 ~ ADR-0016 回答「这个平台用什么造」，ADR-0017 ~ ADR-0020 是依据 2026-09-24 开源实现调研与对抗性设计评审（[docs/research/](./docs/research/)）拍板的实现选型，ADR-0021 ~ ADR-0022 是控制台与平台化（[docs/proposal-console-platform.md](./docs/proposal-console-platform.md)）的落地决策；22 条全部为 `accepted`，但 `accepted` 不等于已实现。决策地图与置信度总览见 [docs/adr/README.md](./docs/adr/README.md)。
 
 ---
 
@@ -241,7 +243,7 @@ ADR-0001 ~ ADR-0008 回答「这个平台是什么、边界在哪」，ADR-0009 
 
 **本节回答**：现在能跑吗、接下来做什么、以什么许可开源。
 
-- **实现状态**：**M2 最小闭环已实现**（2026-09-24）——事件协议与确定性 reducer、薄工作流执行器（内置 checker）、k=2 盲评投票执行器（MockProvider + AI SDK 底座）、AgentDriver（ACP 直连 + 裸 headless 降级）、cord CLI（init / new / doctor / demo / events），218 个测试用例全绿。未实现：IM 适配（飞书）、CEL 与外部插件校验器、知识库检索、防腐钩子等（路线图见 [10-roadmap.md](./docs/10-roadmap.md)）。文档中的 schema、目录布局、接口名以 `src/core/schema.ts` 与 `src/core/ports.ts` 为实现校准后的权威。凡标注为待实验校准的参数（如投票 k 值、防腐钩子误伤率上限），文档会显式标注，不会被写成既成事实。
+- **实现状态**：**M2 最小闭环已实现**（2026-09-24）——事件协议与确定性 reducer、因果 merge driver、薄工作流执行器（内置 checker）、k=2 盲评投票执行器（MockProvider + AI SDK 底座）、AgentDriver（ACP 直连 + 裸 headless 降级）、cord CLI（init / new / doctor / demo / events）。**控制台 MVP 已实现**（2026-09-25，ADR-0021/0022）：`apps/server`（Fastify REST + SSE + node:sqlite 派生索引 + 进程内 runner + 人工 gate 桥接）与 `apps/console`（React + Vite：需求总览、详情时间线、人工审批、默认 SDLC 启动、自定义 SDLC 校验/发布），默认 SDLC（simple-sdlc）开箱可跑；`npm run serve` 启动服务（默认 http://127.0.0.1:7250）。文档、账本、事件流等完整能力由 server API 提供，控制台页面仍按 vertical slice 扩展。未实现：IM 适配（飞书）、CEL 与外部插件校验器、知识库检索、防腐钩子、多用户鉴权等（路线图见 [10-roadmap.md](./docs/10-roadmap.md)）。文档中的 schema、目录布局、接口名以 `src/core/schema.ts` 与 `src/core/ports.ts` 为实现校准后的权威。凡标注为待实验校准的参数（如投票 k 值、防腐钩子误伤率上限），文档会显式标注，不会被写成既成事实。
 - **里程碑**（一律相对表述）：M1 = 方案定稿后一周内（方案评审通过、现状计时基线启动）；M2 = 方案定稿后第 2-3 周（最小闭环可运行 Demo）；M3 = 方案定稿后约一个月（自举跑通一个真实需求）；M4 = 方案定稿后约六周（实验出数、指标仪表盘首版、自进化闭环演示一轮）。详细边界与退出标准见 [10-roadmap.md](./docs/10-roadmap.md)。
 - **License**：Apache-2.0（建议方案，理由与替代项见 [13-open-source.md](./docs/13-open-source.md)）。
 - **贡献与边界**：贡献模型、仓库结构、以及开源基座与内部实现之间的关系边界，见 [13-open-source.md](./docs/13-open-source.md)。
@@ -269,7 +271,7 @@ ADR-0001 ~ ADR-0008 回答「这个平台是什么、边界在哪」，ADR-0009 
 | 风险与开放问题 | [docs/11-risks.md](./docs/11-risks.md) |
 | 验证实验设计 | [docs/12-experiments.md](./docs/12-experiments.md) |
 | 开源运营 | [docs/13-open-source.md](./docs/13-open-source.md) |
-| 20 条架构决策记录 | [docs/adr/](./docs/adr/) |
+| 22 条架构决策记录（含控制台/SDLC 落地决策） | [docs/adr/](./docs/adr/) |
 | 开源实现与竞品调研归档（2026-09-24） | [docs/research/](./docs/research/) |
 
 术语以 [docs/INDEX.md](./docs/INDEX.md) 的术语速查为准；全文统一使用，不设别名。

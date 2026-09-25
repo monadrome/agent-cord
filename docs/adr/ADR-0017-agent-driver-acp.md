@@ -1,6 +1,6 @@
 # ADR-0017 ｜ AgentDriver 驱动协议：ACP 直连，裸 headless 为降级通道
 
-- 状态：accepted（设计定稿，代码未实现）
+- 状态：accepted（设计定稿，M2 已实现；M3 人工审批桥接与 registry 缓存待实现）
 - 日期：2026-09-24
 - 关联：ADR-0011（agent 运行时——本 ADR **部分取代**其「驱动协议 = 裸 CLI headless 接口」的选型为 ACP 直连；每任务 subprocess、盲评隔离、超时预算等核心决策不变）、ADR-0013（投票执行器走模型 API，与本 ADR 分工不变）、ADR-0019（插件协议，同属 JSON-RPC 族）
 - 来源：开源实现调研（2026-09-24，[docs/research/2026-09-24-02](../research/2026-09-24-02-headless-agent-drivers.md)）；2026-09-24 人工拍板

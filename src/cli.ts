@@ -81,8 +81,8 @@ export function renderCordToml(): string {
 /** 自定义 merge driver 定义在 .git/config，不随仓库分发（ADR-0010 注意点 11） */
 export function mergeDriverCommands(driver_path = "<cord-merge-driver.js>"): string[] {
   return [
-    `git config merge.${MERGE_DRIVER_NAME}.name "cord events.jsonl union merge (dedupe by event_id, sort by (seq, event_id))"`,
-    `git config merge.${MERGE_DRIVER_NAME}.driver "node ${driver_path} %O %A %B"`,
+    `git config merge.${MERGE_DRIVER_NAME}.name "cord events.jsonl union merge (dedupe by event_id, causal topology order)"`,
+    `git config merge.${MERGE_DRIVER_NAME}.driver "${driver_path === "<cord-merge-driver.js>" ? "cord-merge-driver" : `node ${driver_path}`} %O %A %B"`,
   ];
 }
 

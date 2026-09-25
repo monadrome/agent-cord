@@ -106,6 +106,27 @@ describe("JsonlEventStore：追加与顺序", () => {
       branchA.event_id,
     ]);
   });
+
+  it("重开时按因果序继承游标，不因物理行序倒置而重复 seq", async () => {
+    const parent = EventEnvelopeSchema.parse({
+      ...draft({ payload: { n: 1 } }),
+      seq: 1,
+      prev_event_hash: null,
+      timestamp: "2026-09-24T00:00:01.000Z",
+    });
+    const child = EventEnvelopeSchema.parse({
+      ...draft({ payload: { n: 2 } }),
+      seq: 2,
+      prev_event_hash: hashEvent(parent),
+      timestamp: "2026-09-24T00:00:02.000Z",
+    });
+    await writeFile(filePath, `${canonicalJson(child)}\n${canonicalJson(parent)}\n`);
+
+    const store = await openStore();
+    const appended = await store.append(draft({ payload: { n: 3 } }));
+    expect(appended.seq).toBe(3);
+    expect(appended.prev_event_hash).toBe(hashEvent(child));
+  });
 });
 
 describe("JsonlEventStore：并发与订阅", () => {
@@ -171,6 +192,35 @@ describe("JsonlEventStore：并发与订阅", () => {
 
     const recovered = await openStore();
     expect((await recovered.append(draft())).seq).toBe(1);
+  });
+
+  it("写入结果不确定时禁止在同一实例继续追加，避免损坏行后接合法事件", async () => {
+    let calls = 0;
+    const uncertain = await openStore({
+      persistLine: async (file, line) => {
+        calls += 1;
+        await writeFile(file, line.slice(0, Math.max(1, Math.floor(line.length / 2))), "utf8");
+        throw new Error("fsync failed");
+      },
+    });
+
+    await expect(uncertain.append(draft())).rejects.toThrow("fsync failed");
+    await expect(uncertain.append(draft())).rejects.toThrow("请重新打开 EventStore");
+    expect(calls).toBe(1);
+  });
+
+  it("并发排队的追加也不会越过不确定写入继续执行", async () => {
+    let calls = 0;
+    const uncertain = await openStore({
+      persistLine: async () => {
+        calls += 1;
+        throw new Error("fsync failed");
+      },
+    });
+
+    const results = await Promise.allSettled([uncertain.append(draft()), uncertain.append(draft())]);
+    expect(results.every((result) => result.status === "rejected")).toBe(true);
+    expect(calls).toBe(1);
   });
 });
 

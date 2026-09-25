@@ -81,6 +81,7 @@ describe("runDoctor：健康态", () => {
     const report = await session.doctor();
     expect(report.ok).toBe(true);
     expect(report.checks.map((item) => item.name)).toEqual([
+      "event_session_identity",
       "event_id_unique",
       "prev_event_hash_chain",
       "lineage_seq_contiguous",
@@ -150,6 +151,31 @@ describe("runDoctor：丢事件", () => {
     const report = await (await openSession(cordRoot, REQ_ID)).doctor();
     expect(report.ok).toBe(false);
     expect(check(report, "event_id_unique").ok).toBe(false);
+  });
+
+  it("血统根事件 seq 不是 1 → 报错", async () => {
+    const session = await seedSession(1);
+    const event = (await session.events.readAll())[0]!;
+    await writeLines([
+      canonicalJson({ ...event, event_id: ulid(), seq: 7, prev_event_hash: null }),
+    ]);
+
+    const report = await (await openSession(cordRoot, REQ_ID)).doctor();
+    expect(report.ok).toBe(false);
+    expect(check(report, "lineage_seq_contiguous").detail).toContain("根事件 seq=7");
+  });
+
+  it("事件混入其他 session → 报错", async () => {
+    const session = await seedSession(1);
+    const event = (await session.events.readAll())[0]!;
+    await writeLines([
+      canonicalJson(event),
+      canonicalJson({ ...event, event_id: ulid(), session_id: "REQ-OTHER", seq: 1, prev_event_hash: null }),
+    ]);
+
+    const report = await (await openSession(cordRoot, REQ_ID)).doctor();
+    expect(report.ok).toBe(false);
+    expect(check(report, "event_session_identity").ok).toBe(false);
   });
 });
 
