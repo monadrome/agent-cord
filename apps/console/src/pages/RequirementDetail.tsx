@@ -11,6 +11,7 @@ import type {
   LedgerEntryView,
   LedgerView,
   RequirementDetail as RequirementDetailView,
+  SdlcSummary,
   SnapshotDocName,
   StreamedEvent,
   TimelineNode,
@@ -97,6 +98,24 @@ export function RequirementDetail({ reqId, tab, onTab, onBack }: Props): ReactEl
   const [runError, setRunError] = useState<string | null>(null);
   const [runBusy, setRunBusy] = useState(false);
   const [deciding, setDeciding] = useState<string | null>(null);
+  /** 可启动的 SDLC 选项（`<sdlc_id>@<version>` 编码）；缺省 = server 默认 SDLC */
+  const [sdlcOptions, setSdlcOptions] = useState<SdlcSummary[]>([]);
+  const [selectedSdlc, setSelectedSdlc] = useState<string>("");
+
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .listSdlcs()
+      .then((result) => {
+        if (!cancelled) setSdlcOptions(result.sdlcs);
+      })
+      .catch(() => {
+        // SDLC 清单加载失败不阻断启动（缺省走 server 默认 SDLC）
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const loadProjections = useCallback(async () => {
     try {
@@ -171,12 +190,18 @@ export function RequirementDetail({ reqId, tab, onTab, onBack }: Props): ReactEl
     setRunBusy(true);
     setRunError(null);
     try {
-      await api.startRun(reqId);
+      // 选择项编码 `<sdlc_id>@<version>`；空串 = server 默认 SDLC 最新版
+      const [sdlcId, versionText] = selectedSdlc.split("@");
+      const version = Number.parseInt(versionText ?? "", 10);
+      await api.startRun(reqId, {
+        ...(sdlcId !== undefined && sdlcId.length > 0 ? { sdlc_id: sdlcId } : {}),
+        ...(Number.isInteger(version) ? { sdlc_version: version } : {}),
+      });
       setNotice("已启动 run，进度会从事件流实时更新");
       await loadProjections();
     } catch (cause) {
       if (cause instanceof ApiClientError && cause.status === 409) {
-        setRunError(`已有在途 run：${cause.message}（等待其结束或先处理挂起的审批）`);
+        setRunError(`无法启动：${cause.message}`);
       } else {
         setRunError(describeError(cause));
       }
@@ -223,13 +248,31 @@ export function RequirementDetail({ reqId, tab, onTab, onBack }: Props): ReactEl
         </div>
         <div className="page-actions">
           {detail !== null ? <StatusBadge status={detail.status} /> : null}
+          <select
+            className="select"
+            aria-label="选择 SDLC 版本"
+            value={selectedSdlc}
+            disabled={runBusy || runInFlight}
+            onChange={(event) => setSelectedSdlc(event.target.value)}
+          >
+            <option value="">默认 SDLC（最新版）</option>
+            {sdlcOptions.flatMap((sdlc) =>
+              sdlc.versions
+                .filter((version) => version.status === "published")
+                .map((version) => (
+                  <option key={`${sdlc.sdlc_id}@${version.version}`} value={`${sdlc.sdlc_id}@${version.version}`}>
+                    {sdlc.name} v{version.version}
+                  </option>
+                )),
+            )}
+          </select>
           <button
             type="button"
             className="btn btn-primary"
             disabled={runBusy || runInFlight}
             onClick={() => void startRun()}
           >
-            {runInFlight ? "运行中…" : runBusy ? "启动中…" : "启动默认 SDLC run"}
+            {runInFlight ? "运行中…" : runBusy ? "启动中…" : "启动 SDLC run"}
           </button>
         </div>
       </header>

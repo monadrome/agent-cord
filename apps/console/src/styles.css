@@ -748,6 +748,17 @@ p {
   font-size: 14px;
 }
 
+.select {
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  max-width: 260px;
+}
+
 .editor {
   margin-top: 10px;
   font-family: var(--mono);

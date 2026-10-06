@@ -1,7 +1,7 @@
-/** SDLC 页面：已发布版本列表、版本 YAML 查看、校验/发布表单（发布前必须校验通过）。 */
+/** SDLC 页面：已发布版本列表（归档/克隆）、版本 YAML 查看、模板库、草稿、校验/发布。 */
 import { useCallback, useEffect, useState } from "react";
 import type { ReactElement } from "react";
-import type { SdlcSummary, SdlcValidationResult } from "@agent-cord/server/contracts";
+import type { SdlcSummary, SdlcTemplate, SdlcValidationResult } from "@agent-cord/server/contracts";
 import { api } from "../api.js";
 import { describeError, Empty, ErrorBanner, formatTime, NoticeBanner, Section } from "../ui.js";
 
@@ -25,6 +25,7 @@ spec:
 
 export function Sdlcs(): ReactElement {
   const [sdlcs, setSdlcs] = useState<SdlcSummary[] | null>(null);
+  const [templates, setTemplates] = useState<SdlcTemplate[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [sdlcId, setSdlcId] = useState("my-sdlc");
@@ -33,6 +34,8 @@ export function Sdlcs(): ReactElement {
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<{ title: string; yaml: string } | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
+  /** 当前编辑器对应的草稿状态（当前 sdlcId 在列表里 has_draft） */
+  const draftOwner = sdlcs?.find((item) => item.sdlc_id === sdlcId)?.has_draft ?? false;
 
   const refresh = useCallback(async () => {
     try {
@@ -46,6 +49,12 @@ export function Sdlcs(): ReactElement {
 
   useEffect(() => {
     void refresh();
+    void api
+      .listSdlcTemplates()
+      .then((result) => setTemplates(result.templates))
+      .catch(() => {
+        // 模板库加载失败不阻断手写 YAML
+      });
   }, [refresh]);
 
   const validate = async (): Promise<void> => {
@@ -79,6 +88,68 @@ export function Sdlcs(): ReactElement {
     }
   };
 
+  const saveDraft = async (): Promise<void> => {
+    setBusy(true);
+    try {
+      const saved = await api.saveSdlcDraft(sdlcId.trim(), yaml);
+      setValidation(saved.validation);
+      setNotice(
+        saved.validation.ok
+          ? `草稿已保存且校验通过（${sdlcId}）`
+          : `草稿已保存（校验未通过：${saved.validation.issues.length} 个问题，可稍后继续）`,
+      );
+      await refresh();
+      setError(null);
+    } catch (cause) {
+      setError(describeError(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const loadDraft = async (): Promise<void> => {
+    setBusy(true);
+    try {
+      const result = await api.getSdlcDraft(sdlcId.trim());
+      if (result.draft === null) {
+        setNotice(`${sdlcId} 没有草稿`);
+        return;
+      }
+      setYaml(result.draft.yaml);
+      setValidation(null);
+      setNotice("已载入草稿");
+      setError(null);
+    } catch (cause) {
+      setError(describeError(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const loadTemplate = (templateId: string): void => {
+    const template = templates.find((item) => item.id === templateId);
+    if (template === undefined) return;
+    setYaml(template.yaml);
+    setValidation(null);
+    setNotice(`已载入模板「${template.name}」：${template.description}（发布前请按需修改 metadata.id 与节点）`);
+  };
+
+  const cloneVersion = async (id: string, version: number): Promise<void> => {
+    setPreviewBusy(true);
+    try {
+      const result = await api.getSdlcVersion(id, version);
+      setYaml(result.yaml);
+      setSdlcId(id);
+      setValidation(null);
+      setNotice(`已把 ${id} v${version} 载入编辑器：修改后发布会递增为新版本`);
+      setError(null);
+    } catch (cause) {
+      setError(describeError(cause));
+    } finally {
+      setPreviewBusy(false);
+    }
+  };
+
   const showVersion = async (id: string, version: number): Promise<void> => {
     setPreviewBusy(true);
     try {
@@ -92,13 +163,32 @@ export function Sdlcs(): ReactElement {
     }
   };
 
+  const toggleArchive = async (id: string, version: number, archived: boolean): Promise<void> => {
+    setBusy(true);
+    try {
+      if (archived) {
+        await api.unarchiveSdlcVersion(id, version);
+        setNotice(`已取消归档 ${id} v${version}（可启动新 run）`);
+      } else {
+        await api.archiveSdlcVersion(id, version);
+        setNotice(`已归档 ${id} v${version}（禁止启动新 run；在途/历史 run 不受影响）`);
+      }
+      await refresh();
+      setError(null);
+    } catch (cause) {
+      setError(describeError(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
       <header className="page-head">
         <div>
           <p className="eyebrow">流程定义</p>
           <h1>SDLC 版本</h1>
-          <p className="muted">发布版本不可原地修改；已启动的 run 绑定其发布的版本。</p>
+          <p className="muted">发布版本不可原地修改；已启动的 run 绑定其发布的版本；归档版本禁止启动新 run。</p>
         </div>
         <div className="page-actions">
           <button type="button" className="btn btn-primary" onClick={() => void refresh()}>
@@ -152,7 +242,23 @@ export function Sdlcs(): ReactElement {
                               disabled={previewBusy}
                               onClick={() => void showVersion(sdlc.sdlc_id, version.version)}
                             >
-                              查看 YAML
+                              查看
+                            </button>{" "}
+                            <button
+                              type="button"
+                              className="btn"
+                              disabled={previewBusy}
+                              onClick={() => void cloneVersion(sdlc.sdlc_id, version.version)}
+                            >
+                              克隆到编辑器
+                            </button>{" "}
+                            <button
+                              type="button"
+                              className="btn"
+                              disabled={busy}
+                              onClick={() => void toggleArchive(sdlc.sdlc_id, version.version, version.status === "archived")}
+                            >
+                              {version.status === "archived" ? "取消归档" : "归档"}
                             </button>
                           </td>
                         </tr>
@@ -182,19 +288,49 @@ export function Sdlcs(): ReactElement {
 
       <Section title="校验 / 发布" extra={<span className="muted">校验通过（issues 为空）才允许发布</span>}>
         <div className="form">
+          <div className="field-row">
+            <label className="field">
+              <span>SDLC 标识 *（小写字母数字与 -）</span>
+              <input
+                value={sdlcId}
+                onChange={(event) => {
+                  setSdlcId(event.target.value);
+                  setValidation(null);
+                }}
+                placeholder="my-sdlc"
+              />
+            </label>
+            <label className="field">
+              <span>从模板载入</span>
+              <select
+                className="select"
+                value=""
+                onChange={(event) => {
+                  if (event.target.value !== "") loadTemplate(event.target.value);
+                }}
+              >
+                <option value="">选择模板…</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name} — {template.description}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <label className="field">
-            <span>SDLC 标识 *（小写字母数字与 -）</span>
-            <input
-              value={sdlcId}
-              onChange={(event) => {
-                setSdlcId(event.target.value);
-                setValidation(null);
-              }}
-              placeholder="my-sdlc"
-            />
-          </label>
-          <label className="field">
-            <span>YAML 定义</span>
+            <span>
+              YAML 定义
+              {draftOwner ? (
+                <>
+                  {" "}
+                  <span className="pill pill-warn">有草稿</span>{" "}
+                  <button type="button" className="btn btn-plain" disabled={busy} onClick={() => void loadDraft()}>
+                    载入草稿
+                  </button>
+                </>
+              ) : null}
+            </span>
             <textarea
               className="editor mono"
               rows={18}
@@ -209,6 +345,9 @@ export function Sdlcs(): ReactElement {
           <div className="form-actions">
             <button type="button" className="btn" disabled={busy} onClick={() => void validate()}>
               {busy ? "处理中…" : "校验"}
+            </button>
+            <button type="button" className="btn" disabled={busy} onClick={() => void saveDraft()}>
+              存草稿
             </button>
             <button
               type="button"

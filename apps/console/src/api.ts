@@ -18,6 +18,7 @@ import type {
   RequirementSummary,
   RunInfo,
   SdlcSummary,
+  SdlcTemplate,
   SdlcValidationResult,
   SnapshotDocName,
   StartRunInput,
@@ -151,6 +152,31 @@ export interface PublishSdlcResponse {
   content_hash: string;
 }
 
+export interface SdlcDraftResponse {
+  request_id: string;
+  sdlc_id: string;
+  draft: { yaml: string } | null;
+}
+
+export interface SaveDraftResponse {
+  request_id: string;
+  sdlc_id: string;
+  saved: boolean;
+  validation: SdlcValidationResult;
+}
+
+export interface ArchiveSdlcResponse {
+  request_id: string;
+  sdlc_id: string;
+  version: number;
+  status: "published" | "archived";
+}
+
+export interface SdlcTemplatesResponse {
+  request_id: string;
+  templates: SdlcTemplate[];
+}
+
 // ---------------------------------------------------------------------------
 // 内部工具
 // ---------------------------------------------------------------------------
@@ -174,14 +200,14 @@ function newIdempotencyKey(): string {
   return globalThis.crypto.randomUUID();
 }
 
-function writeInit(method: "POST" | "PUT", payload: unknown, key?: string): RequestInit {
+function writeInit(method: "POST" | "PUT" | "DELETE", payload?: unknown, key?: string): RequestInit {
   return {
     method,
     headers: {
-      "content-type": "application/json",
+      ...(payload !== undefined ? { "content-type": "application/json" } : {}),
       "Idempotency-Key": key ?? newIdempotencyKey(),
     },
-    body: JSON.stringify(payload),
+    ...(payload !== undefined ? { body: JSON.stringify(payload) } : {}),
   };
 }
 
@@ -259,6 +285,12 @@ export interface ApiClient {
   getSdlcVersion(sdlcId: string, version: number): Promise<SdlcVersionResponse>;
   validateSdlc(sdlcId: string, yaml: string): Promise<ValidateSdlcResponse>;
   publishSdlc(sdlcId: string, yaml: string, key?: string): Promise<PublishSdlcResponse>;
+  getSdlcDraft(sdlcId: string): Promise<SdlcDraftResponse>;
+  saveSdlcDraft(sdlcId: string, yaml: string, key?: string): Promise<SaveDraftResponse>;
+  deleteSdlcDraft(sdlcId: string, key?: string): Promise<{ request_id: string; deleted: boolean }>;
+  archiveSdlcVersion(sdlcId: string, version: number, key?: string): Promise<ArchiveSdlcResponse>;
+  unarchiveSdlcVersion(sdlcId: string, version: number, key?: string): Promise<ArchiveSdlcResponse>;
+  listSdlcTemplates(): Promise<SdlcTemplatesResponse>;
 }
 
 export function createClient(baseUrl = ""): ApiClient {
@@ -300,6 +332,16 @@ export function createClient(baseUrl = ""): ApiClient {
       request<ValidateSdlcResponse>(baseUrl, `${sdlcPath(sdlcId)}/versions/validate`, writeInit("POST", { yaml })),
     publishSdlc: (sdlcId, yaml, key) =>
       request<PublishSdlcResponse>(baseUrl, `${sdlcPath(sdlcId)}/versions/publish`, writeInit("POST", { yaml }, key)),
+    getSdlcDraft: (sdlcId) => request<SdlcDraftResponse>(baseUrl, `${sdlcPath(sdlcId)}/draft`),
+    saveSdlcDraft: (sdlcId, yaml, key) =>
+      request<SaveDraftResponse>(baseUrl, `${sdlcPath(sdlcId)}/draft`, writeInit("PUT", { yaml }, key)),
+    deleteSdlcDraft: (sdlcId, key) =>
+      request<{ request_id: string; deleted: boolean }>(baseUrl, `${sdlcPath(sdlcId)}/draft`, writeInit("DELETE", undefined, key)),
+    archiveSdlcVersion: (sdlcId, version, key) =>
+      request<ArchiveSdlcResponse>(baseUrl, `${sdlcPath(sdlcId)}/versions/${version}/archive`, writeInit("POST", {}, key)),
+    unarchiveSdlcVersion: (sdlcId, version, key) =>
+      request<ArchiveSdlcResponse>(baseUrl, `${sdlcPath(sdlcId)}/versions/${version}/unarchive`, writeInit("POST", {}, key)),
+    listSdlcTemplates: () => request<SdlcTemplatesResponse>(baseUrl, "/api/v1/sdlc-templates"),
   };
 }
 

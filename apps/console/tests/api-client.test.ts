@@ -271,6 +271,50 @@ describe("console API client：文档 / 事件 / SDLC / 错误", () => {
     expect(refreshed.sdlcs.find((item) => item.sdlc_id === "console-sdlc")?.versions).toHaveLength(1);
   });
 
+  it("SDLC 生命周期：草稿 → 模板库 → 归档 → 归档版本禁止启动 run", async () => {
+    // 模板库：四档都在，内容可直接校验通过
+    const templates = await client.listSdlcTemplates();
+    expect(templates.templates.map((item) => item.id)).toContain("agent-collab");
+    const minimal = templates.templates.find((item) => item.id === "minimal");
+    expect(minimal).toBeDefined();
+
+    // 草稿：保存（半成品也允许）→ 读取 → 删除
+    const saved = await client.saveSdlcDraft("life-x", "apiVersion: agent-cord.dev/v1alpha1\nkind: Workflow\n");
+    expect(saved.saved).toBe(true);
+    expect(saved.validation.ok).toBe(false); // 半成品校验不过，但草稿允许
+    const draft = await client.getSdlcDraft("life-x");
+    expect(draft.draft?.yaml).toContain("v1alpha1");
+    await client.deleteSdlcDraft("life-x");
+    expect((await client.getSdlcDraft("life-x")).draft).toBe(null);
+
+    // 发布模板 → 归档 → 归档版本启动 run 被拒
+    const published = await client.publishSdlc("life-x", minimal!.yaml);
+    expect(published.version).toBe(1);
+    const archived = await client.archiveSdlcVersion("life-x", 1);
+    expect(archived.status).toBe("archived");
+    const list = await client.listSdlcs();
+    expect(
+      list.sdlcs.find((item) => item.sdlc_id === "life-x")?.versions[0]?.status,
+    ).toBe("archived");
+
+    await client.createRequirement({ req_id: "REQ-LIFE", title: "生命周期" });
+    const rejected = await client.startRun("REQ-LIFE", { sdlc_id: "life-x", sdlc_version: 1 }).then(
+      () => null,
+      (cause: unknown) => cause as ApiClientError,
+    );
+    expect(rejected?.status).toBe(409);
+
+    // 取消归档后可启动
+    await client.unarchiveSdlcVersion("life-x", 1);
+    const started = await client.startRun("REQ-LIFE", { sdlc_id: "life-x", sdlc_version: 1 });
+    expect(started.run.status).toBe("running");
+    // minimal 模板在 review 节点有人工确认点：决策放行后流程走完
+    await waitFor(async () => (await client.getApprovals("REQ-LIFE")).approvals.length > 0);
+    const approval = (await client.getApprovals("REQ-LIFE")).approvals[0]!;
+    await client.decideApproval("REQ-LIFE", approval.approval_id, approval.options[0]!);
+    await waitFor(async () => (await client.getRequirement("REQ-LIFE")).requirement.status === "completed");
+  });
+
   it("doctor：返回检查明细（新建需求后投影尚未重建，doctor 会如实报漂移）", async () => {
     await client.createRequirement({ req_id: "REQ-DOCTOR", title: "体检" });
     const doctor = await client.doctor();
