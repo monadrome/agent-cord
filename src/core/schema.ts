@@ -222,6 +222,16 @@ export const WorkflowDefSchema = z.object({
               prompt: z.string().optional(),
               readonly: z.boolean().default(false),
               timeout_ms: z.number().int().positive().optional(),
+              /**
+               * 失败重试（agent 任务 flaky 是常态：限流/网络）：max_attempts 含首次，默认 1 = 不重试；
+               * backoff_ms 为逐次等待基数（线性）。每次尝试都落 agent.task.started/completed（带 attempt 编号）。
+               */
+              retry: z
+                .object({
+                  max_attempts: z.number().int().min(1).max(10).default(1),
+                  backoff_ms: z.number().int().min(0).default(0),
+                })
+                .optional(),
             })
             .optional(),
           gates: z.array(GateDefSchema).default([]),
@@ -398,6 +408,9 @@ export const AgentTaskStartedPayloadSchema = z.looseObject({
   node_id: z.string().min(1),
   driver: z.string().min(1),
   prompt_excerpt: z.string().optional(),
+  /** 重试编号（node.run.retry）；首次为 1 */
+  attempt: z.number().int().positive().optional(),
+  max_attempts: z.number().int().positive().optional(),
 });
 
 /** 规范化用量槽位（ADR-0023 决策 3 的 usage）：各厂商原始字段映射到统一口径，原始负载留 driver 层 raw */
@@ -428,6 +441,9 @@ export const AgentTaskCompletedPayloadSchema = z.looseObject({
   agent_session_id: z.string().nullable().optional(),
   duration_ms: z.number().optional(),
   usage: AgentUsagePayloadSchema.nullable().optional(),
+  /** 重试编号（node.run.retry）；首次为 1 */
+  attempt: z.number().int().positive().optional(),
+  max_attempts: z.number().int().positive().optional(),
 });
 
 /** 已知 payload 的 schema 表；未列出的类型（如 M3 才落地的 reconcile.requested）尚无固化形状。 */

@@ -103,27 +103,28 @@ const AGENT_COLLAB: WorkflowDef = {
         id: "align",
         artifact: "adr.md",
         depends_on: ["intake"],
-        run: { agent: "claude", readonly: false },
+        // agent 任务 flaky 是常态（限流/网络）：失败重试 2 次，线性退避 5s
+        run: { agent: "claude", readonly: false, retry: { max_attempts: 2, backoff_ms: 5_000 } },
         gates: [gate("adr-written", "align", [{ ref: "file-nonempty", with: { path: "adr.md" } }], false)],
       },
       {
         id: "plan",
         artifact: "plan.md",
         depends_on: ["align"],
-        run: { agent: "claude", readonly: false },
+        run: { agent: "claude", readonly: false, retry: { max_attempts: 2, backoff_ms: 5_000 } },
         gates: [gate("plan-written", "plan", [{ ref: "file-nonempty", with: { path: "plan.md" } }], false)],
       },
       {
         id: "implement",
         depends_on: ["plan"],
-        run: { agent: "claude", readonly: false, timeout_ms: 1_800_000 },
+        run: { agent: "claude", readonly: false, timeout_ms: 1_800_000, retry: { max_attempts: 2, backoff_ms: 5_000 } },
         gates: [],
       },
       {
         id: "verify",
         artifact: "findings.md",
         depends_on: ["implement"],
-        run: { agent: "claude", readonly: false },
+        run: { agent: "claude", readonly: false, retry: { max_attempts: 2, backoff_ms: 5_000 } },
         gates: [gate("verify-written", "verify", [{ ref: "file-nonempty", with: { path: "findings.md" } }], false)],
       },
       {

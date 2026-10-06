@@ -21,6 +21,7 @@ import type {
 } from "../core/ports.js";
 import type { EventDraft, WorkflowDef } from "../core/schema.js";
 import { isPlaceholderDoc } from "../core/session.js";
+import { delay } from "../driver/headless.js";
 import type { ErrorEventData, ResultEventData, TextEventData } from "../driver/headless.js";
 import type { WorkflowNode } from "../workflow/executor.js";
 import { buildContextPack } from "./context-pack.js";
@@ -79,8 +80,6 @@ function truncate(text: string, maxChars: number): string {
 }
 
 export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions): NodeRunner {
-  const workflowId = def.metadata.id;
-
   const append = async (
     session: SessionHandle,
     type: "agent.task.started" | "agent.task.completed",
@@ -102,105 +101,146 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
 
   return {
     async runNode(node: WorkflowNode, session: SessionHandle, ctx: NodeRunContext) {
-      const startedAt = Date.now();
-      const agentName = node.run?.agent ?? "";
-      const base = { workflow_id: ctx.workflow_id, node_id: ctx.node_id };
+      const maxAttempts = node.run?.retry?.max_attempts ?? 1;
+      const backoffMs = node.run?.retry?.backoff_ms ?? 0;
+      let lastStatus: NodeRunStatus = "failed";
+      let lastError: string | null = null;
 
-      const complete = async (
-        status: NodeRunStatus,
-        fields: Record<string, unknown>,
-      ): Promise<{ status: NodeRunStatus }> => {
-        await append(session, "agent.task.completed", {
-          ...base,
-          driver: agentName,
-          status,
-          duration_ms: Date.now() - startedAt,
-          ...fields,
-        }, node.id);
-        return { status };
-      };
-
-      // 1. 最新快照 + 上下文包（worker 永远不看事件流）
-      const snapshot = await readSnapshot(session);
-      const prompt = buildContextPack(def, node, snapshot, {
-        ...(options.maxPackChars !== undefined ? { maxPackChars: options.maxPackChars } : {}),
-      });
-
-      // 2. 驱动解析（失败也留 started + completed 痕迹，可审计）
-      let driver: AgentDriver;
-      try {
-        driver = options.resolveDriver(agentName);
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        await append(session, "agent.task.started", {
-          ...base,
-          driver: agentName,
-          prompt_excerpt: truncate(prompt, PROMPT_EXCERPT_CHARS),
-        }, node.id);
-        return complete("failed", { error: `驱动解析失败：${reason}`, text: "" });
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const outcome = await runAttempt(node, session, ctx, attempt, maxAttempts, lastError);
+        if (outcome.status === "ok") return outcome;
+        lastStatus = outcome.status;
+        lastError = outcome.error;
+        if (attempt < maxAttempts && backoffMs > 0) {
+          // 线性退避：第 n 次失败后等 backoff × n
+          await delay(backoffMs * attempt);
+        }
       }
+      return { status: lastStatus };
+    },
+  };
 
+  /**
+   * 单次尝试：最新快照 + 上下文包（重试时带上次失败摘要，让 worker 避开同一失败模式）→
+   * 驱动解析 → 派发 → artifact 写回校验。一切失败归约为 completed{status} 事件。
+   */
+  async function runAttempt(
+    node: WorkflowNode,
+    session: SessionHandle,
+    ctx: NodeRunContext,
+    attempt: number,
+    maxAttempts: number,
+    previousError: string | null,
+  ): Promise<{ status: NodeRunStatus; error: string | null }> {
+    const startedAt = Date.now();
+    const agentName = node.run?.agent ?? "";
+    const base = {
+      workflow_id: ctx.workflow_id,
+      node_id: ctx.node_id,
+      attempt,
+      ...(maxAttempts > 1 ? { max_attempts: maxAttempts } : {}),
+    };
+
+    const complete = async (
+      status: NodeRunStatus,
+      fields: Record<string, unknown>,
+    ): Promise<{ status: NodeRunStatus; error: string | null }> => {
+      await append(session, "agent.task.completed", {
+        ...base,
+        driver: agentName,
+        status,
+        duration_ms: Date.now() - startedAt,
+        ...fields,
+      }, node.id);
+      return {
+        status,
+        error: typeof fields["error"] === "string" ? fields["error"] : null,
+      };
+    };
+
+    // 1. 最新快照 + 上下文包（worker 永远不看事件流）
+    const snapshot = await readSnapshot(session);
+    let prompt = buildContextPack(def, node, snapshot, {
+      ...(options.maxPackChars !== undefined ? { maxPackChars: options.maxPackChars } : {}),
+    });
+    if (previousError !== null) {
+      prompt += `\n\n## 上次尝试失败（第 ${attempt - 1} 次）\n${truncate(previousError, 2_000)}\n请避开同一失败模式。`;
+    }
+
+    // 2. 驱动解析（定义性错误，重试不会自愈 → 直接 failed 不消耗尝试次数语义外的机会）
+    let driver: AgentDriver;
+    try {
+      driver = options.resolveDriver(agentName);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
       await append(session, "agent.task.started", {
         ...base,
-        driver: driver.name,
+        driver: agentName,
         prompt_excerpt: truncate(prompt, PROMPT_EXCERPT_CHARS),
       }, node.id);
+      return complete("failed", { error: `驱动解析失败：${reason}`, text: "" });
+    }
 
-      // 3. 派发 worker：聚合流式文本，result 事件优先；中间事件不入事件流
-      let chunks = "";
-      let resultText: string | null = null;
-      let agentSessionId: string | null = null;
-      let usage: ResultEventData["usage"] = null;
-      let failure: { status: NodeRunStatus; message: string } | null = null;
-      try {
-        const task = {
-          prompt,
-          cwd: options.workspaceRoot,
-          readonly: node.run?.readonly === true,
-          ...(node.run?.timeout_ms !== undefined ? { timeout_ms: node.run.timeout_ms } : {}),
-        };
-        for await (const event of driver.run(task)) {
-          if (event.type === "text") {
-            chunks += (event.data as TextEventData).text;
-          } else if (event.type === "result") {
-            const data = event.data as ResultEventData;
-            resultText = data.text;
-            agentSessionId = data.session_id ?? agentSessionId;
-            usage = data.usage ?? usage;
-          } else if (event.type === "error") {
-            const data = event.data as ErrorEventData;
-            agentSessionId = data.session_id ?? agentSessionId;
-            // 取最后一个 error 为准（超时后可能还有 agent 错误余波）
-            failure = {
-              status: data.kind === "timeout" ? "timeout" : "failed",
-              message: data.message,
-            };
-          }
+    await append(session, "agent.task.started", {
+      ...base,
+      driver: driver.name,
+      prompt_excerpt: truncate(prompt, PROMPT_EXCERPT_CHARS),
+    }, node.id);
+
+    // 3. 派发 worker：聚合流式文本，result 事件优先；中间事件不入事件流
+    let chunks = "";
+    let resultText: string | null = null;
+    let agentSessionId: string | null = null;
+    let usage: ResultEventData["usage"] = null;
+    let failure: { status: NodeRunStatus; message: string } | null = null;
+    try {
+      const task = {
+        prompt,
+        cwd: options.workspaceRoot,
+        readonly: node.run?.readonly === true,
+        ...(node.run?.timeout_ms !== undefined ? { timeout_ms: node.run.timeout_ms } : {}),
+      };
+      for await (const event of driver.run(task)) {
+        if (event.type === "text") {
+          chunks += (event.data as TextEventData).text;
+        } else if (event.type === "result") {
+          const data = event.data as ResultEventData;
+          resultText = data.text;
+          agentSessionId = data.session_id ?? agentSessionId;
+          usage = data.usage ?? usage;
+        } else if (event.type === "error") {
+          const data = event.data as ErrorEventData;
+          agentSessionId = data.session_id ?? agentSessionId;
+          // 取最后一个 error 为准（超时后可能还有 agent 错误余波）
+          failure = {
+            status: data.kind === "timeout" ? "timeout" : "failed",
+            message: data.message,
+          };
         }
-      } catch (error) {
-        failure = { status: "failed", message: error instanceof Error ? error.message : String(error) };
       }
+    } catch (error) {
+      failure = { status: "failed", message: error instanceof Error ? error.message : String(error) };
+    }
 
-      const text = resultText ?? chunks;
-      if (failure !== null) {
-        return complete(failure.status, {
-          error: failure.message,
-          text: truncate(text, options.maxResultChars ?? DEFAULT_MAX_RESULT_CHARS),
-          agent_session_id: agentSessionId,
-          usage: usage ?? null,
-        });
-      }
-
-      // 4. artifact 写回校验（双通道）
-      const settle = await settleArtifact(node, session, text, driver.name);
-      return complete("ok", {
+    const text = resultText ?? chunks;
+    if (failure !== null) {
+      return complete(failure.status, {
+        error: failure.message,
         text: truncate(text, options.maxResultChars ?? DEFAULT_MAX_RESULT_CHARS),
-        artifact: node.artifact ?? null,
-        artifact_written: settle.artifact_written,
-        written_by: settle.written_by,
         agent_session_id: agentSessionId,
         usage: usage ?? null,
       });
-    },
-  };
+    }
+
+    // 4. artifact 写回校验（双通道）
+    const settle = await settleArtifact(node, session, text, driver.name);
+    return complete("ok", {
+      text: truncate(text, options.maxResultChars ?? DEFAULT_MAX_RESULT_CHARS),
+      artifact: node.artifact ?? null,
+      artifact_written: settle.artifact_written,
+      written_by: settle.written_by,
+      agent_session_id: agentSessionId,
+      usage: usage ?? null,
+    });
+  }
 }

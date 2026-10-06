@@ -67,6 +67,50 @@ function okDriverWithUsage(text: string): ReturnType<typeof fakeDriver> {
   ]);
 }
 
+/** 前 failures 次派发出错、之后成功的 stateful fake（重试测试用） */
+function flakyDriver(failures: number, okText: string): AgentDriver & { prompts: string[]; calls: () => number } {
+  const prompts: string[] = [];
+  let calls = 0;
+  return {
+    name: "flaky",
+    prompts,
+    calls: () => calls,
+    async *run(task) {
+      calls++;
+      prompts.push(task.prompt);
+      if (calls <= failures) {
+        yield {
+          type: "error",
+          data: { message: `boom-${calls}`, kind: "agent" },
+        } satisfies AgentEvent;
+      } else {
+        yield { type: "result", data: { text: okText, session_id: "s-retry" } } satisfies AgentEvent;
+      }
+    },
+    async *resume() {},
+  };
+}
+
+/** 带重试策略的流程定义（plan 节点 retry 3 次、无退避） */
+const DEF_RETRY: WorkflowDef = {
+  apiVersion: "agent-cord.dev/v1alpha1",
+  kind: "Workflow",
+  metadata: { id: "wf-retry" },
+  spec: {
+    nodes: [
+      { id: "intake", artifact: "prd.md", depends_on: [], gates: [] },
+      {
+        id: "plan",
+        artifact: "plan.md",
+        depends_on: ["intake"],
+        run: { agent: "fake-agent", readonly: false, retry: { max_attempts: 3, backoff_ms: 0 } },
+        gates: [],
+      },
+      { id: "done", depends_on: ["plan"], gates: [] },
+    ],
+  },
+};
+
 const DEF: WorkflowDef = {
   apiVersion: "agent-cord.dev/v1alpha1",
   kind: "Workflow",
@@ -136,6 +180,60 @@ describe("coordinator（NodeRunner）", () => {
       cached_input_tokens: 800,
       cost_usd: 0.0042,
     });
+  });
+
+  it("重试：前两次失败第三次成功 → 3 组 started/completed 带 attempt 编号，终态 ok", async () => {
+    const driver = flakyDriver(2, "# Plan\n\n重试后产出。\n");
+    const runner = createNodeRunner(DEF_RETRY, {
+      resolveDriver: () => driver,
+      workspaceRoot: root,
+    });
+    const node = DEF_RETRY.spec.nodes[1]!;
+    const outcome = await runner.runNode(node, session, { workflow_id: "wf-retry", node_id: "plan" });
+
+    expect(outcome.status).toBe("ok");
+    expect(driver.calls()).toBe(3);
+    // 重试的上下文包带上次失败摘要（让 worker 避开同一失败模式）
+    expect(driver.prompts[1]).toContain("上次尝试失败");
+    expect(driver.prompts[1]).toContain("boom-1");
+
+    const events = await session.events.readOrdered();
+    const started = events.filter((event) => event.type === "agent.task.started");
+    const completed = events.filter((event) => event.type === "agent.task.completed");
+    expect(started).toHaveLength(3);
+    expect(completed).toHaveLength(3);
+    expect(completed.map((event) => asPayload(event)["attempt"])).toEqual([1, 2, 3]);
+    expect(completed.map((event) => asPayload(event)["status"])).toEqual(["failed", "failed", "ok"]);
+    expect(asPayload(completed[2]!)["max_attempts"]).toBe(3);
+  });
+
+  it("重试耗尽：3 次全失败 → 终态 failed，runNode 不抛错", async () => {
+    const driver = flakyDriver(3, "永远不会用到");
+    const runner = createNodeRunner(DEF_RETRY, {
+      resolveDriver: () => driver,
+      workspaceRoot: root,
+    });
+    const node = DEF_RETRY.spec.nodes[1]!;
+    const outcome = await runner.runNode(node, session, { workflow_id: "wf-retry", node_id: "plan" });
+
+    expect(outcome.status).toBe("failed");
+    expect(driver.calls()).toBe(3);
+    const events = await session.events.readOrdered();
+    const completed = events.filter((event) => event.type === "agent.task.completed");
+    expect(completed).toHaveLength(3);
+    expect(asPayload(completed[2]!)["error"]).toContain("boom-3");
+  });
+
+  it("无 retry 配置时失败一次即终（默认 max_attempts=1）", async () => {
+    const driver = flakyDriver(5, "不会用到");
+    const runner = createNodeRunner(DEF, {
+      resolveDriver: () => driver,
+      workspaceRoot: root,
+    });
+    const node = DEF.spec.nodes[1]!;
+    const outcome = await runner.runNode(node, session, { workflow_id: "wf-agent", node_id: "plan" });
+    expect(outcome.status).toBe("failed");
+    expect(driver.calls()).toBe(1);
   });
 
   it("agent 自己写了 artifact → written_by=agent，不覆盖", async () => {
