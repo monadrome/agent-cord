@@ -25,9 +25,12 @@
 | `vote.*` | 投票开始与完成 |
 | `gate.*` | gate 等待和解决 |
 | `workflow.node.*` | workflow 节点进入和退出 |
+| `agent.task.*` | 节点执行体的 agent 任务（started / completed；中间流式输出不入流） |
 | `human.*` | 人工选择记录 |
 
 事件类型目录在 `EVENT_TYPES`；新增类型需要同步 schema 和 ADR。
+
+`agent.task.completed` 的关键字段：`status`（ok / failed / timeout）、`text`（截断 32KB）、`artifact_written` 与 `written_by`（agent / coordinator / none）、`agent_session_id`（仅供人工调试 resume，执行器恢复总是新会话）。
 
 ## 2. Ledger 投影
 
@@ -59,6 +62,10 @@ Workflow 必须声明节点、依赖和 gate。gate 至少包含：
 - 可选的 `timeout`
 
 checker 结果是 `pass`、`block` 或 `warn`。未知 checker、抛错和非法返回值都按 `block` 处理。
+
+`checks` 项可带 `with` 参数（ADR-0024），透传为 `CheckerContext.params`；参数非法由 checker 按 `block` 处理，不用缺省值猜。内置 checker：`anchors-present`、`ledger-has-confirmed`、`vote-confirmed`，以及参数化的 `file-exists {path}`、`file-nonempty {path, min_bytes?}`、`doc-has-section {path, heading}`、`anchors-min-count {min}`、`event-emitted {type, within_node?}`。文件类 path 一律限制在 session 目录内。
+
+节点可声明执行体 `run`（ADR-0023）：`{ agent, prompt?, readonly?, timeout_ms? }`。执行顺序为 pre gates → node.run → post gates；node.run 由注入执行器的 `NodeRunner` 端口处理（生产实现是协调 agent，见 `src/coordinator/`），未注入时跳过并在 node.exited 记 `notes`。恢复扫点：节点已有 `status=ok` 的 agent.task.completed 时不重复执行；失败/超时则重跑时重试。
 
 人工 gate 的事实顺序是：
 

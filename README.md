@@ -1,16 +1,19 @@
 # agent-cord
 
-> **状态：M2 最小闭环 + 控制台 MVP 已实现（2026-09-25）。**
+> **状态：M2 最小闭环 + 控制台 MVP + 协调 agent 已实现（2026-10-06）。**
 
-agent-cord 是一个多 agent 共识协作基座：把需求、决策、证据和人工审核放进同一条可追溯的工作流。agent 只产 Draft，最终合入和高风险决策保留人工参与。
+agent-cord 是一个多 agent 共识协作基座：把需求、决策、证据和人工审核放进同一条可追溯的工作流。workflow 节点可声明执行体，由协调 agent 以最新需求快照驱动 worker agent（claude / codex / kimi / 自定义注册）产出草稿；最终合入和高风险决策保留人工参与。
 
 ## 能做什么
 
 - 为每个需求维护一个共识快照目录：Markdown 文档、`ledger.yaml` 账本和 `events.jsonl` 事件流。
 - 用证据锚点记录结论；无证据不入账，账本由事件流确定性重建。
 - 用 YAML 定义 SDLC 节点和 gate，默认流程为：`intake → align → plan → implement → verify → review → done`。
+- 在节点上声明 `run` 执行体：协调 agent 按最新快照构建两层上下文包，经 ACP / headless driver 派发给 worker agent，产物自写或代写均留痕为 `agent.task.*` 事件。
+- 用 `agents.yaml` 注册自定义 agent（ACP 子进程、headless CLI、自定义参数模板），与内置 claude / codex / kimi 并列。
+- 用参数化 checker（`checks[].with`）拼装证据门禁：文件存在/非空/含章节/锚点数/事件已发，参数非法 fail-closed。
 - 用独立盲评投票处理适合自动化的决策点，分歧和高风险情况升级人工。
-- 通过 Fastify server 和 React 控制台查看需求、编辑文档、观察事件、启动 run、处理人工 gate 和管理 SDLC 版本。
+- 通过 Fastify server 和 React 控制台查看需求、编辑文档、观察事件、启动 run、处理人工 gate，并管理 SDLC 的草稿、版本、归档与模板库。
 
 ## 快速开始
 
@@ -56,6 +59,7 @@ npm run cord -- demo
 
 ```text
 cord/
+├── agents.yaml           # 可选：自定义 agent 注册表（ACP / headless / 自定义模板）
 ├── <req-id>/
 │   ├── prd.md
 │   ├── adr.md
@@ -63,7 +67,7 @@ cord/
 │   ├── findings.md
 │   ├── ledger.yaml       # 事件流的确定性投影
 │   └── events.jsonl      # append-only 事实来源
-├── .sdlc/                # 发布的 SDLC 版本
+├── .sdlc/                # 发布的 SDLC 版本与草稿（draft.yaml）
 └── .index/               # 可删除、可重建的 SQLite 派生索引
 ```
 
@@ -110,16 +114,23 @@ POST /requirements/:req_id/approvals/:approval_id/decide
 GET  /sdlcs
 POST /sdlcs/:sdlc_id/versions/validate
 POST /sdlcs/:sdlc_id/versions/publish
+GET  /sdlcs/:sdlc_id/versions/:version
+GET  /sdlcs/:sdlc_id/draft
+PUT  /sdlcs/:sdlc_id/draft
+DELETE /sdlcs/:sdlc_id/draft
+POST /sdlcs/:sdlc_id/versions/:version/archive
+POST /sdlcs/:sdlc_id/versions/:version/unarchive
+GET  /sdlc-templates
 POST /doctor
 ```
 
-写命令必须携带 `Idempotency-Key`。错误统一返回 `{ code, message, details, request_id }`。
+写命令必须携带 `Idempotency-Key`。错误统一返回 `{ code, message, details, request_id }`。启动 run 可指定 `{ sdlc_id, sdlc_version }`；归档版本禁止启动新 run。
 
 ## 当前边界
 
-已实现：事件协议与 reducer、工作流执行器、内置 checker、盲评投票底座、ACP/headless agent driver、CLI、REST/SSE server、人工 gate、默认和自定义 SDLC、React 控制台。
+已实现：事件协议与 reducer、工作流执行器（pre gates → node.run → post gates）、参数化内置 checker、协调 agent（快照 + 上下文包 + artifact 双通道写回）、盲评投票底座、ACP/headless agent driver 与 `agents.yaml` 自定义注册、CLI、REST/SSE server、人工 gate、SDLC 草稿/版本/归档/模板库、React 控制台。
 
-尚未实现：飞书等 IM 适配、多用户鉴权、run 取消、CEL 和外部 checker 插件、知识库检索、文档防腐钩子，以及默认 SDLC 中的真实投票产出。详细计划见 [docs/10-roadmap.md](./docs/10-roadmap.md)。
+尚未实现：飞书等 IM 适配、多用户鉴权、run 取消与持久化任务队列、CEL 和外部 checker 插件（MCP）、知识库检索、文档防腐钩子，以及默认 SDLC 中的真实投票产出。详细计划见 [docs/10-roadmap.md](./docs/10-roadmap.md)。
 
 ## 设计原则
 
@@ -134,7 +145,7 @@ POST /doctor
 - [文档入口](./docs/INDEX.md)：当前实现、协议、ADR 和设计归档的阅读路径。
 - [当前实现架构](./docs/current-architecture.md)：server、console、数据布局和运行路径。
 - [核心协议速查](./docs/protocol.md)：事件、账本、workflow、gate 和 voting 的实现契约。
-- [ADR 目录](./docs/adr/)：架构决策记录，当前包含 ADR-0001 ~ ADR-0022。
+- [ADR 目录](./docs/adr/)：架构决策记录，当前包含 ADR-0001 ~ ADR-0024。
 - [安全与权限模型](./docs/09-security.md)
 - [路线图](./docs/10-roadmap.md)
 - [风险与开放问题](./docs/11-risks.md)

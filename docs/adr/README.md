@@ -9,11 +9,11 @@
 
 ## 1. 一句话说明
 
-agent-cord 的设计决策分为四类，共 22 条，一条决策一个文件：
+agent-cord 的设计决策分为四类，共 24 条，一条决策一个文件：
 
 - **8 条设计决策（ADR-0001 ~ ADR-0008）**：定义「这个平台是什么、边界在哪、机制怎么组织」——定位、流程严格度、共识载体、路由拓扑、账本形态、投票机制、模型分配、原型切分。
 - **8 条技术决策（ADR-0009 ~ ADR-0016）**：定义「这个平台用什么造」——语言与运行形态、SSOT 存储、agent 运行时、事件与 IM 适配、投票执行器、工作流定义语言、知识库、分发与插件。
-- **4 条实现选型决策（ADR-0017 ~ ADR-0020），另有 ADR-0021/0022 覆盖控制台 server 分层与 SDLC 生命周期**：在技术决策框架内，依据开源实现调研（2026-09-24，[docs/research/](../research/)）与对抗性设计评审把具体实现选型拍板——agent 驱动协议（ACP 直连）、工作流 DSL 与编排内核（自研 + XState + CEL 端口隔离）、插件协议（MCP over stdio）、事件协议与确定性 reducer（seq 血统语义 + 因果链 + 投影校验和）。
+- **8 条实现选型决策（ADR-0017 ~ ADR-0024）**：在技术决策框架内，依据开源实现调研与对抗性设计评审把具体实现选型拍板——agent 驱动协议（ACP 直连）、工作流 DSL 与编排内核、插件协议（MCP over stdio）、事件协议与确定性 reducer、控制台 server 分层、SDLC 生命周期、协调 session agent 与节点执行体、checker 参数化。
 
 设计决策先于技术决策成立：技术选型都是设计约束的推论，而不是流行度比较的结果。每份 ADR 的「理由」一节都给出从痛点出发的第一性原理推导链。
 
@@ -37,6 +37,8 @@ agent-cord 的设计决策分为四类，共 22 条，一条决策一个文件�
 | 12 | 事件协议与确定性 reducer | EventEnvelope v1（ULID + 血统内 seq + prev_event_hash 因果链）+ 单写者原子追加 + reducer 带版本与输入/输出校验和 + 并发冲突转人工 | 「能演示」与「杀进程/合并后可证明正确」的差距全在协议层；全局连续 seq 与分支合并数学上不兼容 | [ADR-0020](./ADR-0020-event-protocol-reducer.md) | 中高 |
 | 13 | 控制台与 server 分层 | Fastify REST 命令 + SSE 只读推送 + node:sqlite 派生索引（只存幂等键与运行登记）+ 人工 gate 经挂起 promise 桥接 REST | 凡能从事件流派生的就不允许有第二份持久化副本；幂等键不落盘则重启后无法兑现「同键不重复入账」 | [ADR-0021](./ADR-0021-console-server-layering.md) | 中高 |
 | 14 | SDLC 定制模型与版本生命周期 | SDLC = 现有 WorkflowDef 的文件化封装（draft → validated → published → archived），发布版本不可原地修改，run 绑定具体版本 | 双 schema 必然漂移；SDLC 是低频人审资产，文件 + git 是最便宜的可评审形态 | [ADR-0022](./ADR-0022-sdlc-lifecycle.md) | 中高 |
+| 15 | 协调 session agent 与节点执行体 | node.run 声明执行体 + NodeRunner 端口（Coordinator 为生产实现：快照剪裁 → 驱动调度 → agent.task 事件落盘 → artifact 双通道写回）+ agents.yaml 自定义 agent 注册 | 编排正确性（执行器）与协调智能（上下文剪裁/调度）是两个变化轴；恢复语义唯一要求执行必须在节点生命周期内完成 | [ADR-0023](./ADR-0023-coordinator-node-run.md) | 中高 |
+| 16 | checker 参数化 | checks[].with 传入 CheckerContext.params + 参数化内置 checker 家族（file-exists/file-nonempty/doc-has-section/anchors-min-count/event-emitted）；参数非法 fail-closed | L1 档从「枚举具体判定」升级为「枚举判定种类」；CEL/插件路线不变 | [ADR-0024](./ADR-0024-checker-params.md) | 中高 |
 
 **置信度的含义**：高 = 有多条独立一手来源互证，方向性风险低；中高 = 推导链完整且有一手来源，个别参数需试点校准；中 = 方向由推理得出，无同构先例或需实验数据确认。所有 8 项决策的共同前提是：本平台的负载是 I/O 编排而非高并发服务，token 成本是噪声级（约占人力基线 2% 以内；换算口径：按配套调研（2026-09）Q8 的成本模型，把每需求的 token 费用按当时费率折算为等效人力分钟数，再除以人力基线），真正的成本是固定建设成本与人工介入时间——技术选型一律按这个前提取舍。
 
@@ -80,7 +82,7 @@ agent-cord 的设计决策分为四类，共 22 条，一条决策一个文件�
 | 状态 | 含义 | 本目录现状 |
 |---|---|---|
 | `proposed` | 已提出、待人工拍板。允许出现在草稿分支，不进入主干 | 无 |
-| `accepted` | 已拍板，作为实现的约束 | **ADR-0001 ~ ADR-0022 全部为此状态** |
+| `accepted` | 已拍板，作为实现的约束 | **ADR-0001 ~ ADR-0024 全部为此状态** |
 | `rejected` | 明确否决。文件保留，正文写明否决理由，供后人避免重复提议 | 无（被否的**备选方案**写在对应 ADR 内，不单独占 ADR 编号） |
 | `superseded` | 已被后续 ADR 取代。文件保留全文，不再作为实现依据 | 无 |
 
