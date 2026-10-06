@@ -490,8 +490,12 @@ const BUILTIN_TEMPLATES: readonly HeadlessCliTemplate[] = [
       ...(model !== undefined ? ["--model", model] : []),
       // effort → codex 配置覆盖（codex 无 effort CLI 旗标）
       ...(effort !== undefined ? ["-c", `model_reasoning_effort="${effort}"`] : []),
-      // `exec resume` 不接受 -s/--sandbox，用配置覆盖等价表达只读沙箱
-      ...(readonly ? ["-c", 'sandbox_mode="read-only"'] : []),
+      // codex exec 默认 read-only 沙箱（已实证）：非只读任务必须显式 workspace-write，
+      // 否则写文件被拦截且无审批交互（exec 无人值守）；`exec resume` 不收 -s，统一走 -c
+      "-c",
+      `sandbox_mode="${readonly ? "read-only" : "workspace-write"}"`,
+      "-c",
+      'ask_for_approval="never"',
       prompt,
     ],
   },

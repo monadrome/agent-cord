@@ -336,15 +336,26 @@ describe("HeadlessDriver CLI 参数", () => {
     ]);
   });
 
-  it("codex：readonly 用只读沙箱，resume 用 exec resume", () => {
+  it("codex：readonly 只读沙箱、非只读显式 workspace-write（exec 默认 read-only，已实证），resume 用 exec resume", () => {
     const driver = new HeadlessDriver({ cli: "codex" });
-    expect(driver.buildArgv({ prompt: "p", cwd: "/w" })).toEqual(["codex", "exec", "--json", "p"]);
+    expect(driver.buildArgv({ prompt: "p", cwd: "/w" })).toEqual([
+      "codex",
+      "exec",
+      "--json",
+      "-c",
+      'sandbox_mode="workspace-write"',
+      "-c",
+      'ask_for_approval="never"',
+      "p",
+    ]);
     expect(driver.buildArgv({ prompt: "p", cwd: "/w", readonly: true })).toEqual([
       "codex",
       "exec",
       "--json",
       "-c",
       'sandbox_mode="read-only"',
+      "-c",
+      'ask_for_approval="never"',
       "p",
     ]);
     expect(driver.buildArgv({ prompt: "p", cwd: "/w" }, "s1")).toEqual([
@@ -353,6 +364,10 @@ describe("HeadlessDriver CLI 参数", () => {
       "resume",
       "s1",
       "--json",
+      "-c",
+      'sandbox_mode="workspace-write"',
+      "-c",
+      'ask_for_approval="never"',
       "p",
     ]);
   });
@@ -423,6 +438,10 @@ describe("HeadlessDriver CLI 参数", () => {
       "gpt-5",
       "-c",
       'model_reasoning_effort="high"',
+      "-c",
+      'sandbox_mode="workspace-write"',
+      "-c",
+      'ask_for_approval="never"',
       "p",
     ]);
   });
