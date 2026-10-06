@@ -96,6 +96,10 @@ export interface CheckerContext {
   session_dir: string;
   anchors: Anchor[];
   payload: Record<string, unknown>;
+  /** gate YAML `checks[].with` 的透传参数（ADR-0024）；未声明时缺省 {} */
+  params?: Record<string, unknown>;
+  /** 当前节点 id（执行器注入；event-emitted 的 within_node 等节点级判定用） */
+  node_id?: string;
   /**
    * 执行器持有的 session（可选）：checker 由此读账本/事件流，无需被绑到某个 session 实例。
    * 未提供时须退回只依赖 `session_dir` 的读法（如读 `<session_dir>/ledger.yaml`）。
@@ -121,6 +125,31 @@ export interface HumanGate {
 export interface WorkflowExecutor {
   /** 从头执行或按事件流扫点恢复（ADR-0018 注意点 4：恢复单位是节点，节点内副作用幂等） */
   run(def: WorkflowDef, session: SessionHandle): Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// 节点执行体（ADR-0023）：执行器把 node.run 委托给注入的 NodeRunner
+// ---------------------------------------------------------------------------
+
+export interface NodeRunContext {
+  workflow_id: string;
+  node_id: string;
+}
+
+export type NodeRunStatus = "ok" | "failed" | "timeout";
+
+/**
+ * 节点执行体端口： Coordinator 的生产实现负责快照剪裁 → driver 调度 → agent.task 事件落盘。
+ * 实现方约定：
+ * - 所有事实经 session.events.append 落盘（agent.task.started / agent.task.completed）；
+ * - 不抛错——失败归约为 status: failed/timeout 的 completed 事件，由执行器决定停在该节点。
+ */
+export interface NodeRunner {
+  runNode(
+    node: WorkflowDef["spec"]["nodes"][number],
+    session: SessionHandle,
+    ctx: NodeRunContext,
+  ): Promise<{ status: NodeRunStatus }>;
 }
 
 // ---------------------------------------------------------------------------

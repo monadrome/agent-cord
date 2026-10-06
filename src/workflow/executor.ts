@@ -34,6 +34,7 @@ import type {
   CheckerContext,
   CheckerRegistry,
   HumanGate,
+  NodeRunner,
   SessionHandle,
   WorkflowExecutor,
 } from "../core/ports.js";
@@ -73,6 +74,11 @@ export interface ExecutorOptions {
   payload?: Record<string, unknown>;
   /** 按节点覆盖 payload；优先于 payload */
   payloadFor?: (node: WorkflowNode) => Record<string, unknown>;
+  /**
+   * 节点执行体（ADR-0023）：节点声明 run 时调用；未注入则跳过执行并在 node.exited 记 warn（fail-visible）。
+   * 恢复扫点：节点已有 status=ok 的 agent.task.completed 时不重复执行。
+   */
+  nodeRunner?: NodeRunner;
   actor?: Actor;
 }
 
@@ -108,6 +114,7 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
           session_dir: session.dir,
           anchors: extractAnchors(payload),
           payload,
+          node_id: nodeId,
           session,
         };
 
@@ -125,26 +132,46 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
         );
 
         const summaries: GateSummary[] = [];
-        let stopped = false;
-        for (const gate of gatesByNode.get(nodeId) ?? []) {
-          const outcome = await runGate({
-            workflow_id,
-            node_id: nodeId,
-            gate,
-            session,
-            registry,
-            humanGate: options.humanGate,
-            ctx,
-            actor,
-            pending: state.waiting.get(gateKey(nodeId, gate.id)),
-          });
-          if (outcome.summary) summaries.push(outcome.summary);
-          if (outcome.stop) {
-            stopped = true;
-            break;
+        const notes: string[] = [];
+        const runGates = async (gates: GateDef[]): Promise<boolean> => {
+          for (const gate of gates) {
+            const outcome = await runGate({
+              workflow_id,
+              node_id: nodeId,
+              gate,
+              session,
+              registry,
+              humanGate: options.humanGate,
+              ctx,
+              actor,
+              pending: state.waiting.get(gateKey(nodeId, gate.id)),
+            });
+            if (outcome.summary) summaries.push(outcome.summary);
+            if (outcome.stop) return true;
+          }
+          return false;
+        };
+
+        const nodeGates = gatesByNode.get(nodeId) ?? [];
+        // pre gate → node.run → post gate（ADR-0014：pre = 节点前；ADR-0023：执行体在两段 gate 之间）
+        if (await runGates(nodeGates.filter((gate) => gate.attach.when === "pre"))) return;
+
+        if (node.run !== undefined) {
+          if (options.nodeRunner === undefined) {
+            notes.push("节点声明了 run 执行体但未注入 NodeRunner，执行被跳过（fail-visible）");
+          } else if (state.agentDone.has(nodeId)) {
+            notes.push("agent 任务已 ok 完成（恢复扫点），跳过重复执行");
+          } else {
+            const outcome = await options.nodeRunner.runNode(node, session, {
+              workflow_id,
+              node_id: nodeId,
+            });
+            // 失败/超时：completed 事件已落盘，停在该节点；修好输入后重跑会重试执行体
+            if (outcome.status !== "ok") return;
           }
         }
-        if (stopped) return;
+
+        if (await runGates(nodeGates.filter((gate) => gate.attach.when === "post"))) return;
 
         await appendEvent(
           session,
@@ -155,6 +182,7 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
             node_id: nodeId,
             artifact: node.artifact ?? null,
             gates: summaries,
+            ...(notes.length > 0 ? { notes } : {}),
           },
           nodeId,
         );
@@ -277,12 +305,15 @@ interface ScannedState {
   entered: Set<string>;
   /** 有 gate.waiting 且尚未 gate.resolved 的 gate（key = node/gate） */
   waiting: Map<string, WaitingGate>;
+  /** 最近一次 entered 之后已有 status=ok 的 agent.task.completed 的节点（ADR-0023：恢复不重复执行） */
+  agentDone: Set<string>;
 }
 
 async function scan(session: SessionHandle, workflowId: string): Promise<ScannedState> {
   const completed = new Set<string>();
   const entered = new Set<string>();
   const waiting = new Map<string, WaitingGate>();
+  const agentDone = new Set<string>();
 
   for (const event of await session.events.readOrdered()) {
     const payload = asRecord(event.payload);
@@ -291,8 +322,12 @@ async function scan(session: SessionHandle, workflowId: string): Promise<Scanned
     const gateId = payload["gate_id"];
     if (event.type === "workflow.node.entered" && typeof nodeId === "string") {
       entered.add(nodeId);
+      // 重新进入 = 之前的执行体完成记录作废（节点重跑语义）
+      agentDone.delete(nodeId);
     } else if (event.type === "workflow.node.exited" && typeof nodeId === "string") {
       completed.add(nodeId);
+    } else if (event.type === "agent.task.completed" && typeof nodeId === "string") {
+      if (payload["status"] === "ok") agentDone.add(nodeId);
     } else if (
       event.type === "gate.waiting" &&
       typeof nodeId === "string" &&
@@ -307,7 +342,7 @@ async function scan(session: SessionHandle, workflowId: string): Promise<Scanned
       waiting.delete(gateKey(nodeId, gateId));
     }
   }
-  return { completed, entered, waiting };
+  return { completed, entered, waiting, agentDone };
 }
 
 function toWaitingGate(
@@ -561,7 +596,9 @@ async function runChecks(
 ): Promise<CheckOutcome[]> {
   const outcomes: CheckOutcome[] = [];
   for (const check of gate.checks) {
-    outcomes.push({ ref: check.ref, result: await runOneCheck(check.ref, registry, ctx) });
+    // ADR-0024：checks[].with 透传为 CheckerContext.params，checker 自行校验、非法即 block
+    const checkCtx: CheckerContext = { ...ctx, params: check.with ?? {} };
+    outcomes.push({ ref: check.ref, result: await runOneCheck(check.ref, registry, checkCtx) });
   }
   return outcomes;
 }

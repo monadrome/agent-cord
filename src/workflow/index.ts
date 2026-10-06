@@ -8,8 +8,13 @@ export {
 
 export {
   BUILTIN_CHECKER_NAMES,
+  createAnchorsMinCountChecker,
   createAnchorsPresentChecker,
   createBuiltinRegistry,
+  createDocHasSectionChecker,
+  createEventEmittedChecker,
+  createFileExistsChecker,
+  createFileNonemptyChecker,
   createLedgerHasConfirmedChecker,
   createVoteConfirmedChecker,
   findUnknownCheckers,

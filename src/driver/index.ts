@@ -49,3 +49,11 @@ export {
   resolveDriver,
 } from "./registry.js";
 export type { KnownAgent, ResolveDriverOptions } from "./registry.js";
+
+export {
+  loadAgentsFile,
+  parseAgentsYaml,
+  registerAgentsYaml,
+  resolveWithAgentsYaml,
+} from "./agents-yaml.js";
+export type { AgentsLoadResult, AgentsYaml } from "./agents-yaml.js";

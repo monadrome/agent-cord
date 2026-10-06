@@ -49,6 +49,11 @@ function docPlaceholder(reqId: string, fileName: string): string {
   ].join("\n");
 }
 
+/** 占位文档判定（ADR-0023：coordinator 写回校验把占位内容视同「无内容」） */
+export function isPlaceholderDoc(content: string): boolean {
+  return content.includes("<!-- 占位文档");
+}
+
 /** 不存在才创建（flag wx）；已存在则原样保留 */
 async function createIfAbsent(filePath: string, content: string): Promise<void> {
   try {

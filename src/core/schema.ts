@@ -180,8 +180,14 @@ export const GateDefSchema = z.object({
     when: z.enum(["pre", "post"]),
     triggers: z.array(z.string()).default([]),
   }),
-  /** M2：仅内置 checker 名；CEL/外部插件后置（M3） */
-  checks: z.array(z.object({ ref: z.string().min(1) })),
+  /** M2：仅内置 checker 名；CEL/外部插件后置（M3）。ADR-0024：with 为 checker 参数（v1alpha1 非破坏性新增） */
+  checks: z.array(
+    z.object({
+      ref: z.string().min(1),
+      /** 传给 checker 的参数（CheckerContext.params）；参数非法由 checker fail-closed */
+      with: z.record(z.string(), z.unknown()).optional(),
+    }),
+  ),
   pass: z.object({
     require: z.enum(["all", "any"]).default("all"),
     human_confirm: z.boolean().default(false),
@@ -207,6 +213,17 @@ export const WorkflowDefSchema = z.object({
           id: z.string().min(1),
           artifact: z.string().optional(),
           depends_on: z.array(z.string()).default([]),
+          /** 节点执行体（ADR-0023）：声明后由注入的 NodeRunner 调度 agent 执行；缺省节点无执行体 */
+          run: z
+            .object({
+              /** 驱动名（registry 语法：claude / acp:kimi / headless:codex / agents.yaml 别名） */
+              agent: z.string().min(1),
+              /** 任务模板（支持 {{req_id}} / {{node_id}} / {{artifact}} 占位）；缺省按产物类型给模板 */
+              prompt: z.string().optional(),
+              readonly: z.boolean().default(false),
+              timeout_ms: z.number().int().positive().optional(),
+            })
+            .optional(),
           gates: z.array(GateDefSchema).default([]),
         }),
       )
@@ -235,6 +252,8 @@ export const EVENT_TYPES = [
   "gate.resolved",
   "workflow.node.entered",
   "workflow.node.exited",
+  "agent.task.started",
+  "agent.task.completed",
   "human.decision.recorded",
   "reconcile.requested",
 ] as const;
@@ -373,6 +392,31 @@ export const WorkflowNodeExitedPayloadSchema = z.looseObject({
     .optional(),
 });
 
+/** `agent.task.started`：协调 agent 派发节点任务（ADR-0023） */
+export const AgentTaskStartedPayloadSchema = z.looseObject({
+  workflow_id: z.string().min(1),
+  node_id: z.string().min(1),
+  driver: z.string().min(1),
+  prompt_excerpt: z.string().optional(),
+});
+
+/** `agent.task.completed`：节点任务终态（中间流式事件不入事件流，ADR-0023 决策 3） */
+export const AgentTaskCompletedPayloadSchema = z.looseObject({
+  workflow_id: z.string().min(1),
+  node_id: z.string().min(1),
+  driver: z.string().min(1),
+  status: z.enum(["ok", "failed", "timeout"]),
+  text: z.string().optional(),
+  error: z.string().nullable().optional(),
+  artifact: z.string().nullable().optional(),
+  artifact_written: z.boolean().optional(),
+  /** 产物写入通道：agent 自写 / 协调 agent 代写（draft）/ 无产物 */
+  written_by: z.enum(["agent", "coordinator", "none"]).optional(),
+  /** worker agent 的会话 id（仅供人工调试 resume；执行器恢复总是新会话） */
+  agent_session_id: z.string().nullable().optional(),
+  duration_ms: z.number().optional(),
+});
+
 /** 已知 payload 的 schema 表；未列出的类型（如 M3 才落地的 reconcile.requested）尚无固化形状。 */
 export const EVENT_PAYLOAD_SCHEMAS: Partial<Record<EventType, z.ZodType>> = {
   "cli.message.received": CliMessageReceivedPayloadSchema,
@@ -386,4 +430,6 @@ export const EVENT_PAYLOAD_SCHEMAS: Partial<Record<EventType, z.ZodType>> = {
   "gate.resolved": GateResolvedPayloadSchema,
   "workflow.node.entered": WorkflowNodeEnteredPayloadSchema,
   "workflow.node.exited": WorkflowNodeExitedPayloadSchema,
+  "agent.task.started": AgentTaskStartedPayloadSchema,
+  "agent.task.completed": AgentTaskCompletedPayloadSchema,
 };

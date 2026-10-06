@@ -4,6 +4,8 @@
  */
 export {
   ActorSchema,
+  AgentTaskCompletedPayloadSchema,
+  AgentTaskStartedPayloadSchema,
   AnchorSchema,
   CliMessageReceivedPayloadSchema,
   ConfidenceSourceSchema,
@@ -43,12 +45,18 @@ export type {
 } from "./schema.js";
 
 export type {
+  AgentDriver,
+  AgentEvent,
+  AgentTask,
   Checker,
   CheckerContext,
   CheckerRegistry,
   DoctorReport,
   EventStore,
   HumanGate,
+  NodeRunContext,
+  NodeRunner,
+  NodeRunStatus,
   NormalizedEvent,
   Reducer,
   SessionHandle,
@@ -77,6 +85,7 @@ export { createReducer, reduceEvents, REDUCER_VERSION } from "./reducer.js";
 export { runDoctor } from "./doctor.js";
 export {
   initSession,
+  isPlaceholderDoc,
   openSession,
   EVENTS_FILE,
   LEDGER_FILE,
