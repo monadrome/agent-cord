@@ -325,6 +325,13 @@ describe("SSE", () => {
       expect(Number(firstId)).toBeGreaterThan(1);
     }
     await reader2.cancel();
+
+    // 本用例只等首个 node.entered，run 仍在后台推进；必须等它停在 review 人工 gate 再收尾，
+    // 否则执行器会继续追加事件，与 afterEach 的 rm 竞态（ENOTEMPTY：删掉 events.jsonl 后又被写回）。
+    await waitFor(async () => {
+      const res = await api("GET", "/api/v1/requirements/REQ-SSE/approvals");
+      return res.body["approvals"].length > 0;
+    });
   });
 });
 
