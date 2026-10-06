@@ -34,3 +34,18 @@
 - apps/console：需求详情启动 run 可选 SDLC+版本；SDLC 页重写（模板载入、草稿保存/恢复、克隆版本、归档切换）。
 - smoke（CORD_ROOT=/tmp/cord-smoke）：模板库取 agent-collab 改 claude→fake → 校验发布 → 启动 run → align/plan/implement/verify 四节点经 fake agent 执行、coordinator 代写 plan.md（含代写溯源头）→ review 人工 gate 放行 → completed。
 - 全量验证：303 测试 / 30 文件全绿；`npm run typecheck` / `npm run build:all` 通过；docs/protocol.md、docs/current-architecture.md、README.md 同步。
+
+### run 取消与执行体可靠性（ADR-0025）
+
+- 目标：run 必须能停（agent 跑飞只能杀进程不可接受）+ 瞬态失败（限流/网络）不该让人重跑整个 run。生态收敛证据：Temporal 的 Signal 先落历史再响应、LangGraph interrupt、vibe-kanban 停止语义。
+- 新增 ADR-0025；docs/adr/README.md 索引同步（24→25，实现选型 8→9 项，地图补第 17 行）。
+- 新事件 `workflow.run.cancelled`（payload：workflow_id / run_id / reason?）；`NodeRunStatus` 与 `agent.task.completed.status` 增 `cancelled`（不算失败、不计入 failed 终态、不触发重试）。
+- AbortSignal 贯穿链：`ExecutorOptions.signal` → 节点边界检查 + `NodeRunContext.signal` → coordinator 尝试边界检查 + `AgentTask.signal` → driver abort 即杀进程树并关闭事件流。人工 gate 挂起处 ask 与 abort 竞速，取消不落 `gate.resolved` 假判定。
+- 关键实现教训：async generator 暂停在队列 `next()` 时 `iterator.return()` 会排队等当前 await 解决——worker 静默期消费方 break 收不掉进程。因此取消必须是 driver 级契约（`task.signal`），不能只是消费侧 break。
+- `node.run.retry { max_attempts(1-10, 默认1), backoff_ms(默认0) }`：coordinator 按尝试循环、线性退避、可被取消即时打断；重试的上下文包附「上次尝试失败」摘要；每次尝试落独立 started/completed（带 attempt/max_attempts）。驱动解析失败属定义性错误，不重试。
+- 终态判定 `computeFinalStatus` 按 run_id 匹配取消事件（历史 run 的取消不污染新 run）；取消使该流程未决 gate 从审批投影移除；run 终态枚举增 `cancelled`。`session-service.scanPendingApprovals` 的取消分支必须先于 gate 键守卫处理（取消事件没有 node_id/gate_id）。
+- API：`POST /runs/:run_id/cancel`（幂等键；重复取消/已终态返回现状）。无在途执行器（server 重启后）也能取消：事件落盘 + 直接登记终态。
+- apps/console：需求详情页增取消按钮与终态展示；api client 增 `cancelRun`。
+- 新增 apps/server/tests/run-cancel.test.ts（3 用例）：取消等待人工的 run（事件落盘/终态/审批失效/重取消幂等）、取消在途 agent 任务（`fake-cli.mjs --sleep 60000` 被抢先终止，取消耗时 < 15s，completed{status:cancelled}）、取消后重新 start 断点续跑。fixture `--sleep` 复现了静默期死锁，driver 级 signal 契约修复后取消延迟从 60s+ 降至亚秒。
+- 修掉一处被新用例放大的既有测试竞态：api.test.ts 的 SSE 用例只等首个 `workflow.node.entered` 就收尾，在途 run 会继续追加事件，与 afterEach 的 `rm -rf` 竞态（ENOTEMPTY：删掉 events.jsonl 后又被写回；全量跑 2/3 失败）。改为等 run 停在 review 人工 gate（停住后不再写盘）。
+- 全量验证：322 测试 / 31 文件全绿（连跑 6 次无 flake）；`npm run typecheck` / `npm run build:all` 通过；docs/protocol.md、docs/current-architecture.md、README.md 同步。

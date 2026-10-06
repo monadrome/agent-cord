@@ -66,9 +66,11 @@ Workflow 定义是 `agent-cord.dev/v1alpha1 / Workflow` YAML。加载时检查 s
 1. 读取事件流，跳过已经有 `workflow.node.exited` 的节点；恢复扫点时跳过已有 `status=ok` 的 `agent.task.completed` 的节点执行体。
 2. 写入 `workflow.node.entered`。
 3. 顺序执行 pre gates；checker 抛错或返回非法结果时 fail-closed。
-4. 节点声明 `run` 时委托给 `NodeRunner`（协调 agent）：重建最新快照 → 构建上下文包（PRD + 上游产物 + 账本 + 定位符）→ 经 AgentDriver 派发 → 写 `agent.task.started` / `agent.task.completed`。artifact 写回双通道：worker 自写优先，非空文本回退为协调 agent 代写 draft。任务失败/超时则停在该节点，run 记 failed，重跑会重试。
+4. 节点声明 `run` 时委托给 `NodeRunner`（协调 agent）：重建最新快照 → 构建上下文包（PRD + 上游产物 + 账本 + 定位符）→ 经 AgentDriver 派发 → 写 `agent.task.started` / `agent.task.completed`。artifact 写回双通道：worker 自写优先，非空文本回退为协调 agent 代写 draft。任务失败/超时则停在该节点，run 记 failed，重跑会重试；声明 `run.retry` 时由协调 agent 在节点内按退避重试，重试的上下文包附上次失败摘要。
 5. 顺序执行 post gates；人工 gate 写入 `gate.waiting`，由 server 的审批接口恢复。
 6. 写入 `workflow.node.exited`。
+
+每个节点边界检查取消信号：run 取消先落 `workflow.run.cancelled`（事实），再 abort 执行器——信号经 NodeRunContext → AgentTask 透传到 driver，driver 杀进程树并关闭事件流；人工 gate 挂起处与 abort 竞速，取消不落 `gate.resolved` 假判定。取消后该 run 的未决 gate 从审批投影移除，重新 start 即断点续跑。
 
 server 当前使用进程内 runner。同一需求同时只允许一个在途 run。重启时根据 run 登记和事件流重新扫描节点；已完成节点不重跑，未完成节点重新求值。
 
@@ -87,7 +89,7 @@ intake → align → plan → implement → verify → review → done
 server 默认监听 `127.0.0.1:7250`，工作区由 `CORD_ROOT` 指定。核心接口包括：
 
 - 查询：`/health`、`/dashboard`、`/requirements`、需求详情、timeline、ledger、votes、runs、approvals。
-- 命令：创建需求、编辑快照文档、启动 run（可指定 `sdlc_id` + `sdlc_version`）、处理人工审批。
+- 命令：创建需求、编辑快照文档、启动 run（可指定 `sdlc_id` + `sdlc_version`）、取消 run（`POST /runs/:run_id/cancel`，幂等）、处理人工审批。
 - 实时：`/requirements/:req_id/events/stream`，使用事件 `seq` 作为 SSE id，并支持 `Last-Event-ID` 回放。
 - SDLC：列表、读取版本、validate、publish、草稿（GET/PUT/DELETE `/sdlcs/:id/draft`）、版本归档（archive/unarchive）、模板库（`GET /sdlc-templates`）。归档版本禁止启动新 run，不影响在途/历史 run。
 - 维护：`POST /doctor`。
@@ -105,7 +107,7 @@ console 使用 hash 路由，页面包括工作台、需求列表、需求详情
 以下能力仍属于后续工作：
 
 - 飞书等 IM 适配、多用户鉴权和远程部署；
-- run 取消、持久化任务队列和跨进程 lease；
+- 持久化任务队列和跨进程 lease；
 - CEL、外部 checker 插件（MCP）和权限审批桥；
 - 知识库检索、文档防腐钩子；
 - gate `write_back` 的实际执行（目前只记录到事件 payload）、投票在默认流程中的自动触发。

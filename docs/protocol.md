@@ -25,12 +25,13 @@
 | `vote.*` | 投票开始与完成 |
 | `gate.*` | gate 等待和解决 |
 | `workflow.node.*` | workflow 节点进入和退出 |
+| `workflow.run.*` | run 级控制：取消（cancelled，ADR-0025） |
 | `agent.task.*` | 节点执行体的 agent 任务（started / completed；中间流式输出不入流） |
 | `human.*` | 人工选择记录 |
 
 事件类型目录在 `EVENT_TYPES`；新增类型需要同步 schema 和 ADR。
 
-`agent.task.completed` 的关键字段：`status`（ok / failed / timeout）、`text`（截断 32KB）、`artifact_written` 与 `written_by`（agent / coordinator / none）、`agent_session_id`（仅供人工调试 resume，执行器恢复总是新会话）。
+`agent.task.completed` 的关键字段：`status`（ok / failed / timeout / cancelled）、`text`（截断 32KB）、`artifact_written` 与 `written_by`（agent / coordinator / none）、`attempt` 与 `max_attempts`（重试时）、`agent_session_id`（仅供人工调试 resume，执行器恢复总是新会话）。`cancelled` 不算失败：不计入 failed 终态，也不触发重试。
 
 ## 2. Ledger 投影
 
@@ -65,7 +66,11 @@ checker 结果是 `pass`、`block` 或 `warn`。未知 checker、抛错和非法
 
 `checks` 项可带 `with` 参数（ADR-0024），透传为 `CheckerContext.params`；参数非法由 checker 按 `block` 处理，不用缺省值猜。内置 checker：`anchors-present`、`ledger-has-confirmed`、`vote-confirmed`，以及参数化的 `file-exists {path}`、`file-nonempty {path, min_bytes?}`、`doc-has-section {path, heading}`、`anchors-min-count {min}`、`event-emitted {type, within_node?}`。文件类 path 一律限制在 session 目录内。
 
-节点可声明执行体 `run`（ADR-0023）：`{ agent, prompt?, readonly?, timeout_ms? }`。执行顺序为 pre gates → node.run → post gates；node.run 由注入执行器的 `NodeRunner` 端口处理（生产实现是协调 agent，见 `src/coordinator/`），未注入时跳过并在 node.exited 记 `notes`。恢复扫点：节点已有 `status=ok` 的 agent.task.completed 时不重复执行；失败/超时则重跑时重试。
+节点可声明执行体 `run`（ADR-0023）：`{ agent, prompt?, readonly?, timeout_ms?, retry? }`。执行顺序为 pre gates → node.run → post gates；node.run 由注入执行器的 `NodeRunner` 端口处理（生产实现是协调 agent，见 `src/coordinator/`），未注入时跳过并在 node.exited 记 `notes`。恢复扫点：节点已有 `status=ok` 的 agent.task.completed 时不重复执行；失败/超时则重跑时重试。
+
+`run.retry`（ADR-0025）：`{ max_attempts(1-10, 默认 1), backoff_ms(默认 0) }`。协调 agent 按尝试循环，退避为 `backoff_ms × 第 n 次失败`，每次尝试落独立的 agent.task.started/completed（带 `attempt`/`max_attempts`），重试的上下文包附上次失败摘要。驱动解析失败属定义性错误，不重试。
+
+run 取消（ADR-0025）：`POST /api/v1/runs/:run_id/cancel` 先落 `workflow.run.cancelled` 事件（事实），再 abort 在途执行器——`AbortSignal` 经执行器 → NodeRunContext → AgentTask 透传到 driver，driver 杀进程树并关闭事件流。人工 gate 挂起处 ask 与 abort 竞速，取消**不落 gate.resolved 假判定**；取消使该流程未决 gate 从审批投影移除，重新 start 即断点续跑。终态判定按 `run_id` 匹配取消事件，历史 run 的取消不污染新 run。
 
 人工 gate 的事实顺序是：
 
