@@ -9,11 +9,12 @@ import { fileURLToPath } from "node:url";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { ulid } from "ulid";
-import { runDoctor, runInit, type WorkflowDef } from "agent-cord";
+import { loadAgentsFile, resolveWithAgentsYaml, runDoctor, runInit, type WorkflowDef } from "agent-cord";
 import {
   CreateRequirementInputSchema,
   DecideApprovalInputSchema,
   PublishSdlcInputSchema,
+  SaveDraftInputSchema,
   SNAPSHOT_DOC_NAMES,
   StartRunInputSchema,
   UpdateDocInputSchema,
@@ -25,6 +26,7 @@ import {
 import { ApiError, badRequest, notFound, parseOrThrow } from "./errors.js";
 import { IndexStore } from "./services/index-store.js";
 import { DEFAULT_SDLC_ID, SdlcService } from "./services/sdlc-service.js";
+import { listSdlcTemplates } from "./services/sdlc-templates.js";
 import { RunService } from "./services/run-service.js";
 import { SessionService, toLedgerView } from "./services/session-service.js";
 
@@ -65,9 +67,20 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
   });
 
   const sessions = new SessionService(root);
-  const sdlcs = new SdlcService(sessions.cordRoot);
   const index = await IndexStore.open(sessions.cordRoot);
-  const runs = new RunService(sessions, sdlcs, index);
+  const sdlcs = new SdlcService(sessions.cordRoot, index);
+
+  // 自定义 agent 注册（ADR-0023 决策 6）：cord/agents.yaml 可选；逐条降级不阻断启动
+  const agents = await loadAgentsFile(path.join(sessions.cordRoot, "agents.yaml"));
+  for (const warning of agents.warnings) app.log.warn(`agents.yaml：${warning}`);
+  if (agents.registered.length > 0) {
+    app.log.info(`agents.yaml 注册自定义 agent：${agents.registered.join(", ")}`);
+  }
+
+  const runs = new RunService(sessions, sdlcs, index, {
+    driverResolver: resolveWithAgentsYaml(agents.yaml),
+    workspaceRoot: root,
+  });
 
   await runInit(root);
   await sdlcs.ensureDefaults();
@@ -368,6 +381,59 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
       return { request_id: requestId(req), sdlc_id: sdlcId, ...published };
     },
   );
+
+  // ---- SDLC 草稿（工作副本，可校验不通过；发布成功后自动清除） -------------------------
+  app.get("/api/v1/sdlcs/:sdlc_id/draft", async (req) => {
+    const { sdlc_id: sdlcId } = req.params as { sdlc_id: string };
+    return { request_id: requestId(req), sdlc_id: sdlcId, draft: await sdlcs.getDraft(sdlcId) };
+  });
+
+  app.put("/api/v1/sdlcs/:sdlc_id/draft", { config: { idempotency: true } }, async (req) => {
+    const { sdlc_id: sdlcId } = req.params as { sdlc_id: string };
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(sdlcId)) {
+      throw badRequest(`非法的 sdlc_id：${sdlcId}（小写字母数字与 -）`);
+    }
+    const input = parseOrThrow(SaveDraftInputSchema, req.body);
+    const validation = await sdlcs.saveDraft(sdlcId, input.yaml);
+    return { request_id: requestId(req), sdlc_id: sdlcId, saved: true, validation };
+  });
+
+  app.delete("/api/v1/sdlcs/:sdlc_id/draft", { config: { idempotency: true } }, async (req) => {
+    const { sdlc_id: sdlcId } = req.params as { sdlc_id: string };
+    await sdlcs.deleteDraft(sdlcId);
+    return { request_id: requestId(req), sdlc_id: sdlcId, deleted: true };
+  });
+
+  // ---- SDLC 版本归档（登记于索引；归档版本禁止启动新 run） ------------------------------
+  app.post(
+    "/api/v1/sdlcs/:sdlc_id/versions/:version/archive",
+    { config: { idempotency: true } },
+    async (req) => {
+      const { sdlc_id: sdlcId, version } = req.params as { sdlc_id: string; version: string };
+      const parsed = Number.parseInt(version, 10);
+      if (!Number.isInteger(parsed)) throw badRequest(`version 必须是整数：${version}`);
+      await sdlcs.archive(sdlcId, parsed);
+      return { request_id: requestId(req), sdlc_id: sdlcId, version: parsed, status: "archived" };
+    },
+  );
+
+  app.post(
+    "/api/v1/sdlcs/:sdlc_id/versions/:version/unarchive",
+    { config: { idempotency: true } },
+    async (req) => {
+      const { sdlc_id: sdlcId, version } = req.params as { sdlc_id: string; version: string };
+      const parsed = Number.parseInt(version, 10);
+      if (!Number.isInteger(parsed)) throw badRequest(`version 必须是整数：${version}`);
+      await sdlcs.unarchive(sdlcId, parsed);
+      return { request_id: requestId(req), sdlc_id: sdlcId, version: parsed, status: "published" };
+    },
+  );
+
+  // ---- SDLC 模板库（ADR-0014 注意点 9：轻量/标准/严格/Agent 协作四档起点） --------------
+  app.get("/api/v1/sdlc-templates", async (req) => ({
+    request_id: requestId(req),
+    templates: listSdlcTemplates(),
+  }));
 
   // ---- 控制台静态托管（存在构建产物时） --------------------------------------
   const consoleDist =

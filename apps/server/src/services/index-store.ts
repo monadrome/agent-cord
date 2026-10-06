@@ -62,12 +62,52 @@ export class IndexStore {
         error TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_runs_req ON runs(req_id);
+      CREATE TABLE IF NOT EXISTS sdlc_archives (
+        sdlc_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        archived_at TEXT NOT NULL,
+        PRIMARY KEY (sdlc_id, version)
+      );
     `);
     return new IndexStore(db);
   }
 
   close(): void {
     this.db.close();
+  }
+
+  // ---- SDLC 版本归档登记（ADR-0022 决策 3：不改变文件内容，登记于索引） ----------------
+
+  archiveSdlcVersion(sdlcId: string, version: number): void {
+    this.db
+      .prepare("INSERT OR IGNORE INTO sdlc_archives (sdlc_id, version, archived_at) VALUES (?, ?, ?)")
+      .run(sdlcId, version, new Date().toISOString());
+  }
+
+  unarchiveSdlcVersion(sdlcId: string, version: number): void {
+    this.db.prepare("DELETE FROM sdlc_archives WHERE sdlc_id = ? AND version = ?").run(sdlcId, version);
+  }
+
+  isSdlcVersionArchived(sdlcId: string, version: number): boolean {
+    return (
+      this.db.prepare("SELECT 1 FROM sdlc_archives WHERE sdlc_id = ? AND version = ?").get(sdlcId, version) !==
+      undefined
+    );
+  }
+
+  /** 全部归档登记（sdlc_id → 已归档版本集合） */
+  listSdlcArchives(): Map<string, Set<number>> {
+    const rows = this.db.prepare("SELECT sdlc_id, version FROM sdlc_archives").all() as unknown as Array<{
+      sdlc_id: string;
+      version: number;
+    }>;
+    const out = new Map<string, Set<number>>();
+    for (const row of rows) {
+      const set = out.get(row.sdlc_id) ?? new Set<number>();
+      set.add(row.version);
+      out.set(row.sdlc_id, set);
+    }
+    return out;
   }
 
   getIdempotency(key: string): StoredIdempotency | null {

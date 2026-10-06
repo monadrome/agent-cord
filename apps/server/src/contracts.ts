@@ -227,6 +227,18 @@ export const PublishSdlcInputSchema = z.object({
 });
 export type PublishSdlcInput = z.infer<typeof PublishSdlcInputSchema>;
 
+/** 草稿保存：与发布同形（草稿允许校验不通过，差异在语义而非结构） */
+export const SaveDraftInputSchema = PublishSdlcInputSchema;
+export type SaveDraftInput = z.infer<typeof SaveDraftInputSchema>;
+
+/** 内置模板（ADR-0014 注意点 9）：发布前的起点，载入后可自由修改 */
+export interface SdlcTemplate {
+  id: string;
+  name: string;
+  description: string;
+  yaml: string;
+}
+
 // ---------------------------------------------------------------------------
 // 健康 / doctor
 // ---------------------------------------------------------------------------

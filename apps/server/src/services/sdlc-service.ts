@@ -5,7 +5,7 @@
  * server 不实现第二份校验逻辑。
  */
 import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { stringify as stringifyYaml } from "yaml";
 import {
@@ -17,9 +17,11 @@ import {
   type WorkflowDef,
 } from "agent-cord";
 import type { SdlcSummary, SdlcValidationResult, SdlcVersionInfo } from "../contracts.js";
-import { badRequest, notFound } from "../errors.js";
+import { badRequest, conflict, notFound } from "../errors.js";
+import type { IndexStore } from "./index-store.js";
 
 export const SDLC_DIR = ".sdlc";
+export const DRAFT_FILE = "draft.yaml";
 export const DEFAULT_SDLC_ID = "simple-sdlc";
 export const DEFAULT_SDLC_VERSION = 1;
 
@@ -102,9 +104,11 @@ function parseVersionHeader(text: string): { content_hash: string; published_at:
 
 export class SdlcService {
   private readonly dir: string;
+  private readonly index: IndexStore | null;
 
-  constructor(cordRoot: string) {
+  constructor(cordRoot: string, index?: IndexStore) {
     this.dir = join(cordRoot, SDLC_DIR);
+    this.index = index ?? null;
   }
 
   /** 幂等物化默认 SDLC（ADR-0022 决策 4：开箱可跑） */
@@ -144,7 +148,7 @@ export class SdlcService {
     };
   }
 
-  /** 发布：先校验，再递增版本号落盘；已发布版本不可改（ADR-0022 决策 3） */
+  /** 发布：先校验，再递增版本号落盘；已发布版本不可改（ADR-0022 决策 3）；草稿随发布清除 */
   async publish(sdlcId: string, yaml: string): Promise<{ version: number; content_hash: string }> {
     const validation = this.validate(yaml);
     if (!validation.ok || validation.content_hash === null) {
@@ -156,7 +160,54 @@ export class SdlcService {
     const version = latest + 1;
     const def = parseWorkflow(yaml, { source: "<api>" });
     await writeFile(join(dir, `v${version}.yaml`), renderVersionFile(def, version, new Date().toISOString()), "utf8");
+    await rm(join(dir, DRAFT_FILE), { force: true });
     return { version, content_hash: validation.content_hash };
+  }
+
+  // ---- 草稿（ADR-0022：draft.yaml 可改；校验/发布不产生草稿副作用） -------------------
+
+  /** 保存草稿（工作副本，允许校验不通过——草稿的意义就是半成品） */
+  async saveDraft(sdlcId: string, yaml: string): Promise<SdlcValidationResult> {
+    const dir = join(this.dir, sdlcId);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, DRAFT_FILE), yaml, "utf8");
+    return this.validate(yaml);
+  }
+
+  /** 读取草稿；不存在 → null */
+  async getDraft(sdlcId: string): Promise<{ yaml: string } | null> {
+    try {
+      return { yaml: await readFile(join(this.dir, sdlcId, DRAFT_FILE), "utf8") };
+    } catch {
+      return null;
+    }
+  }
+
+  async deleteDraft(sdlcId: string): Promise<void> {
+    await rm(join(this.dir, sdlcId, DRAFT_FILE), { force: true });
+  }
+
+  async hasDraft(sdlcId: string): Promise<boolean> {
+    return (await this.getDraft(sdlcId)) !== null;
+  }
+
+  // ---- 归档（ADR-0022：不改变文件内容，登记于索引；归档版本禁止启动新 run） -------------
+
+  isArchived(sdlcId: string, version: number): boolean {
+    return this.index?.isSdlcVersionArchived(sdlcId, version) ?? false;
+  }
+
+  async archive(sdlcId: string, version: number): Promise<void> {
+    await this.get(sdlcId, version); // 不存在 → 404
+    if (this.index === null) throw conflict("索引不可用，无法归档");
+    if (this.isArchived(sdlcId, version)) return; // 幂等
+    this.index.archiveSdlcVersion(sdlcId, version);
+  }
+
+  async unarchive(sdlcId: string, version: number): Promise<void> {
+    await this.get(sdlcId, version);
+    if (this.index === null) throw conflict("索引不可用，无法取消归档");
+    this.index.unarchiveSdlcVersion(sdlcId, version);
   }
 
   async list(): Promise<SdlcSummary[]> {
@@ -169,6 +220,7 @@ export class SdlcService {
     } catch {
       return [];
     }
+    const archived = this.index?.listSdlcArchives() ?? new Map<string, Set<number>>();
     const out: SdlcSummary[] = [];
     for (const sdlcId of entries) {
       const versions: SdlcVersionInfo[] = [];
@@ -177,9 +229,10 @@ export class SdlcService {
         if (matched?.[1] === undefined) continue;
         const text = await readFile(join(this.dir, sdlcId, file), "utf8");
         const header = parseVersionHeader(text);
+        const version = Number.parseInt(matched[1], 10);
         versions.push({
-          version: Number.parseInt(matched[1], 10),
-          status: "published",
+          version,
+          status: archived.get(sdlcId)?.has(version) === true ? "archived" : "published",
           content_hash: header.content_hash,
           published_at: header.published_at,
         });
@@ -195,7 +248,7 @@ export class SdlcService {
           // 名称展示失败不阻断列表
         }
       }
-      out.push({ sdlc_id: sdlcId, name, builtin: sdlcId === DEFAULT_SDLC_ID, has_draft: false, versions });
+      out.push({ sdlc_id: sdlcId, name, builtin: sdlcId === DEFAULT_SDLC_ID, has_draft: await this.hasDraft(sdlcId), versions });
     }
     return out;
   }

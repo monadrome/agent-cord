@@ -10,6 +10,8 @@
 import { ulid } from "ulid";
 import {
   createExecutor,
+  createNodeRunner,
+  type AgentDriver,
   type Anchor,
   type EventEnvelope,
   type HumanGate,
@@ -47,19 +49,28 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+export interface RunServiceOptions {
+  /** 驱动解析叠加层（agents.yaml 优先，退回全局 registry）；缺省时 node.run 执行体不生效 */
+  driverResolver?: (name: string) => AgentDriver;
+  /** worker agent 的工作目录（工作区根，即 cord/ 的上级） */
+  workspaceRoot?: string;
+}
+
 export class RunService {
   private readonly sessions: SessionService;
   private readonly sdlcs: SdlcService;
   private readonly index: IndexStore;
+  private readonly options: RunServiceOptions;
   private readonly active = new Map<string, ActiveRun>();
   private readonly pendingAsks = new Map<string, PendingAsk>();
   /** 无在途执行器时的人工决策暂存：恢复执行器重新提问时优先消费 */
   private readonly decided = new Map<string, string>();
 
-  constructor(sessions: SessionService, sdlcs: SdlcService, index: IndexStore) {
+  constructor(sessions: SessionService, sdlcs: SdlcService, index: IndexStore, options: RunServiceOptions = {}) {
     this.sessions = sessions;
     this.sdlcs = sdlcs;
     this.index = index;
+    this.options = options;
   }
 
   isActive(reqId: string): boolean {
@@ -81,6 +92,12 @@ export class RunService {
     try {
       const session = await this.sessions.open(reqId);
       const versioned = await this.sdlcs.get(sdlcId ?? DEFAULT_SDLC_ID, sdlcVersion);
+      // ADR-0022：归档版本禁止启动新 run（在途/历史 run 不受影响）
+      if (this.sdlcs.isArchived(versioned.sdlc_id, versioned.version)) {
+        throw conflict(
+          `SDLC "${versioned.sdlc_id}" v${versioned.version} 已归档，禁止启动新 run（可取消归档或选择其他版本）`,
+        );
+      }
       const run: RunRow = {
         run_id: reservedRunId,
         req_id: reqId,
@@ -187,19 +204,27 @@ export class RunService {
     }
   }
 
-  /** 终态判定：流程完成 / 被 block / 等待人工 之外，run 视为可续跑 */
+  /** 终态判定：流程完成 / 被 block / 等待人工 / 执行体失败 之外，run 视为可续跑 */
   private computeFinalStatus(events: readonly EventEnvelope[], def: WorkflowDef): RunStatus | null {
     const pending = scanPendingApprovals(events);
     const workflowId = def.metadata.id;
     const relevant = [...pending.values()].filter((info) => info.workflow_id === workflowId);
     if (relevant.length > 0) return "waiting_human";
     const exited = new Set<string>();
+    const failedNodes = new Set<string>();
     let stopped = false;
     for (const event of events) {
       const payload = asRecord(event.payload);
       if (payload?.["workflow_id"] !== workflowId) continue;
-      if (event.type === "workflow.node.exited" && typeof payload["node_id"] === "string") {
-        exited.add(payload["node_id"]);
+      const nodeId = payload["node_id"];
+      if (event.type === "workflow.node.exited" && typeof nodeId === "string") {
+        exited.add(nodeId);
+        failedNodes.delete(nodeId);
+      } else if (event.type === "agent.task.completed" && typeof nodeId === "string") {
+        // ADR-0023：执行体失败 = run failed（重跑同一 run 会重试该节点）
+        const status = payload["status"];
+        if (status === "ok") failedNodes.delete(nodeId);
+        else if (status === "failed" || status === "timeout") failedNodes.add(nodeId);
       } else if (event.type === "gate.resolved" && payload["action"] === "stop") {
         stopped = true;
       } else if (event.type === "workflow.node.entered") {
@@ -207,6 +232,7 @@ export class RunService {
       }
     }
     if (def.spec.nodes.every((node) => exited.has(node.id))) return "completed";
+    if (failedNodes.size > 0) return "failed";
     if (stopped) return "blocked";
     return null;
   }
@@ -214,9 +240,19 @@ export class RunService {
   /** 在后台推进执行器；结束时按事件流投影登记终态并重建账本 */
   private launch(session: SessionHandle, run: RunRow, def: WorkflowDef): void {
     const humanGate = this.createHumanGate(session);
+    const { driverResolver, workspaceRoot } = this.options;
     const executor = createExecutor({
       humanGate,
       payloadFor: (node) => ({ anchors: nodeAnchors(session.req_id, node.artifact) }),
+      // ADR-0023：节点声明 run 时由协调 agent 派发 worker；未配置 resolver 时执行器记 notes 跳过
+      ...(driverResolver !== undefined && workspaceRoot !== undefined
+        ? {
+            nodeRunner: createNodeRunner(def, {
+              resolveDriver: driverResolver,
+              workspaceRoot,
+            }),
+          }
+        : {}),
     });
     const promise = executor
       .run(def, session)
