@@ -54,6 +54,19 @@ function okDriver(text: string): ReturnType<typeof fakeDriver> {
   ]);
 }
 
+function okDriverWithUsage(text: string): ReturnType<typeof fakeDriver> {
+  return fakeDriver([
+    {
+      type: "result",
+      data: {
+        text,
+        session_id: "agent-sess-1",
+        usage: { input_tokens: 1200, output_tokens: 300, cached_input_tokens: 800, cost_usd: 0.0042 },
+      },
+    },
+  ]);
+}
+
 const DEF: WorkflowDef = {
   apiVersion: "agent-cord.dev/v1alpha1",
   kind: "Workflow",
@@ -104,6 +117,25 @@ describe("coordinator（NodeRunner）", () => {
     expect(asPayload(completed!)["agent_session_id"]).toBe("agent-sess-1");
     expect(completed!.actor).toEqual({ kind: "agent", id: "coordinator" });
     expect(completed!.correlation_id).toBe("plan");
+  });
+
+  it("result 事件带 usage → 落进 agent.task.completed 事件", async () => {
+    const runner = createNodeRunner(DEF, {
+      resolveDriver: () => okDriverWithUsage("# Plan\n\n第一步。\n"),
+      workspaceRoot: root,
+    });
+    const node = DEF.spec.nodes[1]!;
+    const outcome = await runner.runNode(node, session, { workflow_id: "wf-agent", node_id: "plan" });
+    expect(outcome.status).toBe("ok");
+
+    const events = await session.events.readOrdered();
+    const completed = events.find((event) => event.type === "agent.task.completed");
+    expect(asPayload(completed!)["usage"]).toEqual({
+      input_tokens: 1200,
+      output_tokens: 300,
+      cached_input_tokens: 800,
+      cost_usd: 0.0042,
+    });
   });
 
   it("agent 自己写了 artifact → written_by=agent，不覆盖", async () => {

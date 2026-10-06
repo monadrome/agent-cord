@@ -35,11 +35,27 @@ export interface ToolUseEventData {
   raw?: unknown;
 }
 
+/**
+ * 规范化用量（ADR-0023 决策 3 的 usage 槽位）：各厂商原始字段映射到统一口径，
+ * 原始负载仍留在 raw 里不丢粒度。
+ */
+export interface AgentUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  /** 命中缓存的输入 token（claude cache_read_input_tokens / codex cached_input_tokens / ACP cachedReadInputTokens） */
+  cached_input_tokens?: number;
+  /** 成本（美元）；目前仅 claude 原生提供 total_cost_usd */
+  cost_usd?: number;
+  /** agent 轮次（claude num_turns） */
+  num_turns?: number;
+}
+
 export interface ResultEventData {
   /** 最终结果文本（能从事件流里抽到就填，否则 null） */
   text: string | null;
   /** 会话 id：resume 需要它；契约槽位是 `AgentEvent.session_id`，M2 由 data 携带 */
   session_id: string | null;
+  usage?: AgentUsage | null;
   raw?: unknown;
 }
 
@@ -60,9 +76,15 @@ export function toolUseEvent(name: string | null, input: unknown, raw?: unknown)
   return { type: "tool_use", data };
 }
 
-export function resultEvent(text: string | null, sessionId: string | null, raw?: unknown): AgentEvent {
-  const data: ResultEventData =
-    raw === undefined ? { text, session_id: sessionId } : { text, session_id: sessionId, raw };
+export function resultEvent(
+  text: string | null,
+  sessionId: string | null,
+  raw?: unknown,
+  usage?: AgentUsage | null,
+): AgentEvent {
+  const data: ResultEventData = { text, session_id: sessionId };
+  if (usage !== undefined) data.usage = usage;
+  if (raw !== undefined) data.raw = raw;
   return { type: "result", data };
 }
 
@@ -241,6 +263,28 @@ function extractMessage(value: Record<string, unknown>): string {
   return JSON.stringify(value);
 }
 
+function asNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * 从终局事件提取规范化用量：claude `result`（usage + total_cost_usd + num_turns）、
+ * codex `turn.completed`（usage.cached_input_tokens）等 snake_case 形态；
+ * 全空时返回 null（不硬造 0——厂商没报就是未知）。
+ */
+export function extractUsage(value: Record<string, unknown>): AgentUsage | null {
+  const rawUsage = isRecord(value.usage) ? value.usage : undefined;
+  const usage: AgentUsage = {
+    input_tokens: asNumber(rawUsage?.input_tokens),
+    output_tokens: asNumber(rawUsage?.output_tokens),
+    cached_input_tokens:
+      asNumber(rawUsage?.cached_input_tokens) ?? asNumber(rawUsage?.cache_read_input_tokens),
+    cost_usd: asNumber(value.total_cost_usd),
+    num_turns: asNumber(value.num_turns),
+  };
+  return Object.values(usage).some((item) => item !== undefined) ? usage : null;
+}
+
 function mapContentBlocks(content: unknown): AgentEvent[] {
   const events: AgentEvent[] = [];
   for (const block of asArray(content)) {
@@ -289,7 +333,7 @@ export function parseHeadlessLine(line: string): AgentEvent[] {
       return [errorEvent(extractMessage(value), "agent", { session_id: sessionId, raw: value })];
     }
     const text = asString(value.result) ?? asString(value.text) ?? null;
-    return [resultEvent(text, sessionId, value)];
+    return [resultEvent(text, sessionId, value, extractUsage(value))];
   }
 
   if (type === "turn.failed" || type === "error" || value.is_error === true) {

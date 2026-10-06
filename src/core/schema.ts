@@ -400,6 +400,18 @@ export const AgentTaskStartedPayloadSchema = z.looseObject({
   prompt_excerpt: z.string().optional(),
 });
 
+/** 规范化用量槽位（ADR-0023 决策 3 的 usage）：各厂商原始字段映射到统一口径，原始负载留 driver 层 raw */
+export const AgentUsagePayloadSchema = z.looseObject({
+  input_tokens: z.number().optional(),
+  output_tokens: z.number().optional(),
+  /** 命中缓存的输入 token（claude cache_read / codex cached_input / ACP cachedRead） */
+  cached_input_tokens: z.number().optional(),
+  /** 成本（美元）；目前仅 claude 原生提供 */
+  cost_usd: z.number().optional(),
+  /** agent 轮次（claude num_turns） */
+  num_turns: z.number().optional(),
+});
+
 /** `agent.task.completed`：节点任务终态（中间流式事件不入事件流，ADR-0023 决策 3） */
 export const AgentTaskCompletedPayloadSchema = z.looseObject({
   workflow_id: z.string().min(1),
@@ -415,6 +427,7 @@ export const AgentTaskCompletedPayloadSchema = z.looseObject({
   /** worker agent 的会话 id（仅供人工调试 resume；执行器恢复总是新会话） */
   agent_session_id: z.string().nullable().optional(),
   duration_ms: z.number().optional(),
+  usage: AgentUsagePayloadSchema.nullable().optional(),
 });
 
 /** 已知 payload 的 schema 表；未列出的类型（如 M3 才落地的 reconcile.requested）尚无固化形状。 */

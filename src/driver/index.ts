@@ -9,6 +9,7 @@ export {
   delay,
   errorEvent,
   extractSessionId,
+  extractUsage,
   getHeadlessCliTemplate,
   killProcessTree,
   listHeadlessCliTemplates,
@@ -21,6 +22,7 @@ export {
   trackProcess,
 } from "./headless.js";
 export type {
+  AgentUsage,
   DriverErrorKind,
   ErrorEventData,
   HeadlessArgInput,
@@ -33,7 +35,7 @@ export type {
   ToolUseEventData,
 } from "./headless.js";
 
-export { AcpDriver, DEFAULT_PERMISSION_TIMEOUT_MS, mapSessionUpdate } from "./acp.js";
+export { AcpDriver, DEFAULT_PERMISSION_TIMEOUT_MS, mapAcpUsage, mapSessionUpdate } from "./acp.js";
 export type {
   AcpDriverOptions,
   PermissionContext,

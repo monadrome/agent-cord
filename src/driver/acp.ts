@@ -19,6 +19,7 @@ import {
   type RequestPermissionRequest,
   type RequestPermissionResponse,
   type SessionUpdate,
+  type Usage,
 } from "@agentclientprotocol/sdk";
 import { execa } from "execa";
 import type { AgentDriver, AgentEvent, AgentTask } from "../core/ports.js";
@@ -34,6 +35,7 @@ import {
   textEvent,
   toolUseEvent,
   trackProcess,
+  type AgentUsage,
 } from "./headless.js";
 
 /** 客户端自称（daemon 不代管厂商凭据，这里只声明自己是谁） */
@@ -124,6 +126,21 @@ export function mapSessionUpdate(update: SessionUpdate): AgentEvent[] {
     default:
       return [textEvent("", update)];
   }
+}
+
+/**
+ * ACP Usage（规范标注 UNSTABLE，camelCase 汇总值）→ 规范化 AgentUsage。
+ * ACP 没有成本与轮次概念，只映射 token 三槽位。
+ */
+export function mapAcpUsage(usage: Usage | null | undefined): AgentUsage | null {
+  if (usage == null) return null;
+  return {
+    input_tokens: usage.inputTokens,
+    output_tokens: usage.outputTokens,
+    ...(typeof usage.cachedReadTokens === "number"
+      ? { cached_input_tokens: usage.cachedReadTokens }
+      : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -302,7 +319,7 @@ export class AcpDriver implements AgentDriver {
             stop_reason: response.stopReason,
             usage: response.usage ?? null,
             raw: response,
-          }),
+          }, mapAcpUsage(response.usage)),
         );
       } catch (error) {
         if (!timedOut) {

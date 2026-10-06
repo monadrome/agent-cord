@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
 import type { AgentEvent, AgentTask } from "../../src/core/ports.js";
-import { AcpDriver, mapSessionUpdate, type AcpDriverOptions } from "../../src/driver/acp.js";
+import { AcpDriver, mapAcpUsage, mapSessionUpdate, type AcpDriverOptions } from "../../src/driver/acp.js";
 import type {
   ErrorEventData,
   ResultEventData,
@@ -98,6 +98,19 @@ describe("mapSessionUpdate", () => {
     const [event] = mapSessionUpdate(plan as never);
     expect(event?.type).toBe("text");
     expect((event?.data as { raw?: unknown }).raw).toEqual(plan);
+  });
+});
+
+describe("mapAcpUsage", () => {
+  it("camelCase 汇总值映射为规范化槽位", () => {
+    expect(
+      mapAcpUsage({ totalTokens: 130, inputTokens: 100, outputTokens: 30, cachedReadTokens: 64 }),
+    ).toEqual({ input_tokens: 100, output_tokens: 30, cached_input_tokens: 64 });
+  });
+
+  it("agent 未报 usage 时返回 null", () => {
+    expect(mapAcpUsage(null)).toBeNull();
+    expect(mapAcpUsage(undefined)).toBeNull();
   });
 });
 

@@ -104,6 +104,46 @@ describe("parseHeadlessLine", () => {
     const [failed] = parseHeadlessLine('{"type":"result","subtype":"error_max_turns","session_id":"s1"}');
     expect(errorData(failed).kind).toBe("agent");
   });
+
+  it("claude result 事件提取规范化用量（usage + total_cost_usd + num_turns）", () => {
+    const line = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      result: "ok",
+      session_id: "s1",
+      num_turns: 2,
+      total_cost_usd: 0.0073,
+      usage: { input_tokens: 10, output_tokens: 41, cache_read_input_tokens: 12713 },
+    });
+    const [event] = parseHeadlessLine(line);
+    expect(resultData(event).usage).toEqual({
+      input_tokens: 10,
+      output_tokens: 41,
+      cached_input_tokens: 12713,
+      cost_usd: 0.0073,
+      num_turns: 2,
+    });
+  });
+
+  it("codex turn.completed 提取 usage（cached_input_tokens），无成本字段", () => {
+    const line = JSON.stringify({
+      type: "turn.completed",
+      usage: { input_tokens: 16713, cached_input_tokens: 13056, output_tokens: 5 },
+    });
+    const [event] = parseHeadlessLine(line);
+    expect(resultData(event).usage).toEqual({
+      input_tokens: 16713,
+      output_tokens: 5,
+      cached_input_tokens: 13056,
+      cost_usd: undefined,
+      num_turns: undefined,
+    });
+  });
+
+  it("厂商没报用量时 usage 为 null（不硬造 0）", () => {
+    const [event] = parseHeadlessLine('{"type":"result","subtype":"success","result":"ok"}');
+    expect(resultData(event).usage).toBeNull();
+  });
 });
 
 describe("HeadlessDriver", () => {

@@ -150,6 +150,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
       let chunks = "";
       let resultText: string | null = null;
       let agentSessionId: string | null = null;
+      let usage: ResultEventData["usage"] = null;
       let failure: { status: NodeRunStatus; message: string } | null = null;
       try {
         const task = {
@@ -165,6 +166,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
             const data = event.data as ResultEventData;
             resultText = data.text;
             agentSessionId = data.session_id ?? agentSessionId;
+            usage = data.usage ?? usage;
           } else if (event.type === "error") {
             const data = event.data as ErrorEventData;
             agentSessionId = data.session_id ?? agentSessionId;
@@ -185,6 +187,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
           error: failure.message,
           text: truncate(text, options.maxResultChars ?? DEFAULT_MAX_RESULT_CHARS),
           agent_session_id: agentSessionId,
+          usage: usage ?? null,
         });
       }
 
@@ -196,6 +199,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
         artifact_written: settle.artifact_written,
         written_by: settle.written_by,
         agent_session_id: agentSessionId,
+        usage: usage ?? null,
       });
     },
   };
