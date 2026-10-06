@@ -10,7 +10,7 @@ agent-cord 是一个多 agent 共识协作基座：把需求、决策、证据�
 - 用证据锚点记录结论；无证据不入账，账本由事件流确定性重建。
 - 用 YAML 定义 SDLC 节点和 gate，默认流程为：`intake → align → plan → implement → verify → review → done`。
 - 在节点上声明 `run` 执行体：协调 agent 按最新快照构建两层上下文包，经 ACP / headless driver 派发给 worker agent，产物自写或代写均留痕为 `agent.task.*` 事件。
-- 用 `agents.yaml` 注册自定义 agent（ACP 子进程、headless CLI、自定义参数模板），与内置 claude / codex / kimi 并列；模板定制支持 `model` / `effort` / `max_turns` / `budget_usd` / `system_prompt` 旋钮——`system_prompt` 即角色封装，把 persona 注册成命名 agent。
+- 用 `agents.yaml` 注册自定义 agent（ACP 子进程、headless CLI、自定义参数模板），与内置 claude / codex / kimi 并列；模板定制支持 `model` / `effort` / `max_turns` / `budget_usd` / `system_prompt` / `agent` / `agents_json` 旋钮——`system_prompt` 是软封装（追加提示），`agent` + `agents_json` 是硬封装（`--agent` 整个会话以该 subagent 身份运行，工具与权限一并继承），把 persona 注册成命名 agent。
 - 用参数化 checker（`checks[].with`）拼装证据门禁：文件存在/非空/含章节/锚点数/事件已发，参数非法 fail-closed。
 - 声明 `run.retry` 让节点内的 agent 任务按退避重试（重试附上次失败摘要）；run 可随时取消——取消先落事件再中止执行器，driver 杀进程树，人工 gate 挂起同时失效。
 - 用独立盲评投票处理适合自动化的决策点，分歧和高风险情况升级人工。
