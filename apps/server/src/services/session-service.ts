@@ -87,6 +87,15 @@ export function scanPendingApprovals(events: readonly EventEnvelope[]): Map<stri
   for (const event of events) {
     const payload = asRecord(event.payload);
     if (payload === null) continue;
+    // ADR-0025：run 取消使该流程此前未决的 gate 失效（重启 run 会重新发起 waiting）；
+    // 取消事件没有 node_id/gate_id，必须先于 gate 键守卫处理
+    if (event.type === "workflow.run.cancelled") {
+      const cancelledWorkflow = str(payload["workflow_id"]);
+      for (const [k, info] of waiting) {
+        if (info.workflow_id === cancelledWorkflow) waiting.delete(k);
+      }
+      continue;
+    }
     const nodeId = str(payload["node_id"]);
     const gateId = str(payload["gate_id"]);
     if (nodeId === null || gateId === null) continue;

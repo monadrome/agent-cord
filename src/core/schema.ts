@@ -262,6 +262,7 @@ export const EVENT_TYPES = [
   "gate.resolved",
   "workflow.node.entered",
   "workflow.node.exited",
+  "workflow.run.cancelled",
   "agent.task.started",
   "agent.task.completed",
   "human.decision.recorded",
@@ -430,7 +431,7 @@ export const AgentTaskCompletedPayloadSchema = z.looseObject({
   workflow_id: z.string().min(1),
   node_id: z.string().min(1),
   driver: z.string().min(1),
-  status: z.enum(["ok", "failed", "timeout"]),
+  status: z.enum(["ok", "failed", "timeout", "cancelled"]),
   text: z.string().optional(),
   error: z.string().nullable().optional(),
   artifact: z.string().nullable().optional(),
@@ -446,6 +447,13 @@ export const AgentTaskCompletedPayloadSchema = z.looseObject({
   max_attempts: z.number().int().positive().optional(),
 });
 
+/** `workflow.run.cancelled`：run 取消（ADR-0025）。取消是事实：落盘后执行器在节点边界止步 */
+export const WorkflowRunCancelledPayloadSchema = z.looseObject({
+  workflow_id: z.string().min(1),
+  run_id: z.string().min(1),
+  reason: z.string().optional(),
+});
+
 /** 已知 payload 的 schema 表；未列出的类型（如 M3 才落地的 reconcile.requested）尚无固化形状。 */
 export const EVENT_PAYLOAD_SCHEMAS: Partial<Record<EventType, z.ZodType>> = {
   "cli.message.received": CliMessageReceivedPayloadSchema,
@@ -459,6 +467,7 @@ export const EVENT_PAYLOAD_SCHEMAS: Partial<Record<EventType, z.ZodType>> = {
   "gate.resolved": GateResolvedPayloadSchema,
   "workflow.node.entered": WorkflowNodeEnteredPayloadSchema,
   "workflow.node.exited": WorkflowNodeExitedPayloadSchema,
+  "workflow.run.cancelled": WorkflowRunCancelledPayloadSchema,
   "agent.task.started": AgentTaskStartedPayloadSchema,
   "agent.task.completed": AgentTaskCompletedPayloadSchema,
 };

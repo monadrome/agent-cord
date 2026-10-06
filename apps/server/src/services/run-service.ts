@@ -37,6 +37,8 @@ interface ActiveRun {
   run_id: string;
   req_id: string;
   promise: Promise<void>;
+  /** run 取消（ADR-0025）：abort → 执行器节点边界止步 + 人工挂起唤醒 + agent 子进程收束 */
+  controller: AbortController;
 }
 
 function askKey(nodeId: string, gateId: string): string {
@@ -47,6 +49,10 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export interface RunServiceOptions {
@@ -88,7 +94,8 @@ export class RunService {
     }
     // 预留槽位必须发生在首个 await 之前，否则并发请求都可能通过检查。
     const reservedRunId = ulid();
-    this.active.set(reqId, { run_id: reservedRunId, req_id: reqId, promise: Promise.resolve() });
+    const controller = new AbortController();
+    this.active.set(reqId, { run_id: reservedRunId, req_id: reqId, promise: Promise.resolve(), controller });
     try {
       const session = await this.sessions.open(reqId);
       const versioned = await this.sdlcs.get(sdlcId ?? DEFAULT_SDLC_ID, sdlcVersion);
@@ -109,12 +116,67 @@ export class RunService {
         error: null,
       };
       this.index.insertRun(run);
-      this.launch(session, run, versioned.def);
+      this.launch(session, run, versioned.def, controller);
       return runRowToInfo(run);
     } catch (error) {
       if (this.active.get(reqId)?.run_id === reservedRunId) this.active.delete(reqId);
       throw error;
     }
+  }
+
+  /**
+   * 取消 run（ADR-0025）：先落 workflow.run.cancelled 事件（事实），再 abort 在途执行器。
+   * 幂等：已终态/已取消的 run 重复取消返回现状，不重复落事件。
+   * 无在途执行器（server 重启后）也可以取消：事件落盘 + 直接登记终态。
+   */
+  async cancel(runId: string, reason?: string): Promise<RunInfo> {
+    const row = this.index.getRun(runId);
+    if (row === null) throw notFound(`run 不存在：${runId}`);
+    if (row.status !== "running" && row.status !== "waiting_human") {
+      return runRowToInfo(row);
+    }
+    const session = await this.sessions.open(row.req_id);
+    const versioned = await this.sdlcs.get(row.sdlc_id, row.sdlc_version);
+    const events = await session.events.readOrdered();
+    const alreadyCancelled = events.some(
+      (event) =>
+        event.type === "workflow.run.cancelled" &&
+        asRecord(event.payload)?.["run_id"] === runId,
+    );
+    if (!alreadyCancelled) {
+      await session.events.append({
+        event_id: ulid(),
+        session_id: row.req_id,
+        type: "workflow.run.cancelled",
+        schema_version: "1",
+        actor: { kind: "human", id: "local-human" },
+        correlation_id: null,
+        payload: {
+          workflow_id: versioned.def.metadata.id,
+          run_id: runId,
+          ...(reason !== undefined ? { reason } : {}),
+        },
+        source: { adapter: "console-server" },
+      });
+    }
+
+    const active = this.active.get(row.req_id);
+    if (active?.run_id === runId) {
+      // 清掉该需求挂起的审批 promise（ask 侧由 signal 唤醒，这里清引用防滞留）
+      for (const [key, pending] of this.pendingAsks) {
+        if (pending.req_id === row.req_id) this.pendingAsks.delete(key);
+      }
+      active.controller.abort();
+      // 等执行器收束（节点边界止步 + agent 进程清理），有界等待兜底
+      await Promise.race([active.promise.catch(() => undefined), delay(5_000)]);
+      const fresh = this.index.getRun(runId);
+      if (fresh !== null) return runRowToInfo(fresh);
+      return runRowToInfo(row);
+    }
+    // 无在途执行器：不会有别的写者登记终态，直接登记 cancelled
+    this.index.finishRun(runId, "cancelled", new Date().toISOString(), reason ?? null);
+    const fresh = this.index.getRun(runId);
+    return runRowToInfo(fresh ?? { ...row, status: "cancelled", finished_at: new Date().toISOString(), error: reason ?? null });
   }
 
   /**
@@ -184,12 +246,12 @@ export class RunService {
       }
       const session = await this.sessions.open(run.req_id);
       const events = await session.events.readOrdered();
-      const finalStatus = this.computeFinalStatus(events, versioned.def);
+      const finalStatus = this.computeFinalStatus(events, versioned.def, run.run_id);
       if (finalStatus !== null) {
         this.index.finishRun(run.run_id, finalStatus, new Date().toISOString(), null);
         continue;
       }
-      this.launch(session, run, versioned.def);
+      this.launch(session, run, versioned.def, new AbortController());
       resumed.push(`${run.req_id}(${run.run_id})`);
     }
     return resumed;
@@ -204,12 +266,18 @@ export class RunService {
     }
   }
 
-  /** 终态判定：流程完成 / 被 block / 等待人工 / 执行体失败 之外，run 视为可续跑 */
-  private computeFinalStatus(events: readonly EventEnvelope[], def: WorkflowDef): RunStatus | null {
+  /** 终态判定：流程完成 / 被 block / 等待人工 / 执行体失败 / 已取消 之外，run 视为可续跑 */
+  private computeFinalStatus(events: readonly EventEnvelope[], def: WorkflowDef, runId: string): RunStatus | null {
     const pending = scanPendingApprovals(events);
     const workflowId = def.metadata.id;
     const relevant = [...pending.values()].filter((info) => info.workflow_id === workflowId);
     if (relevant.length > 0) return "waiting_human";
+    // ADR-0025：本 run 的取消事件存在且流程未走完 → cancelled（按 run_id 匹配，历史 run 的取消不算数）
+    const cancelled = events.some(
+      (event) =>
+        event.type === "workflow.run.cancelled" &&
+        asRecord(event.payload)?.["run_id"] === runId,
+    );
     const exited = new Set<string>();
     const failedNodes = new Set<string>();
     let stopped = false;
@@ -221,7 +289,7 @@ export class RunService {
         exited.add(nodeId);
         failedNodes.delete(nodeId);
       } else if (event.type === "agent.task.completed" && typeof nodeId === "string") {
-        // ADR-0023：执行体失败 = run failed（重跑同一 run 会重试该节点）
+        // ADR-0023：执行体失败 = run failed（重跑同一 run 会重试该节点）；cancelled 不算失败
         const status = payload["status"];
         if (status === "ok") failedNodes.delete(nodeId);
         else if (status === "failed" || status === "timeout") failedNodes.add(nodeId);
@@ -232,18 +300,20 @@ export class RunService {
       }
     }
     if (def.spec.nodes.every((node) => exited.has(node.id))) return "completed";
+    if (cancelled) return "cancelled";
     if (failedNodes.size > 0) return "failed";
     if (stopped) return "blocked";
     return null;
   }
 
   /** 在后台推进执行器；结束时按事件流投影登记终态并重建账本 */
-  private launch(session: SessionHandle, run: RunRow, def: WorkflowDef): void {
+  private launch(session: SessionHandle, run: RunRow, def: WorkflowDef, controller: AbortController): void {
     const humanGate = this.createHumanGate(session);
     const { driverResolver, workspaceRoot } = this.options;
     const executor = createExecutor({
       humanGate,
       payloadFor: (node) => ({ anchors: nodeAnchors(session.req_id, node.artifact) }),
+      signal: controller.signal,
       // ADR-0023：节点声明 run 时由协调 agent 派发 worker；未配置 resolver 时执行器记 notes 跳过
       ...(driverResolver !== undefined && workspaceRoot !== undefined
         ? {
@@ -258,7 +328,7 @@ export class RunService {
       .run(def, session)
       .then(async () => {
         const events = await session.events.readOrdered();
-        const status = this.computeFinalStatus(events, def) ?? "completed";
+        const status = this.computeFinalStatus(events, def, run.run_id) ?? "completed";
         this.safeFinish(run.run_id, status, null);
         await session.rebuildLedger();
       })
@@ -268,7 +338,7 @@ export class RunService {
       .finally(() => {
         this.active.delete(session.req_id);
       });
-    this.active.set(session.req_id, { run_id: run.run_id, req_id: session.req_id, promise });
+    this.active.set(session.req_id, { run_id: run.run_id, req_id: session.req_id, promise, controller });
   }
 
   /**

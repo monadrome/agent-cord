@@ -271,6 +271,8 @@ export interface ApiClient {
   subscribeEvents(reqId: string, onEvent: (event: StreamedEvent) => void, onError?: (error: unknown) => void): () => void;
 
   startRun(reqId: string, input?: StartRunInput, key?: string): Promise<RunResponse>;
+  /** 取消 run（ADR-0025）：幂等，已终态返回现状 */
+  cancelRun(runId: string, reason?: string, key?: string): Promise<RunResponse>;
   decideApproval(
     reqId: string,
     approvalId: string,
@@ -318,6 +320,12 @@ export function createClient(baseUrl = ""): ApiClient {
 
     startRun: (reqId, input = {}, key) =>
       request<RunResponse>(baseUrl, `${reqPath(reqId)}/runs`, writeInit("POST", input, key)),
+    cancelRun: (runId, reason, key) =>
+      request<RunResponse>(
+        baseUrl,
+        `/api/v1/runs/${encodeURIComponent(runId)}/cancel`,
+        writeInit("POST", reason !== undefined ? { reason } : {}, key),
+      ),
     decideApproval: (reqId, approvalId, choice, key) =>
       request<DecideApprovalResponse>(baseUrl, decidePath(reqId, approvalId), writeInit("POST", { choice }, key)),
 

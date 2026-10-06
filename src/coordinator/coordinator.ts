@@ -30,6 +30,19 @@ import { readSnapshot } from "./snapshot.js";
 const ADAPTER = "coordinator";
 const PROMPT_EXCERPT_CHARS = 4_096;
 const DEFAULT_MAX_RESULT_CHARS = 32_768;
+const ABORTED = Symbol("run-aborted");
+
+/** 迭代器 next() 与取消信号竞速：worker 静默期（无事件）取消也要即时生效 */
+function raceAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T | typeof ABORTED> {
+  if (signal === undefined) return promise;
+  if (signal.aborted) return Promise.resolve(ABORTED);
+  return Promise.race([
+    promise,
+    new Promise<typeof ABORTED>((resolve) => {
+      signal.addEventListener("abort", () => resolve(ABORTED), { once: true });
+    }),
+  ]);
+}
 
 export interface CoordinatorOptions {
   /** 驱动解析（registry 语法）；解析失败归约为 failed，不抛错 */
@@ -107,13 +120,16 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
       let lastError: string | null = null;
 
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        // ADR-0025：取消信号在尝试边界生效（进行中的派发在 runAttempt 内即时收束）
+        if (ctx.signal?.aborted === true) return { status: "cancelled" };
         const outcome = await runAttempt(node, session, ctx, attempt, maxAttempts, lastError);
-        if (outcome.status === "ok") return outcome;
+        if (outcome.status === "ok" || outcome.status === "cancelled") return outcome;
         lastStatus = outcome.status;
         lastError = outcome.error;
         if (attempt < maxAttempts && backoffMs > 0) {
-          // 线性退避：第 n 次失败后等 backoff × n
-          await delay(backoffMs * attempt);
+          // 线性退避：第 n 次失败后等 backoff × n（取消即时打断）
+          const waited = await raceAbort(delay(backoffMs * attempt), ctx.signal);
+          if (waited === ABORTED) return { status: "cancelled" };
         }
       }
       return { status: lastStatus };
@@ -192,6 +208,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
     let resultText: string | null = null;
     let agentSessionId: string | null = null;
     let usage: ResultEventData["usage"] = null;
+    let cancelled = false;
     let failure: { status: NodeRunStatus; message: string } | null = null;
     try {
       const task = {
@@ -199,30 +216,54 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
         cwd: options.workspaceRoot,
         readonly: node.run?.readonly === true,
         ...(node.run?.timeout_ms !== undefined ? { timeout_ms: node.run.timeout_ms } : {}),
+        // ADR-0025：取消信号直达 driver（静默期也能即时杀进程树），不依赖事件到达
+        ...(ctx.signal !== undefined ? { signal: ctx.signal } : {}),
       };
-      for await (const event of driver.run(task)) {
-        if (event.type === "text") {
-          chunks += (event.data as TextEventData).text;
-        } else if (event.type === "result") {
-          const data = event.data as ResultEventData;
-          resultText = data.text;
-          agentSessionId = data.session_id ?? agentSessionId;
-          usage = data.usage ?? usage;
-        } else if (event.type === "error") {
-          const data = event.data as ErrorEventData;
-          agentSessionId = data.session_id ?? agentSessionId;
-          // 取最后一个 error 为准（超时后可能还有 agent 错误余波）
-          failure = {
-            status: data.kind === "timeout" ? "timeout" : "failed",
-            message: data.message,
-          };
+      // 手动迭代 + 取消竞速：worker 静默期（无事件到达）取消也要即时收束；
+      // 收束经 iterator.return() 触发 driver 清理（杀进程树）
+      const iterator = driver.run(task)[Symbol.asyncIterator]();
+      try {
+        for (;;) {
+          const next = await raceAbort(iterator.next(), ctx.signal);
+          if (next === ABORTED) {
+            cancelled = true;
+            break;
+          }
+          if (next.done) break;
+          const event = next.value;
+          if (event.type === "text") {
+            chunks += (event.data as TextEventData).text;
+          } else if (event.type === "result") {
+            const data = event.data as ResultEventData;
+            resultText = data.text;
+            agentSessionId = data.session_id ?? agentSessionId;
+            usage = data.usage ?? usage;
+          } else if (event.type === "error") {
+            const data = event.data as ErrorEventData;
+            agentSessionId = data.session_id ?? agentSessionId;
+            // 取最后一个 error 为准（超时后可能还有 agent 错误余波）
+            failure = {
+              status: data.kind === "timeout" ? "timeout" : "failed",
+              message: data.message,
+            };
+          }
         }
+      } finally {
+        await iterator.return?.();
       }
     } catch (error) {
       failure = { status: "failed", message: error instanceof Error ? error.message : String(error) };
     }
 
     const text = resultText ?? chunks;
+    if (cancelled) {
+      return complete("cancelled", {
+        error: "run 已取消（workflow.run.cancelled）",
+        text: truncate(text, options.maxResultChars ?? DEFAULT_MAX_RESULT_CHARS),
+        agent_session_id: agentSessionId,
+        usage: usage ?? null,
+      });
+    }
     if (failure !== null) {
       return complete(failure.status, {
         error: failure.message,

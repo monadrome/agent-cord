@@ -134,9 +134,11 @@ export interface WorkflowExecutor {
 export interface NodeRunContext {
   workflow_id: string;
   node_id: string;
+  /** run 取消信号（ADR-0025）：abort 后执行体应尽快收束（杀 agent 子进程、落 cancelled 终态） */
+  signal?: AbortSignal;
 }
 
-export type NodeRunStatus = "ok" | "failed" | "timeout";
+export type NodeRunStatus = "ok" | "failed" | "timeout" | "cancelled";
 
 /**
  * 节点执行体端口： Coordinator 的生产实现负责快照剪裁 → driver 调度 → agent.task 事件落盘。
@@ -195,6 +197,8 @@ export interface AgentTask {
   readonly?: boolean;
   timeout_ms?: number;
   session_id?: string;
+  /** 取消信号（ADR-0025）：abort 后 driver 立即收束——杀进程树并关闭事件流，不等超时 */
+  signal?: AbortSignal;
 }
 
 export interface AgentEvent {

@@ -18,6 +18,7 @@ export const RUN_STATUS_TEXT: Record<RunStatus, string> = {
   completed: "已完成",
   blocked: "被阻断",
   failed: "失败",
+  cancelled: "已取消",
 };
 
 export function formatTime(value: string | null | undefined): string {

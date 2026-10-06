@@ -224,6 +224,22 @@ export function RequirementDetail({ reqId, tab, onTab, onBack }: Props): ReactEl
     }
   };
 
+  const cancelRun = async (): Promise<void> => {
+    if (activeRun === null) return;
+    if (!window.confirm(`确认取消 run ${activeRun.run_id}？进行中的 agent 任务会被终止。`)) return;
+    setRunBusy(true);
+    setRunError(null);
+    try {
+      await api.cancelRun(activeRun.run_id);
+      setNotice("已取消 run（workflow.run.cancelled 已落盘）");
+      await loadProjections();
+    } catch (cause) {
+      setRunError(describeError(cause));
+    } finally {
+      setRunBusy(false);
+    }
+  };
+
   const activeRun = detail?.active_run ?? null;
   const runInFlight = activeRun !== null && (activeRun.status === "running" || activeRun.status === "waiting_human");
 
@@ -274,6 +290,16 @@ export function RequirementDetail({ reqId, tab, onTab, onBack }: Props): ReactEl
           >
             {runInFlight ? "运行中…" : runBusy ? "启动中…" : "启动 SDLC run"}
           </button>
+          {runInFlight ? (
+            <button
+              type="button"
+              className="btn btn-plain"
+              disabled={runBusy}
+              onClick={() => void cancelRun()}
+            >
+              取消 run
+            </button>
+          ) : null}
         </div>
       </header>
 

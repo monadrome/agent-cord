@@ -259,6 +259,15 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
     return { request_id: requestId(req), run: await runs.getRun(runId) };
   });
 
+  // ---- 命令：取消 run（ADR-0025）-------------------------------------------
+  app.post("/api/v1/runs/:run_id/cancel", { config: { idempotency: true } }, async (req) => {
+    const { run_id: runId } = req.params as { run_id: string };
+    const body = (req.body ?? {}) as { reason?: unknown };
+    const reason = typeof body.reason === "string" && body.reason.trim().length > 0 ? body.reason.trim() : undefined;
+    const run = await runs.cancel(runId, reason);
+    return { request_id: requestId(req), run };
+  });
+
   // ---- 快照文档（living 文档：允许人编辑；状态机流转只经事件流） -------------
   app.get("/api/v1/requirements/:req_id/docs/:doc", async (req) => {
     const { req_id: reqId, doc } = req.params as { req_id: string; doc: string };

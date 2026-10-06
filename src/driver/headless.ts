@@ -658,6 +658,20 @@ export class HeadlessDriver implements AgentDriver {
       sigkillTimer = setTimeout(() => killProcessTree(proc, "SIGKILL"), this.killGraceMs);
     }, timeoutMs);
 
+    // ADR-0025：外部取消（run 取消）→ 立即杀进程树并关闭事件流。
+    // 不能依赖消费方 break：async generator 暂停在 queue.next() 时 return() 会排队等
+    // 当前 await 解决，静默中的子进程不产出事件 = 死锁直到超时。
+    const onAbort = (): void => {
+      queue.push(errorEvent("task aborted by caller", "agent"));
+      queue.close();
+      killProcessTree(proc, "SIGTERM");
+      sigkillTimer = setTimeout(() => killProcessTree(proc, "SIGKILL"), this.killGraceMs);
+    };
+    if (task.signal !== undefined) {
+      if (task.signal.aborted) onAbort();
+      else task.signal.addEventListener("abort", onAbort, { once: true });
+    }
+
     const pump = async (): Promise<void> => {
       const stderr = child.stderr;
       if (stderr !== null && stderr !== undefined) {
@@ -727,6 +741,7 @@ export class HeadlessDriver implements AgentDriver {
       } finally {
         clearTimeout(timeoutTimer);
         if (sigkillTimer !== undefined) clearTimeout(sigkillTimer);
+        task.signal?.removeEventListener("abort", onAbort);
         await terminateProcessTree(proc, this.killGraceMs);
         queue.close();
       }
@@ -741,6 +756,7 @@ export class HeadlessDriver implements AgentDriver {
       queue.close();
       clearTimeout(timeoutTimer);
       if (sigkillTimer !== undefined) clearTimeout(sigkillTimer);
+      task.signal?.removeEventListener("abort", onAbort);
       await terminateProcessTree(proc, this.killGraceMs);
     }
   }

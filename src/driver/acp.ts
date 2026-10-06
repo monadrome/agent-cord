@@ -241,10 +241,10 @@ export class AcpDriver implements AgentDriver {
     const ctx: ClientContext = connection.agent;
 
     let sigkillTimer: NodeJS.Timeout | undefined;
-    const timeoutTimer = setTimeout(() => {
-      timedOut = true;
+    /** 收束序列（超时与外部取消共用）：error 落流 → 先 session/cancel 打完招呼 → 杀进程树 → 关流 */
+    const shutdown = (reason: string, kind: "timeout" | "agent"): void => {
       queue.push(
-        errorEvent(`acp task timed out after ${timeoutMs}ms`, "timeout", {
+        errorEvent(reason, kind, {
           session_id: activeSessionId ?? null,
         }),
       );
@@ -259,8 +259,23 @@ export class AcpDriver implements AgentDriver {
         }
         killProcessTree(proc, "SIGTERM");
         sigkillTimer = setTimeout(() => killProcessTree(proc, "SIGKILL"), this.killGraceMs);
+        // 关流放在招呼之后：给 cancel 通知留出写通道，同时唤醒挂起的消费方
+        queue.close();
       })();
+    };
+    const timeoutTimer = setTimeout(() => {
+      timedOut = true;
+      shutdown(`acp task timed out after ${timeoutMs}ms`, "timeout");
     }, timeoutMs);
+
+    // ADR-0025：外部取消（run 取消）→ 立即收束（同超时路径，不等 wall-clock 超时）
+    const onAbort = (): void => {
+      shutdown("task aborted by caller", "agent");
+    };
+    if (task.signal !== undefined) {
+      if (task.signal.aborted) onAbort();
+      else task.signal.addEventListener("abort", onAbort, { once: true });
+    }
 
     const stderrTail: string[] = [];
     const stderr = child.stderr;
@@ -333,6 +348,7 @@ export class AcpDriver implements AgentDriver {
       } finally {
         clearTimeout(timeoutTimer);
         if (sigkillTimer !== undefined) clearTimeout(sigkillTimer);
+        task.signal?.removeEventListener("abort", onAbort);
         // 每任务 subprocess：一次性用完即弃（ADR-0011），连接本地关闭 + 杀进程树
         try {
           connection.close();
@@ -355,6 +371,7 @@ export class AcpDriver implements AgentDriver {
       queue.close();
       clearTimeout(timeoutTimer);
       if (sigkillTimer !== undefined) clearTimeout(sigkillTimer);
+      task.signal?.removeEventListener("abort", onAbort);
       await terminateProcessTree(proc, this.killGraceMs);
     }
   }

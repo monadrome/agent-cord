@@ -79,6 +79,8 @@ export interface ExecutorOptions {
    * 恢复扫点：节点已有 status=ok 的 agent.task.completed 时不重复执行。
    */
   nodeRunner?: NodeRunner;
+  /** run 取消信号（ADR-0025）：节点边界与人工挂起点检查；abort 后执行器止步（不落假判定） */
+  signal?: AbortSignal;
   actor?: Actor;
 }
 
@@ -106,6 +108,8 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
 
       for (const nodeId of order) {
         if (state.completed.has(nodeId)) continue;
+        // ADR-0025：run 取消在节点边界生效（不中断已退出节点的事实，停止推进后续节点）
+        if (options.signal?.aborted === true) return;
         const node = nodes.get(nodeId);
         if (!node) throw new WorkflowDefinitionError(`拓扑序中的节点缺少定义：${nodeId}`);
 
@@ -135,6 +139,7 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
         const notes: string[] = [];
         const runGates = async (gates: GateDef[]): Promise<boolean> => {
           for (const gate of gates) {
+            if (options.signal?.aborted === true) return true;
             const outcome = await runGate({
               workflow_id,
               node_id: nodeId,
@@ -145,6 +150,7 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
               ctx,
               actor,
               pending: state.waiting.get(gateKey(nodeId, gate.id)),
+              signal: options.signal,
             });
             if (outcome.summary) summaries.push(outcome.summary);
             if (outcome.stop) return true;
@@ -165,8 +171,9 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
             const outcome = await options.nodeRunner.runNode(node, session, {
               workflow_id,
               node_id: nodeId,
+              ...(options.signal !== undefined ? { signal: options.signal } : {}),
             });
-            // 失败/超时：completed 事件已落盘，停在该节点；修好输入后重跑会重试执行体
+            // 失败/超时/取消：completed 事件已落盘，停在该节点；修好输入后重跑会重试执行体
             if (outcome.status !== "ok") return;
           }
         }
@@ -397,6 +404,8 @@ interface GateRun {
   ctx: CheckerContext;
   actor: Actor;
   pending?: WaitingGate;
+  /** run 取消信号（ADR-0025）：人工挂起点可中断 */
+  signal?: AbortSignal | undefined;
 }
 
 interface GateOutcome {
@@ -543,7 +552,11 @@ async function settleByHuman(
     run.node_id,
   );
 
-  const answer = await askWithTimeout(run.humanGate, question, options, run.gate.timeout);
+  const answer = await askWithCancel(run.humanGate, question, options, run.gate.timeout, run.signal);
+  if (answer === CANCELLED) {
+    // ADR-0025：run 取消 → 不落 gate.resolved（事实由 workflow.run.cancelled 承载），直接止步
+    return { stop: true };
+  }
   if (answer === null) {
     await appendEvent(
       run.session,
@@ -698,14 +711,31 @@ async function appendEvent(
   await session.events.append(draft);
 }
 
-async function askWithTimeout(
+const CANCELLED = Symbol("run-cancelled");
+
+/**
+ * 人工提问：超时（null）与取消（CANCELLED）是三态中的两种「未回答」。
+ * 取消用 AbortSignal 即刻唤醒（不等人）；超时按 on_timeout=escalate_human 保持挂起。
+ */
+async function askWithCancel(
   humanGate: HumanGate,
   question: string,
   options: string[],
   timeout: GateDef["timeout"],
-): Promise<string | null> {
-  if (!timeout) return humanGate.ask(question, options);
-  return Promise.race([humanGate.ask(question, options), delay(parseDuration(timeout.after))]);
+  signal?: AbortSignal,
+): Promise<string | null | typeof CANCELLED> {
+  if (signal?.aborted === true) return CANCELLED;
+  const ask = humanGate.ask(question, options);
+  const racers: Array<Promise<string | null | typeof CANCELLED>> = [ask];
+  if (timeout) racers.push(delay(parseDuration(timeout.after)));
+  if (signal !== undefined) {
+    racers.push(
+      new Promise<typeof CANCELLED>((resolve) => {
+        signal.addEventListener("abort", () => resolve(CANCELLED), { once: true });
+      }),
+    );
+  }
+  return Promise.race(racers);
 }
 
 /** 门禁挂起超时（等人，量级小时/天）；与 checker 执行超时是两套口径（docs/06 §2.4）。 */

@@ -94,7 +94,7 @@ export interface LedgerView {
 // 工作流时间线 / 运行实例
 // ---------------------------------------------------------------------------
 
-export type RunStatus = "running" | "waiting_human" | "completed" | "blocked" | "failed";
+export type RunStatus = "running" | "waiting_human" | "completed" | "blocked" | "failed" | "cancelled";
 
 export interface RunInfo {
   run_id: string;
