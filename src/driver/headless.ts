@@ -412,10 +412,21 @@ export interface HeadlessArgInput {
   budget_usd?: number | undefined;
   /** 角色封装：追加系统提示（claude --append-system-prompt） */
   system_prompt?: string | undefined;
+  /** 硬封装：整个会话以指定 subagent 身份运行（claude --agent <name>，继承其 prompt/tools/model/权限） */
+  agent?: string | undefined;
+  /** 免写盘注入 subagent 定义（claude --agents <json>；与 agent 搭配使用） */
+  agents_json?: string | undefined;
 }
 
 /** 模板声明支持的旋钮；agents.yaml 配了不支持的旋钮 → 注册 warning（逐条降级，不阻断） */
-export type AgentKnob = "model" | "effort" | "max_turns" | "budget_usd" | "system_prompt";
+export type AgentKnob =
+  | "model"
+  | "effort"
+  | "max_turns"
+  | "budget_usd"
+  | "system_prompt"
+  | "agent"
+  | "agents_json";
 
 export interface HeadlessCliTemplate {
   /** 模板名：registry 用它把 agent 名映射到驱动参数 */
@@ -458,8 +469,19 @@ const BUILTIN_TEMPLATES: readonly HeadlessCliTemplate[] = [
     // claude -p --output-format stream-json（直接适配器；Claude 无原生 ACP，见 ADR-0017 决策 1）
     name: "claude",
     bin: "claude",
-    knobs: ["model", "effort", "max_turns", "budget_usd", "system_prompt"],
-    args: ({ prompt, readonly, resume_session_id, model, effort, max_turns, budget_usd, system_prompt }) => [
+    knobs: ["model", "effort", "max_turns", "budget_usd", "system_prompt", "agent", "agents_json"],
+    args: ({
+      prompt,
+      readonly,
+      resume_session_id,
+      model,
+      effort,
+      max_turns,
+      budget_usd,
+      system_prompt,
+      agent,
+      agents_json,
+    }) => [
       ...(resume_session_id !== undefined
         ? readonly
           ? ["--resume", resume_session_id, "--fork-session"] // 只读任务不污染原会话
@@ -470,6 +492,9 @@ const BUILTIN_TEMPLATES: readonly HeadlessCliTemplate[] = [
       ...(max_turns !== undefined ? ["--max-turns", String(max_turns)] : []),
       ...(budget_usd !== undefined ? ["--max-budget-usd", String(budget_usd)] : []),
       ...(system_prompt !== undefined ? ["--append-system-prompt", system_prompt] : []),
+      // 硬封装：--agents 注入定义（免写盘），--agent 强制主线程身份（继承 prompt/tools/权限）
+      ...(agents_json !== undefined ? ["--agents", agents_json] : []),
+      ...(agent !== undefined ? ["--agent", agent] : []),
       // --allowedTools 是可变参数，必须紧邻下一个选项，否则会吞掉后续位置参数（prompt）
       ...(readonly ? ["--permission-mode", "plan", "--allowedTools", ...CLAUDE_READONLY_TOOLS] : []),
       "-p",
@@ -541,7 +566,10 @@ export interface HeadlessDriverOptions {
 
 /** 模板旋钮值集（HeadlessArgInput 里除 prompt/readonly/resume 外的部分） */
 export type HeadlessKnobs = Partial<
-  Pick<HeadlessArgInput, "model" | "effort" | "max_turns" | "budget_usd" | "system_prompt">
+  Pick<
+    HeadlessArgInput,
+    "model" | "effort" | "max_turns" | "budget_usd" | "system_prompt" | "agent" | "agents_json"
+  >
 >;
 
 export class HeadlessDriver implements AgentDriver {

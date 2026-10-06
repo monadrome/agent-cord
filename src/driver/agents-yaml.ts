@@ -27,16 +27,28 @@ import {
 } from "./headless.js";
 import { resolveDriver } from "./registry.js";
 
-/** headless 条目的旋钮字段（ADR-0023 决策 6 增强：模型/强度/轮次/预算/角色封装） */
+/** headless 条目的旋钮字段（ADR-0023 决策 6 增强：模型/强度/轮次/预算/角色封装/硬封装） */
 const HeadlessKnobsSchema = z.object({
   model: z.string().min(1).optional(),
   effort: z.string().min(1).optional(),
   max_turns: z.number().int().positive().optional(),
   budget_usd: z.number().positive().optional(),
   system_prompt: z.string().min(1).optional(),
+  /** claude --agent：整个会话以指定 subagent 身份运行（继承其 prompt/tools/model/权限） */
+  agent: z.string().min(1).optional(),
+  /** claude --agents：免写盘注入 subagent 定义（JSON 串），与 agent 搭配 */
+  agents_json: z.string().min(1).optional(),
 });
 
-const KNOB_KEYS = ["model", "effort", "max_turns", "budget_usd", "system_prompt"] as const;
+const KNOB_KEYS = [
+  "model",
+  "effort",
+  "max_turns",
+  "budget_usd",
+  "system_prompt",
+  "agent",
+  "agents_json",
+] as const;
 
 const AgentsYamlSchema = z.object({
   agents: z.record(

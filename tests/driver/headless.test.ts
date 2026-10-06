@@ -425,6 +425,20 @@ describe("HeadlessDriver CLI 参数", () => {
     ]);
   });
 
+  it("claude 硬封装：agent + agents_json 落在 prompt 之前", () => {
+    const driver = new HeadlessDriver({
+      cli: "claude",
+      knobs: {
+        agents_json: '{"reviewer":{"description":"评审","prompt":"你是评审"}}',
+        agent: "reviewer",
+      },
+    });
+    const argv = driver.buildArgv({ prompt: "p", cwd: "/w" });
+    expect(argv[argv.indexOf("--agents") + 1]).toContain('"reviewer"');
+    expect(argv[argv.indexOf("--agent") + 1]).toBe("reviewer");
+    expect(argv.indexOf("--agents")).toBeLessThan(argv.indexOf("-p"));
+  });
+
   it("codex 旋钮：model 走 -m，effort 走 -c 配置覆盖", () => {
     const driver = new HeadlessDriver({
       cli: "codex",
