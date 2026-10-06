@@ -72,7 +72,7 @@ Workflow 定义是 `agent-cord.dev/v1alpha1 / Workflow` YAML。加载时检查 s
 
 server 当前使用进程内 runner。同一需求同时只允许一个在途 run。重启时根据 run 登记和事件流重新扫描节点；已完成节点不重跑，未完成节点重新求值。
 
-worker agent 的来源：内置驱动清单（claude / codex / kimi 直连，ACP 优先探测）+ `cord/agents.yaml` 自定义注册（ACP 子进程 / headless 模板定制 / 自定义 args 模板三种形态）。默认 SDLC 不挂执行体（开箱可跑零依赖）；挂执行体的流程从模板库「Agent 协作」档起步。
+worker agent 的来源：内置驱动清单（claude / codex / kimi 直连，ACP 优先探测）+ `cord/agents.yaml` 自定义注册（ACP 子进程 / headless 模板定制 / 自定义 args 模板三种形态）。模板定制形态支持旋钮：`model`（三家通用）、`effort`（claude/codex）、`max_turns`/`budget_usd`/`system_prompt`（claude）；`system_prompt` 即角色封装——把「资深评审」「架构师」这类 persona 注册成命名 agent。模板不支持的旋钮在注册期降级为 warning。默认 SDLC 不挂执行体（开箱可跑零依赖）；挂执行体的流程从模板库「Agent 协作」档起步。
 
 默认 `simple-sdlc v1` 流程为：
 

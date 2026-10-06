@@ -402,13 +402,28 @@ export interface HeadlessArgInput {
   prompt: string;
   readonly: boolean;
   resume_session_id?: string | undefined;
+  /** 模型选择（claude --model / codex -m / kimi -m） */
+  model?: string | undefined;
+  /** 推理强度（claude --effort / codex -c model_reasoning_effort） */
+  effort?: string | undefined;
+  /** 轮次上限（claude --max-turns，print 模式） */
+  max_turns?: number | undefined;
+  /** 预算上限美元（claude --max-budget-usd，print 模式） */
+  budget_usd?: number | undefined;
+  /** 角色封装：追加系统提示（claude --append-system-prompt） */
+  system_prompt?: string | undefined;
 }
+
+/** 模板声明支持的旋钮；agents.yaml 配了不支持的旋钮 → 注册 warning（逐条降级，不阻断） */
+export type AgentKnob = "model" | "effort" | "max_turns" | "budget_usd" | "system_prompt";
 
 export interface HeadlessCliTemplate {
   /** 模板名：registry 用它把 agent 名映射到驱动参数 */
   readonly name: string;
   /** 默认二进制名 */
   readonly bin: string;
+  /** 支持的旋钮清单；缺省视为全不支持（保守） */
+  readonly knobs?: readonly AgentKnob[];
   args(input: HeadlessArgInput): string[];
 }
 
@@ -427,10 +442,12 @@ const BUILTIN_TEMPLATES: readonly HeadlessCliTemplate[] = [
     // kimi -p --output-format stream-json（JSONL 为 OpenAI chat 形态：role assistant/tool/meta）
     name: "kimi",
     bin: "kimi",
-    args: ({ prompt, readonly, resume_session_id }) => [
+    knobs: ["model"],
+    args: ({ prompt, readonly, resume_session_id, model }) => [
       ...(resume_session_id !== undefined ? ["--session", resume_session_id] : []),
       // readonly：plan 模式只出计划不改文件；无人值守时不会弹交互审批
       ...(readonly ? ["--plan"] : []),
+      ...(model !== undefined ? ["--model", model] : []),
       "-p",
       prompt,
       "--output-format",
@@ -441,12 +458,18 @@ const BUILTIN_TEMPLATES: readonly HeadlessCliTemplate[] = [
     // claude -p --output-format stream-json（直接适配器；Claude 无原生 ACP，见 ADR-0017 决策 1）
     name: "claude",
     bin: "claude",
-    args: ({ prompt, readonly, resume_session_id }) => [
+    knobs: ["model", "effort", "max_turns", "budget_usd", "system_prompt"],
+    args: ({ prompt, readonly, resume_session_id, model, effort, max_turns, budget_usd, system_prompt }) => [
       ...(resume_session_id !== undefined
         ? readonly
           ? ["--resume", resume_session_id, "--fork-session"] // 只读任务不污染原会话
           : ["--resume", resume_session_id]
         : []),
+      ...(model !== undefined ? ["--model", model] : []),
+      ...(effort !== undefined ? ["--effort", effort] : []),
+      ...(max_turns !== undefined ? ["--max-turns", String(max_turns)] : []),
+      ...(budget_usd !== undefined ? ["--max-budget-usd", String(budget_usd)] : []),
+      ...(system_prompt !== undefined ? ["--append-system-prompt", system_prompt] : []),
       // --allowedTools 是可变参数，必须紧邻下一个选项，否则会吞掉后续位置参数（prompt）
       ...(readonly ? ["--permission-mode", "plan", "--allowedTools", ...CLAUDE_READONLY_TOOLS] : []),
       "-p",
@@ -459,10 +482,14 @@ const BUILTIN_TEMPLATES: readonly HeadlessCliTemplate[] = [
     // codex exec --json（NDJSON 为 item/turn 事件流）
     name: "codex",
     bin: "codex",
-    args: ({ prompt, readonly, resume_session_id }) => [
+    knobs: ["model", "effort"],
+    args: ({ prompt, readonly, resume_session_id, model, effort }) => [
       "exec",
       ...(resume_session_id !== undefined ? ["resume", resume_session_id] : []),
       "--json",
+      ...(model !== undefined ? ["--model", model] : []),
+      // effort → codex 配置覆盖（codex 无 effort CLI 旗标）
+      ...(effort !== undefined ? ["-c", `model_reasoning_effort="${effort}"`] : []),
       // `exec resume` 不接受 -s/--sandbox，用配置覆盖等价表达只读沙箱
       ...(readonly ? ["-c", 'sandbox_mode="read-only"'] : []),
       prompt,
@@ -504,7 +531,14 @@ export interface HeadlessDriverOptions {
   kill_grace_ms?: number;
   /** 暴露给 registry 的驱动名，默认 `headless:<cli>` */
   name?: string;
+  /** 参数旋钮（agents.yaml 注册时注入）；模板不支持的旋钮已在注册期降级为 warning */
+  knobs?: HeadlessKnobs;
 }
+
+/** 模板旋钮值集（HeadlessArgInput 里除 prompt/readonly/resume 外的部分） */
+export type HeadlessKnobs = Partial<
+  Pick<HeadlessArgInput, "model" | "effort" | "max_turns" | "budget_usd" | "system_prompt">
+>;
 
 export class HeadlessDriver implements AgentDriver {
   readonly name: string;
@@ -513,6 +547,7 @@ export class HeadlessDriver implements AgentDriver {
   private readonly prefixArgs: string[];
   private readonly env: Record<string, string>;
   private readonly killGraceMs: number;
+  private readonly knobs: HeadlessKnobs;
 
   constructor(options: HeadlessDriverOptions) {
     const template = getHeadlessCliTemplate(options.cli);
@@ -526,6 +561,7 @@ export class HeadlessDriver implements AgentDriver {
     this.prefixArgs = options.prefixArgs ?? [];
     this.env = options.env ?? {};
     this.killGraceMs = options.kill_grace_ms ?? DEFAULT_KILL_GRACE_MS;
+    this.knobs = options.knobs ?? {};
     this.name = options.name ?? `headless:${template.name}`;
   }
 
@@ -548,6 +584,7 @@ export class HeadlessDriver implements AgentDriver {
         prompt: task.prompt,
         readonly: task.readonly === true,
         resume_session_id: resumeSessionId,
+        ...this.knobs,
       }),
     ];
   }

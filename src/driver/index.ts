@@ -22,12 +22,14 @@ export {
   trackProcess,
 } from "./headless.js";
 export type {
+  AgentKnob,
   AgentUsage,
   DriverErrorKind,
   ErrorEventData,
   HeadlessArgInput,
   HeadlessCliTemplate,
   HeadlessDriverOptions,
+  HeadlessKnobs,
   KillableProcess,
   ProcessLifecycle,
   ResultEventData,

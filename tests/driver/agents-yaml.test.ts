@@ -77,6 +77,33 @@ agents:
     expect(result.warnings).toHaveLength(2);
     expect(result.warnings[0]).toContain("未知 headless 模板");
   });
+
+  it("模板不支持的旋钮 → warning 忽略但不阻断注册", () => {
+    const { yaml } = parseAgentsYaml(`
+agents:
+  reviewer:
+    kind: headless
+    template: kimi
+    bin: kimi
+    model: k2
+    system_prompt: 你是评审
+`);
+    const result = registerAgentsYaml(yaml!);
+    expect(result.registered).toContain("reviewer");
+    // kimi 支持 model、不支持 system_prompt → 恰好一条降级 warning
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain("system_prompt");
+  });
+
+  it("自定义 args 形态配旋钮 → warning 提示不支持", () => {
+    const { yaml } = parseAgentsYaml(`
+agents:
+  raw: { kind: headless, bin: x, args: ["run", "{{prompt}}"], model: m1 }
+`);
+    const result = registerAgentsYaml(yaml!);
+    expect(result.registered).toContain("raw");
+    expect(result.warnings[0]).toContain("自定义 args 形态不支持旋钮");
+  });
 });
 
 describe("resolveWithAgentsYaml（叠加层）", () => {
@@ -98,6 +125,26 @@ describe("resolveWithAgentsYaml（叠加层）", () => {
     const argv = driver.buildArgv({ prompt: "hi", cwd: "/tmp" });
     expect(argv[0]).toBe("/opt/claude");
     expect(argv).toContain("-p");
+  });
+
+  it("模板形态旋钮注入 argv（角色封装 = system_prompt → --append-system-prompt）", () => {
+    const { yaml } = parseAgentsYaml(`
+agents:
+  reviewer:
+    kind: headless
+    template: claude
+    bin: claude
+    model: sonnet
+    budget_usd: 2
+    system_prompt: 你是资深代码评审，只看不改
+`);
+    registerAgentsYaml(yaml!);
+    const driver = resolveWithAgentsYaml(yaml)("reviewer") as HeadlessDriver;
+    const argv = driver.buildArgv({ prompt: "review", cwd: "/tmp" });
+    expect(argv).toContain("--model");
+    expect(argv[argv.indexOf("--model") + 1]).toBe("sonnet");
+    expect(argv).toContain("--max-budget-usd");
+    expect(argv[argv.indexOf("--append-system-prompt") + 1]).toContain("资深代码评审");
   });
 
   it("未命中叠加层 → 退回全局 registry", () => {

@@ -379,4 +379,64 @@ describe("HeadlessDriver CLI 参数", () => {
   it("未知模板名在构造时就报错", () => {
     expect(() => new HeadlessDriver({ cli: "nope" })).toThrow(/unknown headless CLI/);
   });
+
+  it("claude 旋钮：model/effort/max_turns/budget_usd/system_prompt 全部落在 prompt 之前", () => {
+    const driver = new HeadlessDriver({
+      cli: "claude",
+      knobs: {
+        model: "sonnet",
+        effort: "high",
+        max_turns: 30,
+        budget_usd: 2.5,
+        system_prompt: "你是资深代码评审",
+      },
+    });
+    expect(driver.buildArgv({ prompt: "p", cwd: "/w" })).toEqual([
+      "claude",
+      "--model",
+      "sonnet",
+      "--effort",
+      "high",
+      "--max-turns",
+      "30",
+      "--max-budget-usd",
+      "2.5",
+      "--append-system-prompt",
+      "你是资深代码评审",
+      "-p",
+      "p",
+      "--output-format",
+      "stream-json",
+    ]);
+  });
+
+  it("codex 旋钮：model 走 -m，effort 走 -c 配置覆盖", () => {
+    const driver = new HeadlessDriver({
+      cli: "codex",
+      knobs: { model: "gpt-5", effort: "high" },
+    });
+    expect(driver.buildArgv({ prompt: "p", cwd: "/w" })).toEqual([
+      "codex",
+      "exec",
+      "--json",
+      "--model",
+      "gpt-5",
+      "-c",
+      'model_reasoning_effort="high"',
+      "p",
+    ]);
+  });
+
+  it("kimi 旋钮：仅支持 model", () => {
+    const driver = new HeadlessDriver({ cli: "kimi", knobs: { model: "k2" } });
+    expect(driver.buildArgv({ prompt: "p", cwd: "/w" })).toEqual([
+      "kimi",
+      "--model",
+      "k2",
+      "-p",
+      "p",
+      "--output-format",
+      "stream-json",
+    ]);
+  });
 });

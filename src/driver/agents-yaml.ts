@@ -3,9 +3,11 @@
  *
  * 三种形态：
  * 1. ACP agent：{ kind: acp, bin, args? } —— 子命令缺省 ["acp"]；
- * 2. 基于内置 headless 模板定制：{ kind: headless, template: claude|codex|kimi, bin?, env? }；
+ * 2. 基于内置 headless 模板定制：{ kind: headless, template: claude|codex|kimi, bin?, env?,
+ *    model?, effort?, max_turns?, budget_usd?, system_prompt? } —— 旋钮按模板能力面生效，
+ *    不支持的旋钮注册期降级为 warning（如 system_prompt 仅 claude 模板支持）；
  * 3. 自定义 headless CLI：{ kind: headless, bin, args: ["run", "{{prompt}}", ...] }
- *    —— args 里 `{{prompt}}` 占位替换为完整 prompt；该形态不支持 resume 与只读工具收敛
+ *    —— args 里 `{{prompt}}` 占位替换为完整 prompt；该形态不支持 resume、旋钮与只读工具收敛
  *    （readonly 任务不会追加任何限制参数），需要这些能力请用形态 2。
  *
  * 纪律：逐条降级——单条配置非法记 warning 跳过，不阻断其他注册；文件整体不可解析才抛错。
@@ -20,8 +22,21 @@ import {
   HeadlessDriver,
   getHeadlessCliTemplate,
   registerHeadlessCliTemplate,
+  type AgentKnob,
+  type HeadlessKnobs,
 } from "./headless.js";
 import { resolveDriver } from "./registry.js";
+
+/** headless 条目的旋钮字段（ADR-0023 决策 6 增强：模型/强度/轮次/预算/角色封装） */
+const HeadlessKnobsSchema = z.object({
+  model: z.string().min(1).optional(),
+  effort: z.string().min(1).optional(),
+  max_turns: z.number().int().positive().optional(),
+  budget_usd: z.number().positive().optional(),
+  system_prompt: z.string().min(1).optional(),
+});
+
+const KNOB_KEYS = ["model", "effort", "max_turns", "budget_usd", "system_prompt"] as const;
 
 const AgentsYamlSchema = z.object({
   agents: z.record(
@@ -41,6 +56,7 @@ const AgentsYamlSchema = z.object({
         /** 自定义参数模板（{{prompt}} 占位）；与 template 二选一 */
         args: z.array(z.string()).optional(),
         env: z.record(z.string(), z.string()).optional(),
+        ...HeadlessKnobsSchema.shape,
       }),
     ]),
   ),
@@ -76,6 +92,7 @@ export function parseAgentsYaml(text: string): AgentsLoadResult & { yaml: Agents
 /**
  * 把 agents.yaml 的定义注册进驱动体系（headless args 模板注册进模板表）；
  * 返回每条目的注册结果。ACP 条目无需预注册（解析时按名构造），但这里统一校验可见性。
+ * 旋钮能力检查：模板声明的 knobs 之外的旋钮降级为 warning（忽略该旋钮，不阻断注册）。
  */
 export function registerAgentsYaml(yaml: AgentsYaml): AgentsLoadResult {
   const registered: string[] = [];
@@ -87,11 +104,22 @@ export function registerAgentsYaml(yaml: AgentsYaml): AgentsLoadResult {
     }
     // headless：template 形态要求模板存在；args 形态注册为独立模板
     if (entry.template !== undefined) {
-      if (getHeadlessCliTemplate(entry.template) === undefined) {
+      const template = getHeadlessCliTemplate(entry.template);
+      if (template === undefined) {
         warnings.push(`agents.${name}: 未知 headless 模板 "${entry.template}"，跳过注册`);
         continue;
       }
+      const supported = new Set<AgentKnob>(template.knobs ?? []);
+      for (const key of KNOB_KEYS) {
+        if (entry[key] !== undefined && !supported.has(key)) {
+          warnings.push(`agents.${name}: 模板 "${entry.template}" 不支持旋钮 ${key}，忽略`);
+        }
+      }
     } else if (entry.args !== undefined) {
+      const used = KNOB_KEYS.filter((key) => entry[key] !== undefined);
+      if (used.length > 0) {
+        warnings.push(`agents.${name}: 自定义 args 形态不支持旋钮（${used.join("/")}），忽略`);
+      }
       const argsTemplate = entry.args;
       registerHeadlessCliTemplate({
         name,
@@ -122,9 +150,21 @@ export async function loadAgentsFile(
   return { yaml, ...registerAgentsYaml(yaml) };
 }
 
+/** 从 headless 条目提取旋钮值（仅 template 形态生效；自定义 args 形态已在注册期 warning） */
+function pickKnobs(entry: Record<string, unknown>): HeadlessKnobs {
+  const knobs: HeadlessKnobs = {};
+  for (const key of KNOB_KEYS) {
+    const value = entry[key];
+    if (value !== undefined) {
+      (knobs as Record<string, unknown>)[key] = value;
+    }
+  }
+  return knobs;
+}
+
 /**
  * 驱动解析叠加层：agents.yaml 条目优先，未命中退回全局 registry（resolveDriver）。
- * template 形态在此构造 HeadlessDriver（可带 bin/env 覆盖）；acp 形态构造 AcpDriver。
+ * template 形态在此构造 HeadlessDriver（可带 bin/env/knobs 覆盖）；acp 形态构造 AcpDriver。
  */
 export function resolveWithAgentsYaml(
   yaml: AgentsYaml | null,
@@ -145,6 +185,7 @@ export function resolveWithAgentsYaml(
       bin: entry.bin,
       name: `headless:${name}`,
       ...(entry.env !== undefined ? { env: entry.env } : {}),
+      ...(entry.template !== undefined ? { knobs: pickKnobs(entry) } : {}),
     });
   };
 }
