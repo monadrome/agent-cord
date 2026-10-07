@@ -3,7 +3,7 @@
  * 三种形态（acp / headless 模板定制 / headless 自定义 args）、逐条降级、
  * 叠加层解析优先于全局 registry、{{prompt}} 占位真实可跑（fake-cli fixture）。
  */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,11 +11,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { ResultEventData, TextEventData } from "../../src/driver/headless.js";
 import {
   loadAgentsFile,
+  createAgentRegistry,
   parseAgentsYaml,
   registerAgentsYaml,
   resolveWithAgentsYaml,
 } from "../../src/driver/agents-yaml.js";
-import { AcpDriver, HeadlessDriver } from "../../src/driver/index.js";
+import { AcpDriver, HeadlessDriver, getHeadlessCliTemplate, registerHeadlessCliTemplate, resolveDriver } from "../../src/driver/index.js";
 
 const fixture = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-cli.mjs");
 
@@ -52,13 +53,38 @@ agents:
     expect(Object.keys(yaml?.agents ?? {})).toEqual(["my-acp", "my-claude", "my-tool"]);
   });
 
-  it("整体非法 → 抛错带字段路径", () => {
-    expect(() => parseAgentsYaml("agents: { bad one: {} }")).toThrow(/agents\./);
+  it("顶层非法或 YAML 语法错误 → 抛错", () => {
+    expect(() => parseAgentsYaml("agents: []")).toThrow(/schema/);
     expect(() => parseAgentsYaml("::: not yaml")).toThrow(/解析失败|schema/);
   });
 
-  it("agent 名必须小写 kebab", () => {
-    expect(() => parseAgentsYaml(`agents: { "Bad_Name": { kind: acp, bin: x } }`)).toThrow();
+  it("单条非法配置按字段告警，其他条目仍可用，错误别名不能退回内置 driver", () => {
+    const parsed = parseAgentsYaml(`
+agents:
+  valid: { kind: acp, bin: x }
+  Bad_Name: { kind: acp, bin: x }
+  claude: { kind: acp, bin: 42 }
+`);
+    expect(parsed.warnings).toHaveLength(2);
+    expect(parsed.warnings[1]).toContain("agents.claude.bin");
+    expect(parsed.rejected).toEqual(["Bad_Name", "claude"]);
+    const registry = createAgentRegistry(parsed.yaml);
+    expect(registry.resolve("valid")).toBeInstanceOf(AcpDriver);
+    expect(() => registry.resolve("claude")).toThrow(/配置无效/);
+    expect(() => registry.resolve("headless:claude")).toThrow(/配置无效/);
+    expect(registry.list().some((entry) => entry.name === "claude")).toBe(false);
+  });
+
+  it("YAML 解析错误不含原文内容", () => {
+    const marker = "PRIVATE_TEST_VALUE";
+    let message = "";
+    try {
+      parseAgentsYaml(`agents: [${marker}`);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("解析失败");
+    expect(message).not.toContain(marker);
   });
 });
 
@@ -93,6 +119,9 @@ agents:
     // kimi 支持 model、不支持 system_prompt → 恰好一条降级 warning
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toContain("system_prompt");
+    const argv = (resolveWithAgentsYaml(yaml)("reviewer") as HeadlessDriver).buildArgv({ prompt: "p", cwd: "/tmp" });
+    expect(argv).toContain("k2");
+    expect(argv).not.toContain("你是评审");
   });
 
   it("自定义 args 形态配旋钮 → warning 提示不支持", () => {
@@ -107,6 +136,54 @@ agents:
 });
 
 describe("resolveWithAgentsYaml（叠加层）", () => {
+  it("两个工作区同名自定义 args 互不覆盖，也不修改全局模板", () => {
+    const first = parseAgentsYaml(`agents: { local-only: { kind: headless, bin: bin-a, args: ["A", "{{prompt}}"] } }`);
+    registerAgentsYaml(first.yaml);
+    const resolve_first = resolveWithAgentsYaml(first.yaml);
+    const second = parseAgentsYaml(`agents: { local-only: { kind: headless, bin: bin-b, args: ["B", "{{prompt}}"] } }`);
+    registerAgentsYaml(second.yaml);
+    const resolve_second = resolveWithAgentsYaml(second.yaml);
+    expect((resolve_first("local-only") as HeadlessDriver).buildArgv({ prompt: "p", cwd: "/tmp" })).toEqual(["bin-a", "A", "p"]);
+    expect((resolve_second("local-only") as HeadlessDriver).buildArgv({ prompt: "p", cwd: "/tmp" })).toEqual(["bin-b", "B", "p"]);
+    expect(getHeadlessCliTemplate("local-only")).toBeUndefined();
+    expect(() => resolveWithAgentsYaml(null)("local-only")).toThrow(/no driver/);
+  });
+
+  it("工作区覆盖内置 agent 时，内置模板与其他工作区仍独立", () => {
+    const parsed = parseAgentsYaml(`agents: { claude: { kind: headless, bin: wrapped, args: ["wrapped", "{{prompt}}"] } }`);
+    const local = resolveWithAgentsYaml(parsed.yaml);
+    expect((local("claude") as HeadlessDriver).buildArgv({ prompt: "p", cwd: "/tmp" })).toEqual(["wrapped", "wrapped", "p"]);
+    expect((local("headless:claude") as HeadlessDriver).buildArgv({ prompt: "p", cwd: "/tmp" })).toEqual(["wrapped", "wrapped", "p"]);
+    expect(() => local("acp:claude")).toThrow(/不能/);
+    expect((resolveDriver("claude") as HeadlessDriver).buildArgv({ prompt: "p", cwd: "/tmp" })[0]).toBe("claude");
+  });
+
+  it("已构造的 driver 固定模板与旋钮，后续全局注册不改变参数", () => {
+    registerHeadlessCliTemplate({ name: "pinned-test", bin: "old", args: ({ prompt }) => ["old", prompt] });
+    const driver = new HeadlessDriver({ cli: "pinned-test" });
+    registerHeadlessCliTemplate({ name: "pinned-test", bin: "new", args: () => ["new"] });
+    expect(driver.buildArgv({ prompt: "p", cwd: "/tmp" })).toEqual(["old", "old", "p"]);
+  });
+
+  it("模板形态可省略 bin；无效 template/args 组合不能回退到内置 agent", () => {
+    const parsed = parseAgentsYaml(`agents: { wrapper: { kind: headless, template: codex }, codex: { kind: headless, template: codex, args: [x] } }`);
+    const registry = createAgentRegistry(parsed.yaml);
+    expect((registry.resolve("wrapper") as HeadlessDriver).buildArgv({ prompt: "p", cwd: "/tmp" })[0]).toBe("codex");
+    expect(() => registry.resolve("codex")).toThrow(/配置无效/);
+  });
+
+  it("解析后的配置对象变化不会修改已经编译的 resolver", () => {
+    const parsed = parseAgentsYaml(`agents: { wrapper: { kind: headless, template: claude, model: first }, raw: { kind: headless, bin: old-bin, args: [old] } }`);
+    const registry = createAgentRegistry(parsed.yaml);
+    const wrapper = parsed.yaml.agents.wrapper;
+    const raw = parsed.yaml.agents.raw;
+    if (wrapper?.kind !== "headless" || raw?.kind !== "headless") throw new Error("测试配置错误");
+    wrapper.model = "changed";
+    raw.args![0] = "changed";
+    expect((registry.resolve("wrapper") as HeadlessDriver).buildArgv({ prompt: "p", cwd: "/tmp" })).toContain("first");
+    expect((registry.resolve("raw") as HeadlessDriver).buildArgv({ prompt: "p", cwd: "/tmp" })).toEqual(["old-bin", "old"]);
+  });
+
   it("acp 条目 → AcpDriver，参数来自 yaml", () => {
     const { yaml } = parseAgentsYaml(`agents: { mine: { kind: acp, bin: my-bin, args: [serve] } }`);
     registerAgentsYaml(yaml!);
@@ -184,5 +261,12 @@ describe("loadAgentsFile", () => {
     const file = tmpFile(`agents: { x1: { kind: acp, bin: x1-bin } }`);
     const result = await loadAgentsFile(file);
     expect(result.registered).toEqual(["x1"]);
+  });
+
+  it("IO 错误必须上报，不能把目录当作缺失配置", async () => {
+    const file = tmpFile("agents: {}");
+    rmSync(file);
+    mkdirSync(file);
+    await expect(loadAgentsFile(file)).rejects.toThrow(/读取失败/);
   });
 });

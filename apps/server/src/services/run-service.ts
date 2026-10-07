@@ -58,6 +58,8 @@ function delay(ms: number): Promise<void> {
 export interface RunServiceOptions {
   /** 驱动解析叠加层（agents.yaml 优先，退回全局 registry）；缺省时 node.run 执行体不生效 */
   driverResolver?: (name: string) => AgentDriver;
+  /** ADR-0027：每个 run 启动时固定当前配置，重载只影响后续 run */
+  driverResolverForRun?: () => (name: string) => AgentDriver;
   /** worker agent 的工作目录（工作区根，即 cord/ 的上级） */
   workspaceRoot?: string;
 }
@@ -309,7 +311,8 @@ export class RunService {
   /** 在后台推进执行器；结束时按事件流投影登记终态并重建账本 */
   private launch(session: SessionHandle, run: RunRow, def: WorkflowDef, controller: AbortController): void {
     const humanGate = this.createHumanGate(session);
-    const { driverResolver, workspaceRoot } = this.options;
+    const { workspaceRoot } = this.options;
+    const driverResolver = this.options.driverResolverForRun?.() ?? this.options.driverResolver;
     const executor = createExecutor({
       humanGate,
       payloadFor: (node) => ({ anchors: nodeAnchors(session.req_id, node.artifact) }),

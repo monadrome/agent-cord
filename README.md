@@ -11,6 +11,7 @@ agent-cord 是一个多 agent 共识协作基座：把需求、决策、证据�
 - 用 YAML 定义 SDLC 节点和 gate，默认流程为：`intake → align → plan → implement → verify → review → done`。
 - 在节点上声明 `run` 执行体：协调 agent 按最新快照和 workflow artifact 构建带 provenance 指纹的两层上下文包，经 ACP / headless driver 派发给 worker agent，产物自写或代写均留痕为 `agent.task.*` 事件。
 - 用 `agents.yaml` 注册自定义 agent（ACP 子进程、headless CLI、自定义参数模板），与内置 claude / codex / kimi 并列；模板定制支持 `model` / `effort` / `max_turns` / `budget_usd` / `system_prompt` / `agent` / `agents_json` 旋钮——`system_prompt` 是软封装（追加提示），`agent` + `agents_json` 是硬封装（`--agent` 整个会话以该 subagent 身份运行，工具与权限一并继承），把 persona 注册成命名 agent。
+- 自定义 agent 配置按工作区隔离；通过清单 API 查看协议和诊断，通过显式重载应用配置。重载失败保留旧配置，在途 run 固定启动时的 agent 定义。
 - 用参数化 checker（`checks[].with`）拼装证据门禁：文件存在/非空/含章节/锚点数/事件已发，参数非法 fail-closed。
 - 声明 `run.retry` 让节点内的 agent 任务按退避重试（重试附上次失败摘要）；run 可随时取消——取消先落事件再中止执行器，driver 杀进程树，人工 gate 挂起同时失效。
 - 用独立盲评投票处理适合自动化的决策点，分歧和高风险情况升级人工。
@@ -55,6 +56,35 @@ npm run cord -- demo
 7. 在「账本」页查看投影结果，在「事件」页复核完整事件链。
 
 控制台只展示 server 投影，不复制 reducer 或工作流状态机。所有写操作都经过事件流，并要求 `Idempotency-Key` 防止重复提交。
+
+## 自定义 Agent
+
+工作区 `cord/agents.yaml` 支持 ACP、内置 headless 模板和自定义参数三种形态：
+
+```yaml
+agents:
+  custom-acp:
+    kind: acp
+    bin: my-agent
+    args: [acp]
+  reviewer:
+    kind: headless
+    template: claude
+    agent: reviewer
+    agents_json: '{"reviewer":{"description":"代码评审","prompt":"审查当前需求的证据与实现","tools":["Read","Grep","Glob"]}}'
+  implementer:
+    kind: headless
+    template: codex
+    effort: high
+  custom-cli:
+    kind: headless
+    bin: my-cli
+    args: [run, "{{prompt}}", --json]
+```
+
+节点通过 `run: { agent: implementer }` 选择 agent。模板形态可省略 `bin`，使用模板默认二进制；自定义 args 必须声明 `bin`，只替换 `{{prompt}}`，不会自动提供只读限制或 resume 参数。
+
+编辑后调用 `POST /api/v1/agents/reload`（携带唯一 `Idempotency-Key`），再用 `GET /api/v1/agents` 检查 revision、清单与告警。清单表示配置可解析，CLI 安装和凭据可用性由实际运行验证。单条无效配置会被告警并阻断其别名；文件整体错误保留上一份有效配置。在途 run 继续使用启动配置，新 run 使用重载后的配置；server 重启恢复使用当前文件，revision 从 1 重新编号。凭据从本机环境传入，清单不返回 env、args 或角色提示。
 
 ## 数据布局
 
@@ -103,6 +133,8 @@ server 提供 `/api/v1` 接口，以下路径均省略此前缀：
 
 ```text
 GET  /health
+GET  /agents
+POST /agents/reload                         # 幂等；仅影响后续 run
 GET  /dashboard
 GET  /requirements
 POST /requirements
@@ -147,7 +179,7 @@ POST /doctor
 - [文档入口](./docs/INDEX.md)：当前实现、协议、ADR 和设计归档的阅读路径。
 - [当前实现架构](./docs/current-architecture.md)：server、console、数据布局和运行路径。
 - [核心协议速查](./docs/protocol.md)：事件、账本、workflow、gate 和 voting 的实现契约。
-- [ADR 目录](./docs/adr/)：架构决策记录，当前包含 ADR-0001 ~ ADR-0024。
+- [ADR 目录](./docs/adr/)：架构决策记录，当前包含 ADR-0001 ~ ADR-0027。
 - [安全与权限模型](./docs/09-security.md)
 - [路线图](./docs/10-roadmap.md)
 - [风险与开放问题](./docs/11-risks.md)

@@ -20,6 +20,19 @@ export interface ApiOk {
   request_id: string;
 }
 
+/** 当前配置可解析的 agent 清单；不代表 CLI 已安装或凭据已验证。 */
+export interface AgentCatalogView {
+  revision: number;
+  agents: Array<{
+    name: string;
+    kind: "acp" | "headless";
+    source: "workspace" | "registry";
+    template: string | null;
+  }>;
+  warnings: string[];
+  rejected: string[];
+}
+
 // ---------------------------------------------------------------------------
 // 需求（requirement / session）
 // ---------------------------------------------------------------------------

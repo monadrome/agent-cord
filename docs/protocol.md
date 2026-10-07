@@ -99,3 +99,9 @@ gate.waiting → human.decision.recorded → gate.resolved
 - reducer 当前为 `REDUCER_VERSION = "1"`。
 - Workflow 当前为 `agent-cord.dev/v1alpha1`。
 - 修改跨模块契约前先更新对应 ADR，并补成功、失败和恢复路径测试。
+
+## 6. 工作区 Agent 配置
+
+`cord/agents.yaml` 由独立 registry 编译（ADR-0027），ACP 和自定义 headless 参数不修改全局表。`registerAgentsYaml` 保留为配置检查入口，不再注册全局模板；使用 `resolveWithAgentsYaml` / `createAgentRegistry` 获取工作区 resolver。顶层结构或 IO 错误拒绝重载，单条定义错误按字段路径告警并阻断该别名。模板与 args 必须二选一；模板形态可省略 `bin`，自定义 args 形态必须提供。
+
+`GET /api/v1/agents` 返回 `revision`、`agents[{name, kind, source, template}]`、`warnings`、`rejected`。它表示配置可解析，不探测安装或凭据。`POST /api/v1/agents/reload` 需要 `Idempotency-Key`，成功后替换配置并递增 revision，失败保持原配置；删除可选文件后重载恢复内置清单。在途 run 固定 resolver，后续 run 使用新配置；重启后 resolver 从当前文件重建，revision 重新编号。响应不携带 env、完整 args、角色 prompt 或 `agents_json`。

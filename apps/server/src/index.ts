@@ -7,3 +7,4 @@ export { SessionService, encodeApprovalId, decodeApprovalId } from "./services/s
 export { RunService } from "./services/run-service.js";
 export { SdlcService, DEFAULT_SDLC, DEFAULT_SDLC_ID } from "./services/sdlc-service.js";
 export { IndexStore } from "./services/index-store.js";
+export { AgentService } from "./services/agent-service.js";

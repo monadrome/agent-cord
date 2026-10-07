@@ -245,6 +245,12 @@ describe("默认 SDLC 端到端", () => {
       return timeline.body["timeline"]["nodes"].every((n: Record<string, any>) => n["status"] === "exited");
     });
 
+    // 最后一个 node.exited 后仍需登记终态与重建账本，再释放在途 run。
+    await waitFor(async () => {
+      const detail = await api("GET", "/api/v1/requirements/REQ-E2E");
+      return detail.body["requirement"]["status"] === "completed";
+    });
+
     const detail = await api("GET", "/api/v1/requirements/REQ-E2E");
     expect(detail.body["requirement"]["status"]).toBe("completed");
 

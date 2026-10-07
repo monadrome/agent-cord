@@ -550,6 +550,8 @@ export function listHeadlessCliTemplates(): string[] {
 export interface HeadlessDriverOptions {
   /** 内置模板名（kimi / claude / codex）或 registerHeadlessCliTemplate 注册的模板名 */
   cli: string;
+  /** 工作区私有模板（ADR-0027）：无需注册进全局表 */
+  template?: HeadlessCliTemplate;
   /** 覆盖二进制（测试用 fixture / 自定义安装路径） */
   bin?: string;
   /** argv 前缀（如 [fixturePath]），排在模板参数之前 */
@@ -574,7 +576,7 @@ export type HeadlessKnobs = Partial<
 
 export class HeadlessDriver implements AgentDriver {
   readonly name: string;
-  private readonly cli: string;
+  private readonly template: HeadlessCliTemplate;
   private readonly bin: string;
   private readonly prefixArgs: string[];
   private readonly env: Record<string, string>;
@@ -582,18 +584,18 @@ export class HeadlessDriver implements AgentDriver {
   private readonly knobs: HeadlessKnobs;
 
   constructor(options: HeadlessDriverOptions) {
-    const template = getHeadlessCliTemplate(options.cli);
+    const template = options.template ?? getHeadlessCliTemplate(options.cli);
     if (template === undefined) {
       throw new Error(
         `unknown headless CLI "${options.cli}"; known: ${listHeadlessCliTemplates().join(", ")}`,
       );
     }
-    this.cli = template.name;
+    this.template = { ...template };
     this.bin = options.bin ?? template.bin;
-    this.prefixArgs = options.prefixArgs ?? [];
-    this.env = options.env ?? {};
+    this.prefixArgs = [...(options.prefixArgs ?? [])];
+    this.env = { ...options.env };
     this.killGraceMs = options.kill_grace_ms ?? DEFAULT_KILL_GRACE_MS;
-    this.knobs = options.knobs ?? {};
+    this.knobs = { ...options.knobs };
     this.name = options.name ?? `headless:${template.name}`;
   }
 
@@ -607,12 +609,10 @@ export class HeadlessDriver implements AgentDriver {
 
   /** 该驱动实际拼出的 argv（含 bin），供 registry/doctor/测试观测 */
   buildArgv(task: AgentTask, resumeSessionId?: string): string[] {
-    const template = getHeadlessCliTemplate(this.cli);
-    if (template === undefined) throw new Error(`unknown headless CLI "${this.cli}"`);
     return [
       this.bin,
       ...this.prefixArgs,
-      ...template.args({
+      ...this.template.args({
         prompt: task.prompt,
         readonly: task.readonly === true,
         resume_session_id: resumeSessionId,

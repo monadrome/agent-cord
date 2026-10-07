@@ -1,17 +1,7 @@
 /**
- * 工作区级自定义 agent 注册（ADR-0023 决策 6）：`cord/agents.yaml`。
- *
- * 三种形态：
- * 1. ACP agent：{ kind: acp, bin, args? } —— 子命令缺省 ["acp"]；
- * 2. 基于内置 headless 模板定制：{ kind: headless, template: claude|codex|kimi, bin?, env?,
- *    model?, effort?, max_turns?, budget_usd?, system_prompt? } —— 旋钮按模板能力面生效，
- *    不支持的旋钮注册期降级为 warning（如 system_prompt 仅 claude 模板支持）；
- * 3. 自定义 headless CLI：{ kind: headless, bin, args: ["run", "{{prompt}}", ...] }
- *    —— args 里 `{{prompt}}` 占位替换为完整 prompt；该形态不支持 resume、旋钮与只读工具收敛
- *    （readonly 任务不会追加任何限制参数），需要这些能力请用形态 2。
- *
- * 纪律：逐条降级——单条配置非法记 warning 跳过，不阻断其他注册；文件整体不可解析才抛错。
- * BYO 凭证：env 只透传，daemon 不代管厂商凭据。
+ * 工作区级 agent 配置（ADR-0023/0027）：ACP / headless 模板 / 自定义 args。
+ * 解析与编译不修改全局模板表；每个 resolver 是固定配置快照。
+ * 文件整体错误拒绝加载，单条错误告警并阻断该别名，避免误用同名内置 agent。
  */
 import { readFile } from "node:fs/promises";
 import { parse as parseYaml } from "yaml";
@@ -21,183 +11,271 @@ import { AcpDriver } from "./acp.js";
 import {
   HeadlessDriver,
   getHeadlessCliTemplate,
-  registerHeadlessCliTemplate,
+  listHeadlessCliTemplates,
   type AgentKnob,
   type HeadlessKnobs,
 } from "./headless.js";
-import { resolveDriver } from "./registry.js";
+import { getKnownAgent, listKnownAgents, resolveDriver } from "./registry.js";
 
-/** headless 条目的旋钮字段（ADR-0023 决策 6 增强：模型/强度/轮次/预算/角色封装/硬封装） */
-const HeadlessKnobsSchema = z.object({
-  model: z.string().min(1).optional(),
-  effort: z.string().min(1).optional(),
-  max_turns: z.number().int().positive().optional(),
-  budget_usd: z.number().positive().optional(),
-  system_prompt: z.string().min(1).optional(),
-  /** claude --agent：整个会话以指定 subagent 身份运行（继承其 prompt/tools/model/权限） */
-  agent: z.string().min(1).optional(),
-  /** claude --agents：免写盘注入 subagent 定义（JSON 串），与 agent 搭配 */
-  agents_json: z.string().min(1).optional(),
-});
+const AGENT_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const KNOB_KEYS = ["model", "effort", "max_turns", "budget_usd", "system_prompt", "agent", "agents_json"] as const;
 
-const KNOB_KEYS = [
-  "model",
-  "effort",
-  "max_turns",
-  "budget_usd",
-  "system_prompt",
-  "agent",
-  "agents_json",
-] as const;
+const AgentEntrySchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("acp"),
+    bin: z.string().min(1),
+    args: z.array(z.string()).optional(),
+    env: z.record(z.string(), z.string()).optional(),
+  }),
+  z.strictObject({
+    kind: z.literal("headless"),
+    template: z.string().min(1).optional(),
+    /** 模板形态可省略二进制；自定义 args 形态必须声明 */
+    bin: z.string().min(1).optional(),
+    args: z.array(z.string()).optional(),
+    env: z.record(z.string(), z.string()).optional(),
+    model: z.string().min(1).optional(),
+    effort: z.string().min(1).optional(),
+    max_turns: z.number().int().positive().optional(),
+    budget_usd: z.number().positive().optional(),
+    system_prompt: z.string().min(1).optional(),
+    agent: z.string().min(1).optional(),
+    agents_json: z.string().min(1).optional(),
+  }),
+]);
 
 const AgentsYamlSchema = z.object({
-  agents: z.record(
-    z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
-    z.discriminatedUnion("kind", [
-      z.object({
-        kind: z.literal("acp"),
-        bin: z.string().min(1),
-        args: z.array(z.string()).optional(),
-        env: z.record(z.string(), z.string()).optional(),
-      }),
-      z.object({
-        kind: z.literal("headless"),
-        /** 复用内置模板的参数形态（claude/codex/kimi 或已注册模板） */
-        template: z.string().min(1).optional(),
-        bin: z.string().min(1),
-        /** 自定义参数模板（{{prompt}} 占位）；与 template 二选一 */
-        args: z.array(z.string()).optional(),
-        env: z.record(z.string(), z.string()).optional(),
-        ...HeadlessKnobsSchema.shape,
-      }),
-    ]),
-  ),
+  agents: z.record(z.string(), AgentEntrySchema),
+  /** 解析诊断元数据，不从配置文件直接接收 */
+  rejected: z.array(z.string()).optional(),
 });
-
 export type AgentsYaml = z.infer<typeof AgentsYamlSchema>;
 
 export interface AgentsLoadResult {
-  /** 成功注册的 agent 名 */
   registered: string[];
-  /** 逐条降级：非法条目的原因（不阻断其他注册） */
   warnings: string[];
+  /** 配置无效的别名：解析时必须失败，不能退回同名内置 driver */
+  rejected: string[];
 }
 
-/** 解析 agents.yaml 文本（纯函数，无 IO 之外的副作用）；语法整体非法 → 抛错带字段路径 */
-export function parseAgentsYaml(text: string): AgentsLoadResult & { yaml: AgentsYaml | null } {
+/** 仅公开配置元信息；不携带 env、args、角色 prompt 或 agents_json */
+export interface AgentDefinitionInfo {
+  name: string;
+  kind: "acp" | "headless";
+  source: "workspace" | "registry";
+  template: string | null;
+}
+
+export interface AgentRegistry extends AgentsLoadResult {
+  resolve(name: string): AgentDriver;
+  list(): AgentDefinitionInfo[];
+}
+
+/** 逐项诊断，不把 YAML 原文片段写进错误（可能含 BYO 凭据）。 */
+export function parseAgentsYaml(text: string): AgentsLoadResult & { yaml: AgentsYaml } {
   let raw: unknown;
   try {
-    raw = parseYaml(text);
-  } catch (error) {
-    throw new Error(`agents.yaml 解析失败：${error instanceof Error ? error.message : String(error)}`);
+    raw = parseYaml(text, { prettyErrors: false });
+  } catch {
+    throw new Error("agents.yaml 解析失败：请检查 YAML 语法");
   }
-  const parsed = AgentsYamlSchema.safeParse(raw);
-  if (!parsed.success) {
-    const detail = parsed.error.issues
-      .map((issue) => `agents.${issue.path.map(String).join(".")}: ${issue.message}`)
-      .join("；");
-    throw new Error(`agents.yaml 不符合 schema：${detail}`);
-  }
-  return { yaml: parsed.data, registered: [], warnings: [] };
-}
+  const root = z.strictObject({ agents: z.record(z.string(), z.unknown()) }).safeParse(raw);
+  if (!root.success) throw new Error("agents.yaml 不符合 schema：顶层必须是 agents 名称映射");
 
-/**
- * 把 agents.yaml 的定义注册进驱动体系（headless args 模板注册进模板表）；
- * 返回每条目的注册结果。ACP 条目无需预注册（解析时按名构造），但这里统一校验可见性。
- * 旋钮能力检查：模板声明的 knobs 之外的旋钮降级为 warning（忽略该旋钮，不阻断注册）。
- */
-export function registerAgentsYaml(yaml: AgentsYaml): AgentsLoadResult {
-  const registered: string[] = [];
+  const agents: AgentsYaml["agents"] = Object.create(null) as AgentsYaml["agents"];
   const warnings: string[] = [];
-  for (const [name, entry] of Object.entries(yaml.agents)) {
-    if (entry.kind === "acp") {
-      registered.push(name);
+  const rejected: string[] = [];
+  for (const [name, entry] of Object.entries(root.data.agents)) {
+    if (!AGENT_NAME.test(name)) {
+      warnings.push(`agents.${name}: 名称只允许小写字母数字和连字符，长度 1-64，跳过注册`);
+      rejected.push(name);
       continue;
     }
-    // headless：template 形态要求模板存在；args 形态注册为独立模板
+    const parsed = AgentEntrySchema.safeParse(entry);
+    if (!parsed.success) {
+      const detail = parsed.error.issues.map((issue) =>
+        `agents.${name}${issue.path.length > 0 ? `.${issue.path.map(String).join(".")}` : ""}: ${issue.message}`,
+      ).join("；");
+      warnings.push(`${detail}，跳过注册`);
+      rejected.push(name);
+      continue;
+    }
+    agents[name] = parsed.data;
+  }
+  return { yaml: { agents, rejected }, registered: [], warnings, rejected };
+}
+
+function compileAgentsYaml(yaml: AgentsYaml | null): {
+  drivers: Map<string, AgentDriver>;
+  entries: AgentDefinitionInfo[];
+  warnings: string[];
+  rejected: string[];
+} {
+  const drivers = new Map<string, AgentDriver>();
+  const entries: AgentDefinitionInfo[] = [];
+  const warnings: string[] = [];
+  const rejected: string[] = [];
+  for (const [name, entry] of Object.entries(yaml?.agents ?? {})) {
+    if (entry.kind === "acp") {
+      drivers.set(name, new AcpDriver({
+        bin: entry.bin,
+        args: [...(entry.args ?? ["acp"])],
+        name: `acp:${name}`,
+        ...(entry.env !== undefined ? { env: { ...entry.env } } : {}),
+      }));
+      entries.push({ name, kind: "acp", source: "workspace", template: null });
+      continue;
+    }
+    if ((entry.template === undefined) === (entry.args === undefined)) {
+      warnings.push(`agents.${name}: headless 需要 template 或 args 之一，且不能同时声明，跳过注册`);
+      rejected.push(name);
+      continue;
+    }
     if (entry.template !== undefined) {
       const template = getHeadlessCliTemplate(entry.template);
       if (template === undefined) {
         warnings.push(`agents.${name}: 未知 headless 模板 "${entry.template}"，跳过注册`);
+        rejected.push(name);
         continue;
       }
       const supported = new Set<AgentKnob>(template.knobs ?? []);
+      const knobs: HeadlessKnobs = {};
       for (const key of KNOB_KEYS) {
-        if (entry[key] !== undefined && !supported.has(key)) {
+        const value = entry[key];
+        if (value === undefined) continue;
+        if (!supported.has(key)) {
           warnings.push(`agents.${name}: 模板 "${entry.template}" 不支持旋钮 ${key}，忽略`);
+        } else {
+          (knobs as Record<string, unknown>)[key] = value;
         }
       }
-    } else if (entry.args !== undefined) {
+      drivers.set(name, new HeadlessDriver({
+        cli: entry.template,
+        template,
+        ...(entry.bin !== undefined ? { bin: entry.bin } : {}),
+        ...(entry.env !== undefined ? { env: entry.env } : {}),
+        name: `headless:${name}`,
+        knobs,
+      }));
+    } else {
+      if (entry.bin === undefined) {
+        warnings.push(`agents.${name}.bin: 自定义 args 形态必须声明二进制，跳过注册`);
+        rejected.push(name);
+        continue;
+      }
+      const args = [...entry.args!];
       const used = KNOB_KEYS.filter((key) => entry[key] !== undefined);
       if (used.length > 0) {
         warnings.push(`agents.${name}: 自定义 args 形态不支持旋钮（${used.join("/")}），忽略`);
       }
-      const argsTemplate = entry.args;
-      registerHeadlessCliTemplate({
-        name,
-        bin: entry.bin,
-        args: ({ prompt }) => argsTemplate.map((arg) => arg.replaceAll("{{prompt}}", prompt)),
-      });
-    } else {
-      warnings.push(`agents.${name}: headless 需要 template 或 args 之一，跳过注册`);
-      continue;
+      drivers.set(name, new HeadlessDriver({
+        cli: name,
+        template: {
+          name,
+          bin: entry.bin,
+          args: ({ prompt }) => args.map((arg) => arg.replaceAll("{{prompt}}", prompt)),
+        },
+        ...(entry.env !== undefined ? { env: entry.env } : {}),
+        name: `headless:${name}`,
+      }));
     }
-    registered.push(name);
+    entries.push({ name, kind: "headless", source: "workspace", template: entry.template ?? null });
   }
-  return { registered, warnings };
+  return { drivers, entries, warnings, rejected };
 }
 
-/** 从文件加载并注册；文件不存在 → 空结果（agents.yaml 是可选的） */
-export async function loadAgentsFile(
-  path: string,
-): Promise<AgentsLoadResult & { yaml: AgentsYaml | null }> {
+/** 保留旧入口用于配置检查；ADR-0027 起不再污染全局模板表。 */
+export function registerAgentsYaml(yaml: AgentsYaml): AgentsLoadResult {
+  const compiled = compileAgentsYaml(yaml);
+  return {
+    registered: [...compiled.drivers.keys()],
+    warnings: compiled.warnings,
+    rejected: [...new Set([...(yaml.rejected ?? []), ...compiled.rejected])],
+  };
+}
+
+export async function loadAgentsFile(path: string): Promise<AgentsLoadResult & { yaml: AgentsYaml | null }> {
   let text: string;
   try {
     text = await readFile(path, "utf8");
-  } catch {
-    return { yaml: null, registered: [], warnings: [] };
-  }
-  const { yaml } = parseAgentsYaml(text);
-  if (yaml === null) return { yaml: null, registered: [], warnings: [] };
-  return { yaml, ...registerAgentsYaml(yaml) };
-}
-
-/** 从 headless 条目提取旋钮值（仅 template 形态生效；自定义 args 形态已在注册期 warning） */
-function pickKnobs(entry: Record<string, unknown>): HeadlessKnobs {
-  const knobs: HeadlessKnobs = {};
-  for (const key of KNOB_KEYS) {
-    const value = entry[key];
-    if (value !== undefined) {
-      (knobs as Record<string, unknown>)[key] = value;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { yaml: null, registered: [], warnings: [], rejected: [] };
     }
+    throw new Error("agents.yaml 读取失败：请检查文件类型与访问权限");
   }
-  return knobs;
-}
-
-/**
- * 驱动解析叠加层：agents.yaml 条目优先，未命中退回全局 registry（resolveDriver）。
- * template 形态在此构造 HeadlessDriver（可带 bin/env/knobs 覆盖）；acp 形态构造 AcpDriver。
- */
-export function resolveWithAgentsYaml(
-  yaml: AgentsYaml | null,
-): (name: string) => AgentDriver {
-  return (name: string): AgentDriver => {
-    const entry = yaml?.agents[name];
-    if (entry === undefined) return resolveDriver(name);
-    if (entry.kind === "acp") {
-      return new AcpDriver({
-        bin: entry.bin,
-        args: entry.args ?? ["acp"],
-        name: `acp:${name}`,
-        ...(entry.env !== undefined ? { env: entry.env } : {}),
-      });
-    }
-    return new HeadlessDriver({
-      cli: entry.template ?? name,
-      bin: entry.bin,
-      name: `headless:${name}`,
-      ...(entry.env !== undefined ? { env: entry.env } : {}),
-      ...(entry.template !== undefined ? { knobs: pickKnobs(entry) } : {}),
-    });
+  const parsed = parseAgentsYaml(text);
+  const checked = registerAgentsYaml(parsed.yaml);
+  return {
+    yaml: parsed.yaml,
+    registered: checked.registered,
+    warnings: [...parsed.warnings, ...checked.warnings],
+    rejected: checked.rejected,
   };
+}
+
+/** 工作区 resolver 快照：固定所有可用 driver，显式前缀也遵循同一工作区配置。 */
+export function createAgentRegistry(yaml: AgentsYaml | null, rejectedNames: readonly string[] = []): AgentRegistry {
+  const compiled = compileAgentsYaml(yaml);
+  const rejected = new Set([...(yaml?.rejected ?? []), ...rejectedNames, ...compiled.rejected]);
+  const drivers = new Map<string, AgentDriver>();
+  const entries = new Map<string, AgentDefinitionInfo>();
+  const names = new Set([...listKnownAgents(), ...listHeadlessCliTemplates()]);
+  for (const name of names) {
+    const candidates = [name];
+    if (getHeadlessCliTemplate(name) !== undefined) candidates.push(`headless:${name}`);
+    const known = getKnownAgent(name);
+    if (known?.acp !== undefined || known?.acp_adapter !== undefined) candidates.push(`acp:${name}`);
+    for (const candidate of candidates) {
+      try {
+        const driver = resolveDriver(candidate);
+        drivers.set(candidate, driver);
+        entries.set(candidate, {
+          name: candidate,
+          kind: driver instanceof AcpDriver ? "acp" : "headless",
+          source: "registry",
+          template: driver instanceof HeadlessDriver ? known?.headless ?? name : null,
+        });
+      } catch {
+        // 仅有显式通道的注册条目不一定支持裸名。
+      }
+    }
+  }
+  for (const entry of compiled.entries) entries.set(entry.name, entry);
+  for (const [candidate] of entries) {
+    const target = candidate.includes(":") ? candidate.slice(candidate.indexOf(":") + 1) : candidate;
+    if (rejected.has(target) || (compiled.drivers.has(target) && candidate.includes(":"))) {
+      entries.delete(candidate);
+    }
+  }
+  return {
+    registered: [...compiled.drivers.keys()],
+    warnings: compiled.warnings,
+    rejected: [...rejected],
+    list: () => [...entries.values()].sort((a, b) => a.name.localeCompare(b.name)).map((entry) => ({ ...entry })),
+    resolve(name: string): AgentDriver {
+      const index = name.indexOf(":");
+      const prefix = index === -1 ? undefined : name.slice(0, index);
+      const target = index === -1 ? name : name.slice(index + 1);
+      if (rejected.has(target)) throw new Error(`agent "${target}" 配置无效，请修正 agents.yaml 后重载`);
+      const local = compiled.drivers.get(target);
+      if (local !== undefined) {
+        const kind = local instanceof AcpDriver ? "acp" : "headless";
+        if (prefix !== undefined && prefix !== kind) {
+          throw new Error(`agent "${target}" 使用 ${kind} 通道，不能以 ${prefix}: 启动`);
+        }
+        return local;
+      }
+      const driver = drivers.get(name);
+      if (driver !== undefined) return driver;
+      if (prefix === "acp" && target.length > 0) {
+        return new AcpDriver({ bin: target, name });
+      }
+      throw new Error(`no driver for "${name}"：请检查驱动名称或 agents.yaml 配置`);
+    },
+  };
+}
+
+export function resolveWithAgentsYaml(yaml: AgentsYaml | null, rejectedNames: readonly string[] = []): (name: string) => AgentDriver {
+  return createAgentRegistry(yaml, rejectedNames).resolve;
 }

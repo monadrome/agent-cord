@@ -58,3 +58,17 @@
 - `agent.task.started/completed` 带快照 provenance；自定义 artifact 进入上游上下文与定位符层。
 - coordinator 写回限制在 session 目录内，支持嵌套路径、父目录创建和临时文件替换；越界路径落失败事件。
 - 新增嵌套写回、越界失败、动态 artifact 和 provenance 回归测试；全量验证现为 325 测试 / 31 文件全绿，`npm run typecheck`、`npm run build:all`、`git diff --check` 全绿。
+
+## 2026-10-06（阶段 8）
+
+- 上一轮已完成并推送 `b06b96b`，本轮开始时工作区干净；上一轮属于已验证的功能进展。
+- 复核 driver 与 server，确认全局模板污染、逐条诊断不完整及缺少在线重载。
+- 开始实现工作区独立 agent 配置快照与清单/重载 API，在途 run 固定启动配置。
+- 已实现 ADR-0027：自定义 args 使用工作区私有模板，driver 固定模板、旋钮、参数和 env；无效别名不能退回同名内置 agent。
+- 新增 `AgentService`、`GET /agents` 与幂等 `POST /agents/reload`，串行原子替换；文件整体错误/IO 故障保持当前有效配置，响应仅公开元信息。
+- 26 项定向测试通过，含真实子进程的跨工作区同名隔离、在途 run 固定旧配置、新 run 使用新配置、并发重载、删除、修复和挂起 run 重启续跑。
+- README、协议、架构与 ADR 索引同步，开始最终全量验证。
+- 重载入口补并发同键共享一次操作，失败后允许同键重试；修复旧 API 测试等待 node.exited 后过早断言 completed 的竞态。
+- 最终验证：339 测试 / 32 文件通过，`npm run typecheck`、`npm run build:all` 与 `git diff --check` 通过。
+- 实际 HTTP smoke：公开清单、显式重载、同键重放、临时 fake worker SDLC 到人工 gate 并完成；并发同键返回 revision [2,2] 且当前 revision 只递增一次。
+- 预览服务 `http://127.0.0.1:7291`，临时工作区 `/tmp/cord-stage8-preview`，日志 `/tmp/cord-stage8-preview.log`；不写入仓库运行时数据。

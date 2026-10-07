@@ -27,7 +27,7 @@
 
 - Fastify 的 `reply` 是 thenable：handler 里 `await reply.code(201)` 会死锁（等响应发出，而响应要等 handler 返回）。一律 `reply.code(...)` 不 await。
 
-## 阶段 7：动态快照 provenance 与自定义 artifact 边界（进行中）
+## 阶段 7：动态快照 provenance 与自定义 artifact 边界（已完成）
 
 - [x] 为快照采集 workflow 声明的自定义 artifact，并生成可审计指纹
 - [x] 为 coordinator 写回路径增加 session 目录边界校验与父目录创建
@@ -38,3 +38,29 @@
 ## 错误记录（阶段 7）
 
 暂无。
+
+## 阶段 8：工作区独立 agent 配置与显式重载（已完成）
+
+持续目标：优化 SDLC、自定义 ACP/Claude/Codex agent 与基于最新需求快照的协调 session agent，交付可验证的原型或生产实现。
+
+- [x] 确认全局模板污染、读取失败静默降级、配置不能在线重载的现状
+- [x] ADR-0027 与独立 registry：逐条诊断、无效别名阻断、driver 固定模板
+- [x] agent 清单与重载 API：公开元信息、原子替换、失败保留有效配置
+- [x] run 启动时固定 resolver，离线覆盖多工作区、在途重载与重启
+- [x] 全量 test/typecheck/build 与 diff 审查
+- [ ] 提交与推送
+
+### 验证记录
+
+- 首轮 2 条旧解析测试仍断言单条无效配置应整体抛错；将按 ADR-0027 的逐条诊断语义更新，并补阻断错误别名的实际运行验证。
+- workspace typecheck 优先读取根包的旧 `dist` 声明，新增导出需先 `npm run build` 再验证；根内核 source typecheck 已通过。
+- 新增 server 测试的非人工分支未声明任何 gate，被发布校验正常拒绝；已给所有分支增加产物证据 gate，人工确认只在在途重载用例开启。
+- 首轮全量 337/338 通过；旧 API 用例只等待最后一个 node.exited，runner 仍在登记终态/重建账本时就断言 completed。改为继续轮询实际对外完成状态，避免增加固定延迟。
+- 首轮后台预览启动的 shell 进程未存活，实际 HTTP 拒绝连接；改用 detached Node 子进程并验证 pid/健康后启动成功。
+- 补测复现重载并发同键返回 revision [2,3]，增加入口共享在途 Promise，首次响应持久化后释放映射，保证一次操作。
+
+### 待继续核验
+
+- `readSnapshot` 使用 `readLedger()` 的已有投影，运行中事件变化可能未反映进账本快照。
+- artifact 目前只做词法目录边界校验，符号链接与写回异常的失败事件仍需审查。
+- 全局 REST 幂等缓存仍需审查其他写入口的并发同键与跨路由复用；本轮仅为 agent 重载入口合并同键在途请求。

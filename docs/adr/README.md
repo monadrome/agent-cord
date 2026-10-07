@@ -9,17 +9,17 @@
 
 ## 1. 一句话说明
 
-agent-cord 的设计决策分为四类，共 26 条，一条决策一个文件：
+agent-cord 的设计决策分为四类，共 27 条，一条决策一个文件：
 
 - **8 条设计决策（ADR-0001 ~ ADR-0008）**：定义「这个平台是什么、边界在哪、机制怎么组织」——定位、流程严格度、共识载体、路由拓扑、账本形态、投票机制、模型分配、原型切分。
 - **8 条技术决策（ADR-0009 ~ ADR-0016）**：定义「这个平台用什么造」——语言与运行形态、SSOT 存储、agent 运行时、事件与 IM 适配、投票执行器、工作流定义语言、知识库、分发与插件。
-- **10 条实现选型决策（ADR-0017 ~ ADR-0026）**：在技术决策框架内，依据开源实现调研与对抗性设计评审把具体实现选型拍板——agent 驱动协议（ACP 直连）、工作流 DSL 与编排内核、插件协议（MCP over stdio）、事件协议与确定性 reducer、控制台 server 分层、SDLC 生命周期、协调 session agent 与节点执行体、checker 参数化、run 取消与节点执行体可靠性、上下文快照 provenance 与 artifact 路径边界。
+- **11 条实现选型决策（ADR-0017 ~ ADR-0027）**：在技术决策框架内，依据开源实现调研与对抗性设计评审把具体实现选型拍板——agent 驱动协议（ACP 直连）、工作流 DSL 与编排内核、插件协议（MCP over stdio）、事件协议与确定性 reducer、控制台 server 分层、SDLC 生命周期、协调 session agent 与节点执行体、checker 参数化、run 取消与节点执行体可靠性、上下文快照 provenance 与 artifact 路径边界、工作区 agent registry 与重载。
 
 设计决策先于技术决策成立：技术选型都是设计约束的推论，而不是流行度比较的结果。每份 ADR 的「理由」一节都给出从痛点出发的第一性原理推导链。
 
 ---
 
-## 2. 决策点地图（技术决策 8 项 + 实现选型 10 项）
+## 2. 决策点地图（技术决策 8 项 + 实现选型 11 项）
 
 | # | 决策点 | 选型 | 一句话理由 | ADR | 置信度 |
 |---|---|---|---|---|---|
@@ -41,6 +41,7 @@ agent-cord 的设计决策分为四类，共 26 条，一条决策一个文件�
 | 16 | checker 参数化 | checks[].with 传入 CheckerContext.params + 参数化内置 checker 家族（file-exists/file-nonempty/doc-has-section/anchors-min-count/event-emitted）；参数非法 fail-closed | L1 档从「枚举具体判定」升级为「枚举判定种类」；CEL/插件路线不变 | [ADR-0024](./ADR-0024-checker-params.md) | 中高 |
 | 17 | run 取消与节点执行体可靠性 | `workflow.run.cancelled` 事件（先落事实再控制）+ AbortSignal 贯穿执行器/协调 agent/driver + `node.run.retry`（max_attempts/backoff_ms，重试上下文附上次失败摘要） | 取消是事实不是控制消息——不落事件则重启后 run 永远是 running；重试带退避与失败回灌是智能层的变化轴，不属薄执行器 | [ADR-0025](./ADR-0025-run-cancel-retry.md) | 中高 |
 | 18 | 上下文快照 provenance 与 artifact 边界 | 动态采集 workflow 声明的 artifact + snapshot_id / event chain provenance + session 目录内路径校验 | 自定义 SDLC 必须把声明的产物带入上下文；输入版本要可审计；workflow 写回不能越出需求目录 | [ADR-0026](./ADR-0026-snapshot-provenance-artifact-boundary.md) | 中高 |
+| 19 | 工作区 agent 配置与重载 | 独立 resolver + 公开清单 + 显式串行重载 + run 固定配置 | agent 参数属于工作区，不能通过全局可变表互相覆盖；重载只能改变后续 run | [ADR-0027](./ADR-0027-workspace-agent-registry.md) | 中高 |
 
 **置信度的含义**：高 = 有多条独立一手来源互证，方向性风险低；中高 = 推导链完整且有一手来源，个别参数需试点校准；中 = 方向由推理得出，无同构先例或需实验数据确认。所有 8 项决策的共同前提是：本平台的负载是 I/O 编排而非高并发服务，token 成本是噪声级（约占人力基线 2% 以内；换算口径：按配套调研（2026-09）Q8 的成本模型，把每需求的 token 费用按当时费率折算为等效人力分钟数，再除以人力基线），真正的成本是固定建设成本与人工介入时间——技术选型一律按这个前提取舍。
 
@@ -84,7 +85,7 @@ agent-cord 的设计决策分为四类，共 26 条，一条决策一个文件�
 | 状态 | 含义 | 本目录现状 |
 |---|---|---|
 | `proposed` | 已提出、待人工拍板。允许出现在草稿分支，不进入主干 | 无 |
-| `accepted` | 已拍板，作为实现的约束 | **ADR-0001 ~ ADR-0025 全部为此状态** |
+| `accepted` | 已拍板，作为实现的约束 | **ADR-0001 ~ ADR-0027 全部为此状态** |
 | `rejected` | 明确否决。文件保留，正文写明否决理由，供后人避免重复提议 | 无（被否的**备选方案**写在对应 ADR 内，不单独占 ADR 编号） |
 | `superseded` | 已被后续 ADR 取代。文件保留全文，不再作为实现依据 | 无 |
 

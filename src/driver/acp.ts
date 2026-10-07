@@ -178,9 +178,9 @@ export class AcpDriver implements AgentDriver {
 
   constructor(options: AcpDriverOptions) {
     this.bin = options.bin;
-    this.args = options.args ?? ["acp"];
+    this.args = [...(options.args ?? ["acp"])];
     this.name = options.name ?? `acp:${options.bin}`;
-    this.env = options.env ?? {};
+    this.env = { ...options.env };
     this.permissionTimeoutMs = options.permission_timeout_ms ?? DEFAULT_PERMISSION_TIMEOUT_MS;
     this.killGraceMs = options.kill_grace_ms ?? DEFAULT_KILL_GRACE_MS;
     this.decidePermission = options.decidePermission;

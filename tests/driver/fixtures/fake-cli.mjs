@@ -5,6 +5,7 @@
 // 支持的开关（由 HeadlessDriver 的 prefixArgs 注入）：
 //   --mode <claude|kimi|codex|plain|garbage|fail>  输出的行形态
 //   --sleep <ms>                                   打印首行后睡多久（模拟卡死/超时）
+//   --result-text <text>                           最终文本（配置重载验证用）
 //   --pid-file <path>                              把自己的 pid 写进去（验证进程清理）
 //   --child-pid-file <path>                        派生一个孙进程并写 pid（验证进程树清理）
 //   --help                                         打印含 "acp" 的帮助（registry 探测用）
@@ -82,7 +83,7 @@ switch (mode) {
       type: "result",
       subtype: "success",
       is_error: false,
-      result: "final answer",
+      result: flagValue("--result-text") ?? "final answer",
       session_id: sessionId,
     });
     break;

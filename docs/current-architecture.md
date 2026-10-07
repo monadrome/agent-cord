@@ -14,6 +14,7 @@ Fastify server
     ├── SessionService：需求文件夹、文档和投影
     ├── RunService：workflow runner、人工 gate、恢复、NodeRunner 注入
     ├── SdlcService：YAML 校验、发布版本、草稿、归档、模板库
+    ├── AgentService：工作区配置快照、清单与显式重载
     └── IndexStore：幂等键、运行登记、SDLC 归档登记（派生数据）
     │
     ├── cord/<req-id>/events.jsonl  事实来源
@@ -38,7 +39,7 @@ worker agent 子进程（ACP / 裸 headless CLI）
 | `src/workflow` | YAML workflow、拓扑执行（pre gates → node.run → post gates）、内置 checker（含参数化）、人工 gate 端口 |
 | `src/coordinator` | 协调 agent：按 workflow artifact 动态采集需求快照、两层上下文包、provenance 指纹、NodeRunner 生产实现、artifact 双通道写回 |
 | `src/voting` | k=2~3 盲评、锚点校验、投票判定和留痕结构 |
-| `src/driver` | ACP 与 headless agent driver、agents.yaml 自定义注册 |
+| `src/driver` | ACP 与 headless agent driver、agents.yaml 工作区独立 resolver 与逐条诊断 |
 | `apps/server` | Fastify REST/SSE、运行服务、SDLC 服务、派生 SQLite 索引 |
 | `apps/console` | React/Vite 控制台；不复制 reducer 或状态机 |
 | `tests`、`apps/*/tests` | 与源码对应的离线测试和 server API 测试 |
@@ -76,6 +77,8 @@ server 当前使用进程内 runner。同一需求同时只允许一个在途 ru
 
 worker agent 的来源：内置驱动清单（claude / codex / kimi 直连，ACP 优先探测）+ `cord/agents.yaml` 自定义注册（ACP 子进程 / headless 模板定制 / 自定义 args 模板三种形态）。模板定制形态支持旋钮：`model`（三家通用）、`effort`（claude/codex）、`max_turns`/`budget_usd`/`system_prompt`/`agent`/`agents_json`（claude）。角色封装分软硬两档：`system_prompt` 追加系统提示，`agents_json` + `agent` 走 `--agents` / `--agent` 让会话整体以该 subagent 身份运行（工具面与权限一并继承）——把「资深评审」「架构师」这类 persona 注册成命名 agent。模板不支持的旋钮在注册期降级为 warning。默认 SDLC 不挂执行体（开箱可跑零依赖）；挂执行体的流程从模板库「Agent 协作」档起步。
 
+工作区配置编译为独立 resolver，不写全局模板表；driver 固定构造时的参数。`AgentService` 提供公开清单与串行显式重载，成功后原子替换配置，文件整体错误时保留旧配置。新 run 固定当前 resolver；在途 run 不受重载影响，重启恢复使用当前文件。配置无效的别名不能退回同名内置 agent（ADR-0027）。
+
 默认 `simple-sdlc v1` 流程为：
 
 ```text
@@ -89,6 +92,7 @@ intake → align → plan → implement → verify → review → done
 server 默认监听 `127.0.0.1:7250`，工作区由 `CORD_ROOT` 指定。核心接口包括：
 
 - 查询：`/health`、`/dashboard`、`/requirements`、需求详情、timeline、ledger、votes、runs、approvals。
+- Agent：`GET /agents` 查看配置 revision、公开清单和诊断；`POST /agents/reload` 显式重载（幂等键），清单不包含 env、args 或角色 prompt。
 - 命令：创建需求、编辑快照文档、启动 run（可指定 `sdlc_id` + `sdlc_version`）、取消 run（`POST /runs/:run_id/cancel`，幂等）、处理人工审批。
 - 实时：`/requirements/:req_id/events/stream`，使用事件 `seq` 作为 SSE id，并支持 `Last-Event-ID` 回放。
 - SDLC：列表、读取版本、validate、publish、草稿（GET/PUT/DELETE `/sdlcs/:id/draft`）、版本归档（archive/unarchive）、模板库（`GET /sdlc-templates`）。归档版本禁止启动新 run，不影响在途/历史 run。

@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { ulid } from "ulid";
-import { loadAgentsFile, resolveWithAgentsYaml, runDoctor, runInit, type WorkflowDef } from "agent-cord";
+import { runDoctor, runInit, type WorkflowDef } from "agent-cord";
 import {
   CreateRequirementInputSchema,
   DecideApprovalInputSchema,
@@ -19,6 +19,7 @@ import {
   StartRunInputSchema,
   UpdateDocInputSchema,
   ValidateSdlcInputSchema,
+  type AgentCatalogView,
   type DashboardView,
   type RequirementStatus,
   type SnapshotDocName,
@@ -29,6 +30,7 @@ import { DEFAULT_SDLC_ID, SdlcService } from "./services/sdlc-service.js";
 import { listSdlcTemplates } from "./services/sdlc-templates.js";
 import { RunService } from "./services/run-service.js";
 import { SessionService, toLedgerView } from "./services/session-service.js";
+import { AgentService } from "./services/agent-service.js";
 
 export interface ServerOptions {
   /** 工作区根（内含 cord/；缺省自动初始化 cord/） */
@@ -44,6 +46,7 @@ export interface BuiltServer {
   sdlcs: SdlcService;
   runs: RunService;
   index: IndexStore;
+  agents: AgentService;
 }
 
 const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -67,18 +70,14 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
   });
 
   const sessions = new SessionService(root);
+  const agents = new AgentService(sessions.cordRoot);
+  const catalog = await agents.reload();
+  for (const warning of catalog.warnings) app.log.warn(`agents.yaml：${warning}`);
   const index = await IndexStore.open(sessions.cordRoot);
   const sdlcs = new SdlcService(sessions.cordRoot, index);
 
-  // 自定义 agent 注册（ADR-0023 决策 6）：cord/agents.yaml 可选；逐条降级不阻断启动
-  const agents = await loadAgentsFile(path.join(sessions.cordRoot, "agents.yaml"));
-  for (const warning of agents.warnings) app.log.warn(`agents.yaml：${warning}`);
-  if (agents.registered.length > 0) {
-    app.log.info(`agents.yaml 注册自定义 agent：${agents.registered.join(", ")}`);
-  }
-
   const runs = new RunService(sessions, sdlcs, index, {
-    driverResolver: resolveWithAgentsYaml(agents.yaml),
+    driverResolverForRun: () => agents.resolver(),
     workspaceRoot: root,
   });
 
@@ -163,6 +162,35 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
   app.post("/api/v1/doctor", async (req) => {
     const report = await runDoctor(root);
     return { request_id: requestId(req), ...report };
+  });
+
+  // ---- Agent 配置清单与显式重载（ADR-0027） ---------------------------------
+  app.get("/api/v1/agents", async (req) => ({
+    request_id: requestId(req),
+    ...agents.catalog(),
+  }));
+  type AgentReloadResponse = AgentCatalogView & { request_id: string };
+  const pending_agent_reloads = new Map<string, Promise<AgentReloadResponse>>();
+  const request_agent_reloads = new WeakMap<FastifyRequest, Promise<AgentReloadResponse>>();
+  app.post("/api/v1/agents/reload", {
+    config: { idempotency: true },
+    // onSend 已持久化首次响应后才释放同键操作；失败也释放，允许修复后重试。
+    onResponse: async (req) => {
+      const key = String(req.headers["idempotency-key"]).trim();
+      const operation = request_agent_reloads.get(req);
+      if (operation !== undefined && pending_agent_reloads.get(key) === operation) {
+        pending_agent_reloads.delete(key);
+      }
+    },
+  }, async (req) => {
+    const key = String(req.headers["idempotency-key"]).trim();
+    let operation = pending_agent_reloads.get(key);
+    if (operation === undefined) {
+      operation = agents.reload().then((catalog) => ({ request_id: requestId(req), ...catalog }));
+      pending_agent_reloads.set(key, operation);
+    }
+    request_agent_reloads.set(req, operation);
+    return operation;
   });
 
   // ---- Dashboard -----------------------------------------------------------
@@ -458,5 +486,5 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
     });
   }
 
-  return { app, sessions, sdlcs, runs, index };
+  return { app, sessions, sdlcs, runs, index, agents };
 }
