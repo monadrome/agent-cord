@@ -18,6 +18,7 @@
 - 实际 HTTP 验收：ok/stale/cancelled/timeout 终态准确，过期提议为 null，health/doctor 全绿，没有 workflow.node 事件。临时预览 `http://127.0.0.1:7296`，工作区 `/tmp/cord-stage13-preview`，smoke-result.json 保留结果。
 - 当前原型提供库与 REST，console 独立操作面板和 Draft 提议受控消费留作持续目标的下一阶段；不声称全部持续目标完成。
 - GitHub 远端查询报 10 秒低速超时，准备按仓库约定保留本地功能提交并尝试有界推送。
+- 本地功能提交 `12f0643`；HTTP/1.1 推送达到 45 秒上限，GitHub 报低于 1 bytes/sec 持续 15 秒。远端更新未确认，本地提交保留；预览 API 仍正常。
 
 ## 2026-09-25
 
