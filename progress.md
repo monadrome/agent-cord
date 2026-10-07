@@ -86,3 +86,16 @@
 - 实际 HTTP smoke：人工 gate 期间更新 PRD 并追加账本事件，磁盘账本尚未更新时下一 worker 的 prompt 仍收到最新输入；快照目录错误落失败阶段，修复后重新 start 断点完成；health/doctor 全通过。
 - 预览 `http://127.0.0.1:7292`，临时工作区 `/tmp/cord-stage9-preview`，结果 `/tmp/cord-stage9-preview/smoke-result.json`，日志 `/tmp/cord-stage9-preview.log`。
 - 本地功能提交 `2af6de5`；推送返回 RPC/HTTP 408、sideband 断连，远端 `ls-remote` 核验在 15 秒内超时。提交保留，远端是否更新未确认；后续网络恢复时核验并推送全部待同步提交。
+
+## 2026-10-06（阶段 10）
+
+- 开始时工作区干净，HEAD 为 `da86b5d`；上一轮已实现并验证最新协调快照与失败恢复。
+- 确认 ledger gate 仍有旧投影和冲突放行风险，artifact 仍会把执行前文档误记为当前 agent 产物；开始以最新事件和前后指纹修复。
+- ADR-0029 先行，ledger gate 从最新事件投影，排除冲突条目、拒绝坏事件与跨 session 数据，保留显式投影 adapter 并验证 schema。
+- artifact 按当前快照比较前后 hash，旧内容不误归因，无新产物失败；代写检查预期 hash，临时文件替换前发生编辑时保留人工内容并清理临时文件。
+- 真实子进程测试发现明确空 CLI 结果被转成 null 并回退进度日志，已修复空字符串语义；headless/ACP 辅助文本保留 raw 并标记 metadata，不拼进产物。
+- 88 个 driver/coordinator/server 定向测试通过，含空输出真实子进程阻断、配置重载修复、新产物指纹和最新 ledger gate 恢复；进入全量验证。
+- 最终 401 测试 / 35 文件通过，`npm run typecheck`、`npm run build:all`、`git diff --check` 通过。
+- 实际 HTTP 验收：旧磁盘 confirmed 已在事件中推翻时被阻断；新确认未刷投影也可恢复；worker 明确空结果不覆盖旧文档，重载修复后生成新产物，前后 hash 与文件一致，doctor 通过。
+- 预览 `http://127.0.0.1:7293`，工作区 `/tmp/cord-stage10-preview`，结果 `/tmp/cord-stage10-preview/smoke-result.json`，日志 `/tmp/cord-stage10-preview.log`。
+- 改用 HTTP/1.1 查询远端成功，exp/impl 当前仍为 b06b96b；准备同步本轮与此前全部本地提交。

@@ -116,15 +116,16 @@ function contentToText(content: unknown): string {
 export function mapSessionUpdate(update: SessionUpdate): AgentEvent[] {
   switch (update.sessionUpdate) {
     case "agent_message_chunk":
+      return [textEvent(contentToText(update.content), update)];
     case "agent_thought_chunk":
     case "user_message_chunk":
     case "compaction_summary_chunk":
-      return [textEvent(contentToText(update.content), update)];
+      return [textEvent(contentToText(update.content), update, "metadata")];
     case "tool_call":
     case "tool_call_update":
       return [toolUseEvent(update.title ?? update.kind ?? null, update.rawInput ?? null, update)];
     default:
-      return [textEvent("", update)];
+      return [textEvent("", update, "metadata")];
   }
 }
 

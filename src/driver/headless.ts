@@ -26,6 +26,8 @@ export type DriverErrorKind =
 
 export interface TextEventData {
   text: string;
+  /** ADR-0029：辅助协议/思考文本不参与 coordinator 产物拼接；缺省 content */
+  channel?: "content" | "metadata";
   raw?: unknown;
 }
 
@@ -51,7 +53,7 @@ export interface AgentUsage {
 }
 
 export interface ResultEventData {
-  /** 最终结果文本（能从事件流里抽到就填，否则 null） */
+  /** 最终结果文本；空字符串保留明确空结果，null 表示无显式文本 */
   text: string | null;
   /** 会话 id：resume 需要它；契约槽位是 `AgentEvent.session_id`，M2 由 data 携带 */
   session_id: string | null;
@@ -66,8 +68,9 @@ export interface ErrorEventData {
   raw?: unknown;
 }
 
-export function textEvent(text: string, raw?: unknown): AgentEvent {
+export function textEvent(text: string, raw?: unknown, channel?: TextEventData["channel"]): AgentEvent {
   const data: TextEventData = raw === undefined ? { text } : { text, raw };
+  if (channel !== undefined) data.channel = channel;
   return { type: "text", data };
 }
 
@@ -285,14 +288,14 @@ export function extractUsage(value: Record<string, unknown>): AgentUsage | null 
   return Object.values(usage).some((item) => item !== undefined) ? usage : null;
 }
 
-function mapContentBlocks(content: unknown): AgentEvent[] {
+function mapContentBlocks(content: unknown, channel?: TextEventData["channel"]): AgentEvent[] {
   const events: AgentEvent[] = [];
   for (const block of asArray(content)) {
     if (!isRecord(block)) continue;
     const kind = asString(block.type);
     if (kind === "text") {
       const text = asString(block.text);
-      if (text !== undefined) events.push(textEvent(text, block));
+      if (text !== undefined) events.push(textEvent(text, block, channel));
       continue;
     }
     if (kind === "tool_use") {
@@ -332,12 +335,16 @@ export function parseHeadlessLine(line: string): AgentEvent[] {
     if (value.is_error === true || (subtype !== undefined && subtype !== "success")) {
       return [errorEvent(extractMessage(value), "agent", { session_id: sessionId, raw: value })];
     }
-    const text = asString(value.result) ?? asString(value.text) ?? null;
+    const text = typeof value.result === "string" ? value.result : typeof value.text === "string" ? value.text : null;
     return [resultEvent(text, sessionId, value, extractUsage(value))];
   }
 
   if (type === "turn.failed" || type === "error" || value.is_error === true) {
     return [errorEvent(extractMessage(value), "agent", { session_id: sessionId, raw: value })];
+  }
+
+  if (type === "system" || type === "thread.started" || type === "turn.started" || role === "meta" || role === "user") {
+    return [textEvent(trimmed, value, "metadata")];
   }
 
   // kimi stream-json：OpenAI chat 形态的 JSONL（role: assistant / tool / meta）
@@ -367,7 +374,7 @@ export function parseHeadlessLine(line: string): AgentEvent[] {
 
   // claude 事件流：{type:"assistant"|"user", message:{content:[...]}}
   if ((type === "assistant" || type === "user") && isRecord(value.message)) {
-    const events = mapContentBlocks(value.message.content);
+    const events = mapContentBlocks(value.message.content, type === "user" ? "metadata" : undefined);
     if (events.length > 0) return events;
   }
 
@@ -376,8 +383,8 @@ export function parseHeadlessLine(line: string): AgentEvent[] {
     const item = value.item;
     const itemType = asString(item.type) ?? "";
     if (itemType === "agent_message" || itemType === "reasoning" || itemType === "plan") {
-      const text = asString(item.text);
-      if (text !== undefined) return [textEvent(text, item)];
+      const text = typeof item.text === "string" ? item.text : "";
+      return [textEvent(text, item, itemType === "agent_message" ? undefined : "metadata")];
     }
     if (/tool|command|function_call|patch/i.test(itemType)) {
       return [

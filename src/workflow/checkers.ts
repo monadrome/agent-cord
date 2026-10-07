@@ -6,7 +6,6 @@
  */
 import { readFile, stat } from "node:fs/promises";
 import { basename, join, resolve, sep } from "node:path";
-import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import {
   AnchorSchema,
@@ -19,6 +18,7 @@ import {
   type WorkflowDef,
 } from "../core/schema.js";
 import type { Checker, CheckerContext, CheckerRegistry, SessionHandle } from "../core/ports.js";
+import { createReducer } from "../core/reducer.js";
 
 export const BUILTIN_CHECKER_NAMES = [
   "anchors-present",
@@ -35,7 +35,7 @@ export type BuiltinCheckerName = (typeof BUILTIN_CHECKER_NAMES)[number];
 export interface BuiltinRegistryOptions {
   /** 兜底绑定的 session（执行器已通过 `ctx.session` 给出，通常不需要；跨进程调用者才用得上） */
   session?: SessionHandle;
-  /** 未绑定 session 且 `ctx.session` 缺失时的账本读取端口；默认读 `<session_dir>/ledger.yaml` */
+  /** 无 session 时可注入最新投影；默认从 `<session_dir>/events.jsonl` 严格读取并派生 */
   readLedger?: (session_dir: string) => Promise<Ledger>;
 }
 
@@ -102,31 +102,47 @@ export function createAnchorsPresentChecker(): Checker {
 }
 
 /**
- * 账本存在 confirmed 条目。`payload.entry_id` 存在时收窄为「该条目为 confirmed」。
- * 账本读取失败 → block（fail-closed）。
+ * 最新事件投影中存在无冲突的 confirmed 条目，entry_id 可收窄范围（ADR-0029）。
+ * 事件读取失败不回退旧账本，按 block 处理。
  */
 export function createLedgerHasConfirmedChecker(options: BuiltinRegistryOptions = {}): Checker {
   const readLedger = async (ctx: CheckerContext): Promise<Ledger> => {
     const session = ctx.session ?? options.session;
-    if (session) return session.readLedger();
+    if (session) {
+      const events = await session.events.readOrdered();
+      if (events.some((event) => event.session_id !== session.req_id)) {
+        throw new Error("事件流包含其他 session 的事件，请先修复事件事实");
+      }
+      const store = session.events as typeof session.events & {
+        diagnostics?: () => { notes: Array<{ kind: string }> };
+      };
+      if (store.diagnostics?.().notes.some((note) => note.kind === "unparsable_line")) {
+        throw new Error("事件流包含无法解析的完整行，请先修复事件事实");
+      }
+      return createReducer().reduce(events);
+    }
     return (options.readLedger ?? readLedgerFromDir)(ctx.session_dir);
   };
   return {
     name: "ledger-has-confirmed",
     async check(ctx: CheckerContext): Promise<GateResult> {
+      const requested_entry = ctx.payload["entry_id"];
+      if (requested_entry !== undefined && (typeof requested_entry !== "string" || requested_entry.trim().length === 0)) {
+        return block("entry_id 非法，不能扩大为任意账本条目（fail-closed）");
+      }
       let ledger: Ledger;
       try {
-        ledger = await readLedger(ctx);
+        ledger = LedgerSchema.parse(await readLedger(ctx));
       } catch (err) {
         return block(`读取 session 账本失败，fail-closed：${message(err)}`);
       }
       const entryId = typeof ctx.payload["entry_id"] === "string" ? ctx.payload["entry_id"] : null;
       const confirmed = ledger.entries.filter(
-        (entry) => entry.status === "confirmed" && (entryId === null || entry.entry_id === entryId),
+        (entry) => entry.status === "confirmed" && !entry.conflict && (entryId === null || entry.entry_id === entryId),
       );
       if (confirmed.length === 0) {
         const scope = entryId === null ? "" : `（限定条目 ${entryId}）`;
-        return block(`账本无 confirmed 条目${scope}：现有条目 ${ledger.entries.length} 条`);
+        return block(`账本无可用 confirmed 条目${scope}：现有条目 ${ledger.entries.length} 条，冲突条目不放行`);
       }
       const anchors = dedupeAnchors(confirmed.flatMap((entry) => entry.anchors));
       return pass(
@@ -364,8 +380,20 @@ export function createEventEmittedChecker(): Checker {
 // ---------------------------------------------------------------------------
 
 async function readLedgerFromDir(sessionDir: string): Promise<Ledger> {
-  const text = await readFile(join(sessionDir, "ledger.yaml"), "utf8");
-  return LedgerSchema.parse(parseYaml(text));
+  const text = await readFile(join(sessionDir, "events.jsonl"), "utf8");
+  const events: EventEnvelope[] = [];
+  for (const [index, line] of text.split("\n").entries()) {
+    if (line.trim().length === 0) continue;
+    let event: EventEnvelope;
+    try {
+      event = EventEnvelopeSchema.parse(JSON.parse(line));
+    } catch {
+      throw new Error(`事件流第 ${index + 1} 行不符合事件契约`);
+    }
+    if (event.session_id !== basename(sessionDir)) throw new Error(`事件流第 ${index + 1} 行属于其他 session`);
+    events.push(event);
+  }
+  return createReducer().reduce(events);
 }
 
 function pass(reason: string, anchors: Anchor[] = []): GateResult {

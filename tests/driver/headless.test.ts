@@ -77,6 +77,30 @@ async function expectDead(pid: number): Promise<void> {
 }
 
 describe("parseHeadlessLine", () => {
+  it("明确空最终字符串不变成 null，也不回退另一个字段", () => {
+    const [empty] = parseHeadlessLine('{"type":"result","subtype":"success","result":"","text":"unexpected fallback"}');
+    expect(resultData(empty).text).toBe("");
+    const [missing] = parseHeadlessLine('{"type":"turn.completed"}');
+    expect(resultData(missing).text).toBeNull();
+  });
+
+  it("初始化、用户回声与思考保留 raw，但标记为辅助通道", () => {
+    for (const raw of [
+      { type: "system", subtype: "init", prompt: "USER_INPUT" },
+      { type: "thread.started", thread_id: "s-1" },
+      { type: "turn.started" },
+      { role: "meta", content: "PROTOCOL_METADATA" },
+      { type: "user", message: { content: [{ type: "text", text: "USER_ECHO" }] } },
+      { type: "item.completed", item: { type: "reasoning", text: "THOUGHT_METADATA" } },
+    ]) {
+      const [event] = parseHeadlessLine(JSON.stringify(raw));
+      expect((event!.data as TextEventData).channel).toBe("metadata");
+      expect((event!.data as TextEventData).raw).toBeDefined();
+    }
+    const [empty_message] = parseHeadlessLine('{"type":"item.completed","item":{"type":"agent_message","text":""}}');
+    expect((empty_message!.data as TextEventData).text).toBe("");
+  });
+
   it("跳过空行，无法解析的行按 text 透传", () => {
     expect(parseHeadlessLine("   ")).toEqual([]);
     expect(parseHeadlessLine("plain text")).toEqual([

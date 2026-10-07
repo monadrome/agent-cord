@@ -102,7 +102,7 @@ export interface CheckerContext {
   node_id?: string;
   /**
    * 执行器持有的 session（可选）：checker 由此读账本/事件流，无需被绑到某个 session 实例。
-   * 未提供时须退回只依赖 `session_dir` 的读法（如读 `<session_dir>/ledger.yaml`）。
+   * 未提供时须退回只依赖 `session_dir` 的读法；ledger gate 默认从 events.jsonl 派生（ADR-0029）。
    */
   session?: SessionHandle;
 }

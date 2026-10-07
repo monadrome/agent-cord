@@ -35,6 +35,10 @@
 
 ADR-0028 增加失败阶段 `failure_stage`（snapshot / configuration / driver / artifact）和 `retryable`。配置及永久文件路径错误不重试；普通准备、驱动与写回故障都有任务终态，瞬态故障按节点策略重试。准备失败时尚无成功快照，provenance 字段省略。事件追加失败必须上抛宿主，不能用未持久化的 completed 伪造终态。
 
+ADR-0029 增加 `artifact_before_hash`（started/completed）、`artifact_after_hash` 与 `artifact_changed`（completed）。不存在文件用 null，后态不可读时省略 after/changed。旧内容不变不能记为当前 agent 自写；有完整最终文本则代写 draft，可写产物无新内容且无最终文本则 failed/artifact。代写前与替换前比较预期 hash，观察到冲突时保留现状并失败。`written_by=agent` 指运行期间观察到有效文件变化，不保证操作系统写者身份。
+
+driver 保留明确空最终字符串，与无显式最终文本的 null 区分；初始化、协议进度、用户回声、思考等已识别辅助输出以 `TextEventData.channel=metadata` 保留 raw，coordinator 不把它们拼为 fallback 产物。未标记的文本仍视为内容，维持自定义 driver 兼容性。
+
 ## 2. Ledger 投影
 
 权威实现：[`src/core/reducer.ts`](../src/core/reducer.ts)。
@@ -65,6 +69,8 @@ Workflow 必须声明节点、依赖和 gate。gate 至少包含：
 - 可选的 `timeout`
 
 checker 结果是 `pass`、`block` 或 `warn`。未知 checker、抛错和非法返回值都按 `block` 处理。
+
+`ledger-has-confirmed` 从当前 session 事件投影判定；默认无 session 目录路径严格读取 events.jsonl，不回退旧 ledger.yaml（ADR-0029）。只有无冲突的 confirmed 条目可放行，非法 entry_id、坏事件、外部 session 事件和读故障均 block。显式 readLedger adapter 继续支持，宿主负责提供最新投影，返回值经 schema 验证。
 
 `checks` 项可带 `with` 参数（ADR-0024），透传为 `CheckerContext.params`；参数非法由 checker 按 `block` 处理，不用缺省值猜。内置 checker：`anchors-present`、`ledger-has-confirmed`、`vote-confirmed`，以及参数化的 `file-exists {path}`、`file-nonempty {path, min_bytes?}`、`doc-has-section {path, heading}`、`anchors-min-count {min}`、`event-emitted {type, within_node?}`。文件类 path 一律限制在 session 目录内。
 

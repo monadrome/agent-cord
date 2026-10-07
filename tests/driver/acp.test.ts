@@ -76,6 +76,15 @@ async function expectDead(pid: number): Promise<void> {
 }
 
 describe("mapSessionUpdate", () => {
+  it("思考和用户回声标为辅助通道，agent 消息仍是内容", () => {
+    const [thought] = mapSessionUpdate({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "THOUGHT_METADATA" } });
+    const [echo] = mapSessionUpdate({ sessionUpdate: "user_message_chunk", content: { type: "text", text: "USER_INPUT" } });
+    const [message] = mapSessionUpdate({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "FINAL_CONTENT" } });
+    expect((thought!.data as TextEventData).channel).toBe("metadata");
+    expect((echo!.data as TextEventData).channel).toBe("metadata");
+    expect((message!.data as TextEventData).channel).not.toBe("metadata");
+  });
+
   it("文本类更新映射为 text，工具类映射为 tool_use", () => {
     const [text] = mapSessionUpdate({
       sessionUpdate: "agent_message_chunk",

@@ -51,3 +51,10 @@
 - `readSnapshot` 没有 workflow 过滤，同名节点的历史退出会进入当前流程的上下文。
 - 快照准备和 artifact 写回位于 coordinator 的 driver try/catch 之外，会出现 started 后没有 completed 的异常；驱动解析失败也会被外层 retry 循环重复执行，与文档不符。
 - 目录词法校验不能发现符号链接，固定 `${file}.tmp` 也可指向外部文件；artifact 可命名为 events.jsonl/ledger.yaml，必须在派发前拒绝。
+
+## 实现校准（2026-10-06，最新门禁与产物证据）
+
+- `ledger-has-confirmed` 仍调用 `session.readLedger()`，默认目录路径也只读 ledger.yaml；已推翻的条目可能因投影滞后继续放行。
+- checker 只过滤 confirmed，不过滤 conflict；当前 reducer 已支持冲突标记，门禁尚未消费。
+- `settleArtifact` 把任何已有非空文档记作当前 agent 自写，返回的新文本也不会更新旧内容；需比较派发快照中的完整内容 hash。
+- 产物代写已使用原子临时文件，但尚未在替换前检查目标是否发生变化；可增加预期内容 hash，观测到冲突后保留现状并失败，跨进程强互斥仍需后续 lease。

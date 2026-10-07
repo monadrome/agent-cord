@@ -3,7 +3,9 @@
  * session 用内存 fake 实现 ports.ts 的 SessionHandle。
  */
 import { describe, expect, it } from "vitest";
-import { LedgerSchema, type Ledger } from "../../src/core/schema.js";
+import { ulid } from "ulid";
+import { EventEnvelopeSchema, LedgerSchema, type EventEnvelope, type Ledger } from "../../src/core/schema.js";
+import { hashEvent } from "../../src/core/hash.js";
 import type { CheckerContext, SessionHandle } from "../../src/core/ports.js";
 import {
   createAnchorsPresentChecker,
@@ -60,6 +62,19 @@ const LEDGER: Ledger = LedgerSchema.parse({
 
 function createFakeSession(options: { ledger?: Ledger; readError?: Error } = {}): SessionHandle {
   const ledger = options.ledger ?? LEDGER;
+  const events: EventEnvelope[] = [];
+  for (const entry of ledger.entries) {
+    const drafts = [{ type: "ledger.entry.proposed", payload: { ...entry } }];
+    if (entry.status === "confirmed") drafts.push({ type: "ledger.entry.confirmed", payload: { ...entry } });
+    for (const draft of drafts) {
+      const previous = events[events.length - 1];
+      events.push(EventEnvelopeSchema.parse({
+        ...draft, event_id: ulid(), session_id: "req-1", seq: events.length + 1,
+        prev_event_hash: previous === undefined ? null : hashEvent(previous), timestamp: "2026-10-06T00:00:00.000Z",
+        schema_version: "1", actor: { kind: "system", id: "test" }, correlation_id: null, source: { adapter: "test" },
+      }));
+    }
+  }
   return {
     req_id: "req-1",
     dir: "/tmp/cord/req-1",
@@ -68,10 +83,12 @@ function createFakeSession(options: { ledger?: Ledger; readError?: Error } = {})
         throw new Error("本测试不追加事件");
       },
       async readAll() {
-        return [];
+        if (options.readError) throw options.readError;
+        return events;
       },
       async readOrdered() {
-        return [];
+        if (options.readError) throw options.readError;
+        return events;
       },
       subscribe() {
         return () => undefined;
@@ -265,7 +282,7 @@ describe("checkers: vote-confirmed", () => {
 });
 
 describe("checkers: ledger-has-confirmed", () => {
-  it("经 session.readLedger() 读到 confirmed 条目 → pass", async () => {
+  it("经 session 事件流读到 confirmed 条目 → pass", async () => {
     const checker = createLedgerHasConfirmedChecker({ session: createFakeSession() });
     const result = await checker.check(context());
     expect(result.result).toBe("pass");
@@ -291,13 +308,13 @@ describe("checkers: ledger-has-confirmed", () => {
   });
 
   it("账本读取失败 → block（fail-closed）", async () => {
-    const broken = createFakeSession({ readError: new Error("ledger.yaml 不存在") });
+    const broken = createFakeSession({ readError: new Error("events.jsonl 不可读") });
     const result = await createLedgerHasConfirmedChecker({ session: broken }).check(context());
     expect(result.result).toBe("block");
     expect(result.reason).toContain("fail-closed");
   });
 
-  it("未绑定 session 时按 session_dir/ledger.yaml 读取，读不到即 block", async () => {
+  it("未绑定 session 时按 session_dir/events.jsonl 读取，读不到即 block", async () => {
     const checker = createLedgerHasConfirmedChecker();
     const result = await checker.check(context({ session_dir: "/tmp/cord/definitely-missing" }));
     expect(result.result).toBe("block");

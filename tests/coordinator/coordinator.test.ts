@@ -5,6 +5,7 @@
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { getEventListeners } from "node:events";
 import { ulid } from "ulid";
+import { sha256Hex } from "../../src/core/hash.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -141,6 +142,151 @@ function asPayload(event: { payload: unknown }): Record<string, unknown> {
 // ---------------------------------------------------------------------------
 
 describe("coordinator（NodeRunner）", () => {
+  it("只有协议或思考辅助文本时不能生成 artifact，保留原文", async () => {
+    const old = "# ORIGINAL_ARTIFACT";
+    await writeFile(join(session.dir, "plan.md"), old);
+    const driver = fakeDriver([
+      { type: "text", data: { text: "PROTOCOL_METADATA", channel: "metadata" } },
+      { type: "text", data: { text: "THOUGHT_METADATA", channel: "metadata" } },
+      { type: "result", data: { text: null } },
+    ]);
+    const runner = createNodeRunner(DEF, { resolveDriver: () => driver, workspaceRoot: root });
+    expect((await runner.runNode(DEF.spec.nodes[1]!, session, { workflow_id: "wf-agent", node_id: "plan" })).status).toBe("failed");
+    expect(await readFile(join(session.dir, "plan.md"), "utf8")).toBe(old);
+    const completed = (await session.events.readOrdered()).find((event) => event.type === "agent.task.completed");
+    expect(asPayload(completed!).text).toBe("");
+  });
+
+  it("无显式最终文本时只回退内容通道，不混入协议辅助文本", async () => {
+    const driver = fakeDriver([
+      { type: "text", data: { text: "PROTOCOL_METADATA", channel: "metadata" } },
+      { type: "text", data: { text: "# ACTUAL_CONTENT" } },
+      { type: "result", data: { text: null } },
+    ]);
+    const runner = createNodeRunner(DEF, { resolveDriver: () => driver, workspaceRoot: root });
+    expect((await runner.runNode(DEF.spec.nodes[1]!, session, { workflow_id: "wf-agent", node_id: "plan" })).status).toBe("ok");
+    const updated = await readFile(join(session.dir, "plan.md"), "utf8");
+    expect(updated).toContain("ACTUAL_CONTENT");
+    expect(updated).not.toContain("PROTOCOL_METADATA");
+  });
+
+  it("执行前已有旧 artifact，worker 返回新文本时代写最新 draft，不误记 agent 自写", async () => {
+    const old = "# 旧计划\nOLDER_CONTENT\n";
+    await writeFile(join(session.dir, "plan.md"), old);
+    const runner = createNodeRunner(DEF, { resolveDriver: () => okDriver("# 新计划\nLATEST_CONTENT"), workspaceRoot: root });
+    expect((await runner.runNode(DEF.spec.nodes[1]!, session, { workflow_id: "wf-agent", node_id: "plan" })).status).toBe("ok");
+    const updated = await readFile(join(session.dir, "plan.md"), "utf8");
+    expect(updated).toContain("LATEST_CONTENT");
+    expect(updated).not.toContain("OLDER_CONTENT");
+    const completed = (await session.events.readOrdered()).find((event) => event.type === "agent.task.completed");
+    expect(asPayload(completed!).written_by).toBe("coordinator");
+    expect(asPayload(completed!).artifact_before_hash).toBe(sha256Hex(old));
+    expect(asPayload(completed!).artifact_after_hash).toBe(sha256Hex(updated));
+    expect(asPayload(completed!).artifact_changed).toBe(true);
+  });
+
+  it("旧文档未变化且 worker 无输出 → failed，保留旧文档，修复后可重新生成", async () => {
+    const old = "# 既有文档\nOLD_ARTIFACT";
+    await writeFile(join(session.dir, "plan.md"), old);
+    const runner = createNodeRunner(DEF, { resolveDriver: () => fakeDriver([]), workspaceRoot: root });
+    expect((await runner.runNode(DEF.spec.nodes[1]!, session, { workflow_id: "wf-agent", node_id: "plan" })).status).toBe("failed");
+    const completed = (await session.events.readOrdered()).find((event) => event.type === "agent.task.completed");
+    expect(asPayload(completed!)).toMatchObject({ failure_stage: "artifact", retryable: false, artifact_written: false, written_by: "none", artifact_before_hash: sha256Hex(old), artifact_after_hash: sha256Hex(old), artifact_changed: false });
+    expect(await readFile(join(session.dir, "plan.md"), "utf8")).toBe(old);
+    const recovered = createNodeRunner(DEF, { resolveDriver: () => okDriver("# 恢复的新计划"), workspaceRoot: root });
+    expect((await recovered.runNode(DEF.spec.nodes[1]!, session, { workflow_id: "wf-agent", node_id: "plan" })).status).toBe("ok");
+    expect(await readFile(join(session.dir, "plan.md"), "utf8")).toContain("恢复的新计划");
+  });
+
+  it("本次可写 artifact 无输出，占位文档不能让任务假成功", async () => {
+    const runner = createNodeRunner(DEF, { resolveDriver: () => fakeDriver([]), workspaceRoot: root });
+    expect((await runner.runNode(DEF.spec.nodes[1]!, session, { workflow_id: "wf-agent", node_id: "plan" })).status).toBe("failed");
+    expect(await readFile(join(session.dir, "plan.md"), "utf8")).toContain("占位文档");
+  });
+
+  it("readonly 声明 artifact 不要求生成，也不把原文记为写入", async () => {
+    const old = "# REVIEW_SOURCE";
+    await writeFile(join(session.dir, "plan.md"), old);
+    const node = { ...DEF.spec.nodes[1]!, run: { agent: "fake-agent", readonly: true } };
+    const runner = createNodeRunner(DEF, { resolveDriver: () => fakeDriver([]), workspaceRoot: root });
+    expect((await runner.runNode(node, session, { workflow_id: "wf-agent", node_id: "plan" })).status).toBe("ok");
+    expect(await readFile(join(session.dir, "plan.md"), "utf8")).toBe(old);
+    const completed = (await session.events.readOrdered()).find((event) => event.type === "agent.task.completed");
+    expect(asPayload(completed!)).toMatchObject({ artifact_written: false, written_by: "none", artifact_changed: false, artifact_before_hash: sha256Hex(old), artifact_after_hash: sha256Hex(old) });
+  });
+
+  it("可写 artifact 无内容失败不消耗额外节点内重试", async () => {
+    const driver = fakeDriver([]);
+    const runner = createNodeRunner(DEF_RETRY, { resolveDriver: () => driver, workspaceRoot: root });
+    expect((await runner.runNode(DEF_RETRY.spec.nodes[1]!, session, { workflow_id: "wf-retry", node_id: "plan" })).status).toBe("failed");
+    expect(driver.prompts).toHaveLength(1);
+    const completed = (await session.events.readOrdered()).filter((event) => event.type === "agent.task.completed");
+    expect(completed).toHaveLength(1);
+    expect(asPayload(completed[0]!).retryable).toBe(false);
+  });
+
+  it("node 参数的额外 artifact 也进入本次快照基线，不受 def 中旧文件名影响", async () => {
+    const old = "# EXTRA_SOURCE";
+    await writeFile(join(session.dir, "custom.md"), old);
+    const node = { ...DEF.spec.nodes[1]!, artifact: "custom.md" };
+    const runner = createNodeRunner(DEF, { resolveDriver: () => okDriver("# EXTRA_UPDATED"), workspaceRoot: root });
+    expect((await runner.runNode(node, session, { workflow_id: "wf-agent", node_id: "plan" })).status).toBe("ok");
+    const completed = (await session.events.readOrdered()).find((event) => event.type === "agent.task.completed");
+    expect(asPayload(completed!).artifact_before_hash).toBe(sha256Hex(old));
+    expect(await readFile(join(session.dir, "custom.md"), "utf8")).toContain("EXTRA_UPDATED");
+  });
+
+  it("观察到 worker 文件新内容时保留自写文件并记录完整指纹", async () => {
+    const old = "# OLD";
+    const updated = "# DIRECT_WORKER_OUTPUT";
+    await writeFile(join(session.dir, "plan.md"), old);
+    const driver = fakeDriver([]);
+    driver.run = async function* () {
+      await writeFile(join(session.dir, "plan.md"), updated);
+      yield { type: "result", data: { text: "" } };
+    };
+    const runner = createNodeRunner(DEF, { resolveDriver: () => driver, workspaceRoot: root });
+    expect((await runner.runNode(DEF.spec.nodes[1]!, session, { workflow_id: "wf-agent", node_id: "plan" })).status).toBe("ok");
+    const completed = (await session.events.readOrdered()).find((event) => event.type === "agent.task.completed");
+    expect(asPayload(completed!)).toMatchObject({ written_by: "agent", artifact_before_hash: sha256Hex(old), artifact_after_hash: sha256Hex(updated), artifact_changed: true });
+    expect(await readFile(join(session.dir, "plan.md"), "utf8")).toBe(updated);
+  });
+
+  it("执行期间 artifact 被删除后不盲目代写，记录观测到的冲突", async () => {
+    const old = "# OLD_ARTIFACT";
+    await writeFile(join(session.dir, "plan.md"), old);
+    const driver = fakeDriver([]);
+    driver.run = async function* () {
+      await rm(join(session.dir, "plan.md"));
+      yield { type: "result", data: { text: "不应覆盖删除操作" } };
+    };
+    const runner = createNodeRunner(DEF, { resolveDriver: () => driver, workspaceRoot: root });
+    expect((await runner.runNode(DEF.spec.nodes[1]!, session, { workflow_id: "wf-agent", node_id: "plan" })).status).toBe("failed");
+    await expect(readFile(join(session.dir, "plan.md"), "utf8")).rejects.toThrow();
+    const completed = (await session.events.readOrdered()).find((event) => event.type === "agent.task.completed");
+    expect(asPayload(completed!)).toMatchObject({ artifact_before_hash: sha256Hex(old), artifact_after_hash: null, artifact_changed: true, retryable: false });
+  });
+
+  it("第一次失败留下的部分产物不能冒充下一次成功产物", async () => {
+    const driver = fakeDriver([]);
+    let attempt = 0;
+    driver.run = async function* (task) {
+      driver.prompts.push(task.prompt);
+      attempt += 1;
+      if (attempt === 1) {
+        await writeFile(join(session.dir, "plan.md"), "# PARTIAL_FAILED_OUTPUT");
+        yield { type: "error", data: { kind: "agent", message: "transient worker failure" } };
+      } else {
+        yield { type: "result", data: { text: "# COMPLETE_NEW_OUTPUT" } };
+      }
+    };
+    const runner = createNodeRunner(DEF_RETRY, { resolveDriver: () => driver, workspaceRoot: root });
+    expect((await runner.runNode(DEF_RETRY.spec.nodes[1]!, session, { workflow_id: "wf-retry", node_id: "plan" })).status).toBe("ok");
+    const updated = await readFile(join(session.dir, "plan.md"), "utf8");
+    expect(updated).toContain("COMPLETE_NEW_OUTPUT");
+    expect(updated).not.toContain("PARTIAL_FAILED_OUTPUT");
+  });
+
   it("快照读取失败落任务失败事件，不派发；输入修复后下一次可恢复", async () => {
     await rm(join(session.dir, "prd.md"));
     await mkdir(join(session.dir, "prd.md"));

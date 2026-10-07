@@ -1,13 +1,14 @@
 /** 文档文件边界：真实文件系统下的链接、保留路径与原子写入。 */
-import { link, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, open, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readSessionDocument, resolveSessionFile, writeSessionDocument } from "../../src/coordinator/session-files.js";
+import { sha256Hex } from "../../src/core/hash.js";
 
 vi.mock("node:fs/promises", async (original) => {
   const actual = await original<typeof import("node:fs/promises")>();
-  return { ...actual, rename: vi.fn(actual.rename) };
+  return { ...actual, open: vi.fn(actual.open), rename: vi.fn(actual.rename) };
 });
 
 let root: string;
@@ -24,6 +25,47 @@ afterEach(async () => {
 });
 
 describe("session 文档文件边界", () => {
+  it("预期 hash 过期时保留人工编辑，不创建临时文件", async () => {
+    await writeFile(join(session_dir, "plan.md"), "人工已更新");
+    await expect(writeSessionDocument(session_dir, "plan.md", "不应覆盖", { expected_hash: sha256Hex("旧计划") })).rejects.toThrow(/内容变化/);
+    expect(await readFile(join(session_dir, "plan.md"), "utf8")).toBe("人工已更新");
+    expect(await readdir(session_dir)).toEqual(["plan.md"]);
+  });
+
+  it("预期文件不存在但被另一写者创建时，不能覆盖新文档", async () => {
+    await writeFile(join(session_dir, "plan.md"), "并发创建的文档");
+    await expect(writeSessionDocument(session_dir, "plan.md", "不应覆盖", { expected_hash: null })).rejects.toThrow(/内容变化/);
+    expect(await readFile(join(session_dir, "plan.md"), "utf8")).toBe("并发创建的文档");
+  });
+
+  it("匹配当前 hash 后允许代写，前后内容可核验", async () => {
+    const old = "# 旧计划";
+    await writeFile(join(session_dir, "plan.md"), old);
+    await writeSessionDocument(session_dir, "plan.md", "# 新计划", { expected_hash: sha256Hex(old) });
+    expect(await readSessionDocument(session_dir, "plan.md")).toBe("# 新计划");
+  });
+
+  it("临时文件落盘期间发生编辑，替换前再次校验并保留编辑，清理临时文件", async () => {
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+    const file_path = join(session_dir, "plan.md");
+    await writeFile(file_path, "原计划");
+    vi.mocked(open).mockImplementation(async (path, flags, mode) => {
+      const handle = await actual.open(path, flags, mode);
+      if (flags === "wx") {
+        const sync = handle.sync.bind(handle);
+        handle.sync = async () => { await sync(); await writeFile(file_path, "替换前的人工作品"); };
+      }
+      return handle;
+    });
+    try {
+      await expect(writeSessionDocument(session_dir, "plan.md", "不应覆盖", { expected_hash: sha256Hex("原计划") })).rejects.toThrow(/内容变化/);
+      expect(await readFile(file_path, "utf8")).toBe("替换前的人工作品");
+      expect(await readdir(session_dir)).toEqual(["plan.md"]);
+    } finally {
+      vi.mocked(open).mockImplementation(actual.open);
+    }
+  });
+
   it("支持嵌套普通文件，写入后没有遗留临时文件", async () => {
     await writeSessionDocument(session_dir, "reports/result.md", "# 第一版\n");
     expect(await readSessionDocument(session_dir, "reports/result.md")).toBe("# 第一版\n");

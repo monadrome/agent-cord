@@ -408,6 +408,8 @@ export const AgentTaskStartedPayloadSchema = z.looseObject({
   workflow_id: z.string().min(1),
   node_id: z.string().min(1),
   driver: z.string().min(1),
+  /** ADR-0029：派发时 artifact 的完整内容 hash，不存在为 null */
+  artifact_before_hash: z.string().length(64).nullable().optional(),
   prompt_excerpt: z.string().optional(),
   /** 重试编号（node.run.retry）；首次为 1 */
   attempt: z.number().int().positive().optional(),
@@ -443,6 +445,10 @@ export const AgentTaskCompletedPayloadSchema = z.looseObject({
   error: z.string().nullable().optional(),
   artifact: z.string().nullable().optional(),
   artifact_written: z.boolean().optional(),
+  /** ADR-0029：本次任务的产物前后证据，无法读取后态时不填 after/changed */
+  artifact_before_hash: z.string().length(64).nullable().optional(),
+  artifact_after_hash: z.string().length(64).nullable().optional(),
+  artifact_changed: z.boolean().optional(),
   /** 产物写入通道：agent 自写 / 协调 agent 代写（draft）/ 无产物 */
   written_by: z.enum(["agent", "coordinator", "none"]).optional(),
   /** worker agent 的会话 id（仅供人工调试 resume；执行器恢复总是新会话） */

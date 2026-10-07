@@ -4,10 +4,17 @@ import { randomUUID } from "node:crypto";
 import { lstat, mkdir, open, realpath, rename, rm } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { EVENTS_FILE, LEDGER_FILE } from "../core/session.js";
+import { sha256Hex } from "../core/hash.js";
 
 const RESERVED_COMPONENTS = new Set([EVENTS_FILE, LEDGER_FILE, "agents.yaml", ".git", ".index", ".sdlc"]);
 
 export class SessionFileError extends Error {}
+
+export class SessionFileConflictError extends SessionFileError {
+  constructor(readonly actual_hash: string | null) {
+    super("代写前观察到文档内容变化，请重新确认最新产物，保留当前文件");
+  }
+}
 
 /** 词法校验：只允许普通相对文档路径，不允许事实文件与管理目录。 */
 export function resolveSessionFile(session_dir: string, file: string): string | null {
@@ -71,8 +78,20 @@ export async function readSessionDocument(session_dir: string, file: string): Pr
 }
 
 /** 独占临时文件 + fsync + rename，失败时清理临时文件。 */
-export async function writeSessionDocument(session_dir: string, file: string, content: string): Promise<void> {
+export async function writeSessionDocument(
+  session_dir: string,
+  file: string,
+  content: string,
+  options: { expected_hash?: string | null } = {},
+): Promise<void> {
+  const check_expected = async (): Promise<void> => {
+    if (options.expected_hash === undefined) return;
+    const current = await readSessionDocument(session_dir, file);
+    const actual_hash = current === null ? null : sha256Hex(current);
+    if (actual_hash !== options.expected_hash) throw new SessionFileConflictError(actual_hash);
+  };
   const file_path = await resolveSafeSessionFile(session_dir, file);
+  await check_expected();
   await mkdir(dirname(file_path), { recursive: true });
   await resolveSafeSessionFile(session_dir, file);
   const temporary = join(dirname(file_path), `.cord-${randomUUID()}.tmp`);
@@ -85,6 +104,7 @@ export async function writeSessionDocument(session_dir: string, file: string, co
       await handle.close();
     }
     await resolveSafeSessionFile(session_dir, file);
+    await check_expected();
     await rename(temporary, file_path);
   } finally {
     await rm(temporary, { force: true });

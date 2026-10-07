@@ -9,6 +9,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ulid } from "ulid";
+import { stringify as stringifyYaml } from "yaml";
+import { sha256Hex } from "agent-cord";
 import { buildApp, type BuiltServer } from "@agent-cord/server";
 
 const fixture = join(
@@ -95,6 +98,64 @@ afterEach(async () => {
 });
 
 describe("agent 执行闭环（node.run + agents.yaml + 参数化 checker）", () => {
+  it("真实 worker 返回新文本时更新既有旧 artifact，任务记录前后内容指纹", async () => {
+    await api("POST", "/api/v1/sdlcs/agent-sdlc/versions/publish", { body: { yaml: AGENT_SDLC }, key: "publish-old-artifact" });
+    await api("POST", "/api/v1/requirements", { body: { req_id: "REQ-OLD", title: "旧产物更新" }, key: "create-old-artifact" });
+    const old = "# 旧计划\nPREVIOUS_ARTIFACT";
+    await api("PUT", "/api/v1/requirements/REQ-OLD/docs/plan", { body: { content: old }, key: "write-old-artifact" });
+    expect((await api("POST", "/api/v1/requirements/REQ-OLD/runs", { body: { sdlc_id: "agent-sdlc" }, key: "start-old-artifact" })).status).toBe(202);
+    await waitFor(async () => (await api("GET", "/api/v1/requirements/REQ-OLD")).body.requirement.status === "completed");
+    const updated = await readFile(join(root, "cord", "REQ-OLD", "plan.md"), "utf8");
+    expect(updated).toContain("final answer");
+    expect(updated).not.toContain("PREVIOUS_ARTIFACT");
+    const events = await api("GET", "/api/v1/requirements/REQ-OLD/events");
+    const completed = events.body.events.find((event: { type: string }) => event.type === "agent.task.completed");
+    expect(completed.payload).toMatchObject({ status: "ok", written_by: "coordinator", artifact_changed: true, artifact_before_hash: sha256Hex(old), artifact_after_hash: sha256Hex(updated) });
+  });
+
+  it("worker 空结果不能因旧 artifact 非空而放行，重载修复后断点生成新产物", async () => {
+    const configure = async (text: string, key: string): Promise<void> => {
+      await writeFile(join(root, "cord", "agents.yaml"), stringifyYaml({ agents: { fake: { kind: "headless", bin: process.execPath, args: [fixture, "--mode", "claude", "--result-text", text, "{{prompt}}"] } } }), "utf8");
+      expect((await api("POST", "/api/v1/agents/reload", { key })).status).toBe(200);
+    };
+    await configure("", "configure-empty-result");
+    await api("POST", "/api/v1/sdlcs/agent-sdlc/versions/publish", { body: { yaml: AGENT_SDLC }, key: "publish-empty-artifact" });
+    await api("POST", "/api/v1/requirements", { body: { req_id: "REQ-EMPTY", title: "空输出阻断" }, key: "create-empty-artifact" });
+    const old = "# 旧计划\nOLD_EMPTY_TEST";
+    await api("PUT", "/api/v1/requirements/REQ-EMPTY/docs/plan", { body: { content: old }, key: "write-empty-old" });
+    await api("POST", "/api/v1/requirements/REQ-EMPTY/runs", { body: { sdlc_id: "agent-sdlc" }, key: "run-empty-result" });
+    await waitFor(async () => (await api("GET", "/api/v1/requirements/REQ-EMPTY/runs")).body.runs[0]?.status === "failed" && !server.runs.isActive("REQ-EMPTY"));
+    const path = join(root, "cord", "REQ-EMPTY", "plan.md");
+    expect(await readFile(path, "utf8")).toBe(old);
+    const failed = (await api("GET", "/api/v1/requirements/REQ-EMPTY/events")).body.events.find((event: { type: string }) => event.type === "agent.task.completed");
+    expect(failed.payload).toMatchObject({ status: "failed", failure_stage: "artifact", retryable: false, written_by: "none", artifact_changed: false });
+    await configure("# RECOVERED_NEW_ARTIFACT", "configure-repaired-result");
+    await api("POST", "/api/v1/requirements/REQ-EMPTY/runs", { body: { sdlc_id: "agent-sdlc" }, key: "run-repaired-result" });
+    await waitFor(async () => (await api("GET", "/api/v1/requirements/REQ-EMPTY")).body.requirement.status === "completed");
+    expect(await readFile(path, "utf8")).toContain("RECOVERED_NEW_ARTIFACT");
+    const completions = (await api("GET", "/api/v1/requirements/REQ-EMPTY/events")).body.events.filter((event: { type: string }) => event.type === "agent.task.completed");
+    expect(completions.map((event: { payload: any }) => event.payload.status)).toEqual(["failed", "ok"]);
+  });
+
+  it("ledger gate 被阻断后追加确认，旧投影未更新也能重新 start 完成", async () => {
+    const yaml = stringifyYaml({
+      apiVersion: "agent-cord.dev/v1alpha1", kind: "Workflow", metadata: { id: "ledger-live" },
+      spec: { nodes: [{ id: "review", gates: [{ id: "confirmed", role: {}, attach: { node: "review", when: "post" }, checks: [{ ref: "ledger-has-confirmed" }], pass: { require: "all", human_confirm: false }, on_fail: "block" }] }] },
+    });
+    await api("POST", "/api/v1/sdlcs/ledger-live/versions/publish", { body: { yaml }, key: "publish-ledger-live" });
+    await api("POST", "/api/v1/requirements", { body: { req_id: "REQ-LEDGER", title: "最新共识恢复" }, key: "create-ledger-live" });
+    await api("POST", "/api/v1/requirements/REQ-LEDGER/runs", { body: { sdlc_id: "ledger-live" }, key: "run-ledger-blocked" });
+    await waitFor(async () => (await api("GET", "/api/v1/requirements/REQ-LEDGER/runs")).body.runs[0]?.status === "blocked" && !server.runs.isActive("REQ-LEDGER"));
+    const session = await server.sessions.open("REQ-LEDGER");
+    for (const [type, payload] of [
+      ["ledger.entry.proposed", { entry_id: "C-1", title: "最新共识", anchors: [{ kind: "doc", anchor: "prd.md" }] }],
+      ["ledger.entry.confirmed", { entry_id: "C-1" }],
+    ] as const) await session.events.append({ event_id: ulid(), session_id: session.req_id, type, schema_version: "1", actor: { kind: "human", id: "test" }, correlation_id: null, payload, source: { adapter: "test" } });
+    expect((await session.readLedger()).entries).toEqual([]);
+    await api("POST", "/api/v1/requirements/REQ-LEDGER/runs", { body: { sdlc_id: "ledger-live" }, key: "run-ledger-confirmed" });
+    await waitFor(async () => (await api("GET", "/api/v1/requirements/REQ-LEDGER")).body.requirement.status === "completed");
+  });
+
   it("快照文件不可读 → run failed 与任务阶段留痕；修复后重新 start 断点完成", async () => {
     await api("POST", "/api/v1/sdlcs/agent-sdlc/versions/publish", {
       body: { yaml: AGENT_SDLC }, key: "publish-recovery-sdlc",

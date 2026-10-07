@@ -19,12 +19,13 @@ import type {
 } from "../core/ports.js";
 import type { EventDraft, WorkflowDef } from "../core/schema.js";
 import { isPlaceholderDoc } from "../core/session.js";
+import { sha256Hex } from "../core/hash.js";
 import { delay } from "../driver/headless.js";
 import type { ErrorEventData, ResultEventData, TextEventData } from "../driver/headless.js";
 import type { WorkflowNode } from "../workflow/executor.js";
 import { buildContextPack } from "./context-pack.js";
 import { readSnapshot, resolveSessionFile } from "./snapshot.js";
-import { readSessionDocument, SessionFileError, writeSessionDocument } from "./session-files.js";
+import { readSessionDocument, SessionFileConflictError, SessionFileError, writeSessionDocument } from "./session-files.js";
 
 const ADAPTER = "coordinator";
 const PROMPT_EXCERPT_CHARS = 4_096;
@@ -61,6 +62,13 @@ export interface CoordinatorOptions {
 interface ArtifactSettle {
   artifact_written: boolean;
   written_by: "agent" | "coordinator" | "none";
+  artifact_before_hash: string | null;
+  artifact_after_hash: string | null;
+  artifact_changed: boolean;
+}
+
+class ArtifactEvidenceError extends SessionFileError {
+  constructor(message: string, readonly actual_hash: string | null) { super(message); }
 }
 
 interface AttemptOutcome {
@@ -75,20 +83,31 @@ async function settleArtifact(
   session: SessionHandle,
   text: string,
   driverName: string,
+  before_hash: string | null,
 ): Promise<ArtifactSettle> {
-  if (node.artifact === undefined || node.run?.readonly === true) {
-    return { artifact_written: false, written_by: "none" };
+  if (node.artifact === undefined) {
+    return { artifact_written: false, written_by: "none", artifact_before_hash: null, artifact_after_hash: null, artifact_changed: false };
   }
   const existing = await readSessionDocument(session.dir, node.artifact);
-  if (existing !== null && existing.trim().length > 0 && !isPlaceholderDoc(existing)) {
-    return { artifact_written: true, written_by: "agent" };
+  const after_hash = existing === null ? null : sha256Hex(existing);
+  const evidence = { artifact_before_hash: before_hash, artifact_after_hash: after_hash, artifact_changed: after_hash !== before_hash };
+  if (node.run?.readonly === true) return { artifact_written: false, written_by: "none", ...evidence };
+  if (after_hash !== before_hash) {
+    if (existing !== null && existing.trim().length > 0 && !isPlaceholderDoc(existing)) {
+      return { artifact_written: true, written_by: "agent", ...evidence };
+    }
+    throw new ArtifactEvidenceError("artifact 在执行期间变化但没有有效新内容，保留现状，请重新确认", after_hash);
   }
-  if (text.trim().length > 0) {
+  if (text.trim().length > 0 && !isPlaceholderDoc(text)) {
     const header = `<!-- 由协调 agent 代写（${driverName}，${new Date().toISOString()}）；经后续门禁与人审生效 -->\n\n`;
-    await writeSessionDocument(session.dir, node.artifact, header + text.trim() + "\n");
-    return { artifact_written: true, written_by: "coordinator" };
+    const draft = header + text.trim() + "\n";
+    await writeSessionDocument(session.dir, node.artifact, draft, { expected_hash: before_hash });
+    const current = await readSessionDocument(session.dir, node.artifact);
+    const current_hash = current === null ? null : sha256Hex(current);
+    if (current_hash !== sha256Hex(draft)) throw new ArtifactEvidenceError("代写后产物再次变化，无法确认本次写回，请重新核验", current_hash);
+    return { artifact_written: true, written_by: "coordinator", artifact_before_hash: before_hash, artifact_after_hash: current_hash, artifact_changed: current_hash !== before_hash };
   }
-  return { artifact_written: false, written_by: "none" };
+  throw new ArtifactEvidenceError("本次任务没有产生新的 artifact 或完整最终文本，旧文档不能作为本次产物", after_hash);
 }
 
 function truncate(text: string, maxChars: number): string {
@@ -163,6 +182,8 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
 
     let prompt = "";
     let snapshotFields: Record<string, unknown> = {};
+    let artifact_fields: Record<string, unknown> = {};
+    let artifact_before_hash: string | null = null;
     const complete = async (
       status: NodeRunStatus,
       fields: Record<string, unknown>,
@@ -170,6 +191,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
       await append(session, "agent.task.completed", {
         ...base,
         ...snapshotFields,
+        ...artifact_fields,
         driver: agentName,
         status,
         duration_ms: Date.now() - startedAt,
@@ -185,6 +207,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
       await append(session, "agent.task.started", {
         ...base,
         ...snapshotFields,
+        ...artifact_fields,
         driver: driver_name,
         ...(prompt.length > 0 ? { prompt_excerpt: truncate(prompt, PROMPT_EXCERPT_CHARS) } : {}),
       }, node.id);
@@ -204,13 +227,17 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
     try {
       const snapshot = await readSnapshot(session, {
         workflow_id: ctx.workflow_id,
-        files: def.spec.nodes.flatMap((item) => item.artifact === undefined ? [] : [item.artifact]),
+        files: [...def.spec.nodes, node].flatMap((item) => item.artifact === undefined ? [] : [item.artifact]),
       });
       snapshotFields = {
         snapshot_id: snapshot.snapshot_id,
         snapshot_event_seq: snapshot.event_seq,
         snapshot_event_chain_hash: snapshot.event_chain_hash,
       };
+      if (node.artifact !== undefined) {
+        artifact_before_hash = snapshot.docs.find((doc) => doc.file === node.artifact)?.content_hash ?? null;
+        artifact_fields = { artifact_before_hash };
+      }
       prompt = buildContextPack(def, node, snapshot, {
         ...(options.maxPackChars !== undefined ? { maxPackChars: options.maxPackChars } : {}),
       });
@@ -273,7 +300,8 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
           if (next.done) break;
           const event = next.value;
           if (event.type === "text") {
-            chunks += (event.data as TextEventData).text;
+            const data = event.data as TextEventData;
+            if (data.channel !== "metadata") chunks += data.text;
           } else if (event.type === "result") {
             const data = event.data as ResultEventData;
             resultText = data.text;
@@ -320,8 +348,11 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
     // 4. artifact 写回校验（双通道）
     let settle: ArtifactSettle;
     try {
-      settle = await settleArtifact(node, session, text, driver.name);
+      settle = await settleArtifact(node, session, text, driver.name, artifact_before_hash);
     } catch (error) {
+      const failed_evidence = error instanceof ArtifactEvidenceError || error instanceof SessionFileConflictError
+        ? { artifact_after_hash: error.actual_hash, artifact_changed: error.actual_hash !== artifact_before_hash }
+        : {};
       return complete("failed", {
         error: `artifact 写回失败：${error instanceof Error ? error.message : String(error)}`,
         text: truncate(text, options.maxResultChars ?? DEFAULT_MAX_RESULT_CHARS),
@@ -332,13 +363,13 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
         usage: usage ?? null,
         failure_stage: "artifact",
         retryable: !(error instanceof SessionFileError),
+        ...failed_evidence,
       });
     }
     return complete("ok", {
       text: truncate(text, options.maxResultChars ?? DEFAULT_MAX_RESULT_CHARS),
       artifact: node.artifact ?? null,
-      artifact_written: settle.artifact_written,
-      written_by: settle.written_by,
+      ...settle,
       agent_session_id: agentSessionId,
       usage: usage ?? null,
     });
