@@ -170,7 +170,7 @@
 - [x] 贯穿 executor、NodeRunner、gate/checker、snapshot、run/审批/协调投影与恢复；保留无版本库模式的兼容边界
 - [x] workflow.run.started 保存发布绑定，索引丢失可从事实重建当前版本；缺失版本身份/定义改变时 fail-closed
 - [x] 全量 test/typecheck/build/diff、实际 HTTP 验证与文档
-- [ ] 提交并推送
+- [x] 本地提交 `7f2234d`，推送成功（exp/impl：`c5a32e7` → `7f2234d`）
 
 ### 阶段 15 设计边界
 
@@ -190,6 +190,7 @@
 - 第二轮实际 HTTP 全部通过：同定义 v1/v2 分别执行、旧审批 409、旧版本取消保留当前审批、索引删除恢复绑定/审批 ID、同版本复用进度、doctor=true。证据 `/tmp/cord-stage15-preview-r2/smoke-result.json`。
 - Playwright 1440/390/320 无溢出、pageerror=0；v2 协调 → 采用 → 同版本人工审批 → completed 全通过。证据 browser-result.json 与 version-1440.png / version-390.png，预览 `http://127.0.0.1:7302/#/requirements/REQ-VERSION-DEMO/coordination` 保留可采用的离线提议。
 - 一次临时脚本工具输入引号错误及两次文档补丁精确匹配失败均未写入；修正为独立精确补丁后完成。
+- 功能提交 `7f2234d`，已成功推送当前 exp/impl；工作树干净，预览仍正常。
 
 ### 后续方向
 

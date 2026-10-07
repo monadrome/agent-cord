@@ -37,6 +37,7 @@
 - 实际 HTTP 首轮等待旧 run ID 超时；事件与 SQLite 证明新恢复尝试已完成，改为核验当前绑定/完成态后第二轮完整通过。证据 `/tmp/cord-stage15-preview-r2/smoke-result.json`。
 - Playwright 1440/390/320 无溢出、pageerror=0，选择 v2、协调采用、对应版本人工 gate、completed 闭环通过，doctor=true。browser-result.json 与 version-1440.png / version-390.png 保留证据。
 - 可采用的离线预览 `http://127.0.0.1:7302/#/requirements/REQ-VERSION-DEMO/coordination`，工作区 `/tmp/cord-stage15-preview-r2`；旧无版本数据保留审计但不自动猜测归属，重新 start 指定版本重新核验。阶段 15 进入提交与推送。
+- 功能提交 `7f2234d`，推送成功（origin/exp/impl：`c5a32e7` → `7f2234d`）；当前实现和验收文档已同步，持续目标下一步为幂等/文件边界与真实需求运行。
 
 ## 2026-09-25
 
