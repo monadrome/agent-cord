@@ -112,3 +112,4 @@
 - 最终 424 测试 / 37 文件通过，`npm run typecheck`、`npm run build:all`、`git diff --check` 通过。
 - 实际 HTTP smoke：输入不变重启只执行 worker 1 次且审批 ID 不变；人工等待时 PRD 更新使旧审批返回 409、先重新派发最新输入再生成新审批（worker 共 2 次）；账本推翻使旧审批失效并机器阻断，没有伪造人工决策。health/doctor 通过。
 - 预览 `http://127.0.0.1:7294`，临时工作区 `/tmp/cord-stage11-preview`，结果 `/tmp/cord-stage11-preview/smoke-result.json`，日志 `/tmp/cord-stage11-preview.log`。
+- 本地实现提交 `9b42fa0`；推送报 GitHub 低速超时，45 秒有界重试未返回，远端 ls-remote 15 秒核验超时。提交保留，远端更新未确认；预览 health 仍为 200。
