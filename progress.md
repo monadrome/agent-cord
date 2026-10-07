@@ -29,6 +29,7 @@
 - 最终 491 测试 / 42 文件、`npm run typecheck`、`npm run build:all`、`git diff --check` 全通过；最新代码第三轮浏览器闭环再次通过，1440/390/320 无溢出/重叠、pageerror=0。
 - 完整验收证据 `/tmp/cord-stage14-preview-r3/browser-result.json` 与 coordination-desktop/mobile/stale/adopted.png；保留可直接采用的离线预览 `http://127.0.0.1:7300/#/requirements/REQ-COORDINATION/coordination`，工作区 `/tmp/cord-stage14-preview-final`，preview-result.json 证明 current/adoptable/health/doctor 均为 true。
 - 阶段 14 已实现并验证，进入本地提交与推送；持续目标下一步优先检查 SDLC 发布版本进度隔离，随后继续共享幂等边界与真实需求 dogfooding。
+- 功能提交 `2f9823e`，推送成功（origin/exp/impl：`2559083` → `2f9823e`）；阶段 11–13 的积压提交一并同步。实际验收 SQLite run=completed 且持久化协调绑定正确，预览 health 仍为 true。
 
 ## 2026-09-25
 

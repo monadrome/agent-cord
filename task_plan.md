@@ -134,7 +134,7 @@
 - [x] typed client 和需求详情“协调”视图：配置选择、创建、取消、历史、结构化提议、来源定位、输入变化/失败/恢复、显式采用
 - [x] 离线 REST/客户端闭环与成功、过期、配置变更、并发、存储故障、重启用例
 - [x] 全量 test/typecheck/build/diff 与 desktop/mobile Playwright 验收，更新文档
-- [ ] 本地提交与有界推送
+- [x] 本地功能提交 `2f9823e`，推送成功（远端 exp/impl：`2559083` → `2f9823e`），阶段 11–13 的积压提交一并同步
 
 ### 阶段 14 设计方向
 
@@ -154,6 +154,7 @@
 - 最后恢复审查补充运行登记 coordination_round_id；登记后、adopted 落盘前中断必须在重启时 fail-closed，合法采用事实则恢复既有 runner。补正反恢复回归和 SQLite 旧表兼容。
 - 最终 491 测试 / 42 文件、typecheck/build:all/diff 全通过；最新代码的第三轮浏览器验收再次完整通过，证据 `/tmp/cord-stage14-preview-r3/browser-result.json` 与 desktop/mobile/stale/adopted 截图。
 - 保留未被验收消耗的预览需求：`http://127.0.0.1:7300/#/requirements/REQ-COORDINATION/coordination`，工作区 `/tmp/cord-stage14-preview-final`。1440/390/320 无溢出，当前提议可采用，health/doctor 为 true，pageerror=0；该预览使用离线 fake driver。
+- 实际第三轮验收 run 的 SQLite 状态为 completed，coordination_round_id 与 adopted 事实一致；本地功能提交 `2f9823e` 已成功推送至 exp/impl，远端此前积压的阶段 11/12/13 已包含在本次同步中。
 
 ### 下一阶段
 
