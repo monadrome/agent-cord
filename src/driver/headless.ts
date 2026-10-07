@@ -9,6 +9,7 @@
  */
 import { execa } from "execa";
 import type { AgentDriver, AgentEvent, AgentTask } from "../core/ports.js";
+import { canonicalJson, sha256Hex } from "../core/hash.js";
 
 // ---------------------------------------------------------------------------
 // 事件数据约定（AgentEvent.data 的具体形态）
@@ -583,6 +584,7 @@ export type HeadlessKnobs = Partial<
 
 export class HeadlessDriver implements AgentDriver {
   readonly name: string;
+  readonly configuration_hash: string;
   private readonly template: HeadlessCliTemplate;
   private readonly bin: string;
   private readonly prefixArgs: string[];
@@ -604,6 +606,15 @@ export class HeadlessDriver implements AgentDriver {
     this.killGraceMs = options.kill_grace_ms ?? DEFAULT_KILL_GRACE_MS;
     this.knobs = { ...options.knobs };
     this.name = options.name ?? `headless:${template.name}`;
+    const config_task = { prompt: "cord.configuration.prompt", cwd: "" };
+    this.configuration_hash = sha256Hex(canonicalJson({
+      domain: "cord.agent-config.headless.v1",
+      name: this.name,
+      argv: this.buildArgv(config_task),
+      readonly_argv: this.buildArgv({ ...config_task, readonly: true }),
+      resume_argv: this.buildArgv(config_task, "cord.configuration.session"),
+      readonly_resume_argv: this.buildArgv({ ...config_task, readonly: true }, "cord.configuration.session"),
+    }));
   }
 
   run(task: AgentTask): AsyncIterable<AgentEvent> {

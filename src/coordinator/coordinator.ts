@@ -24,7 +24,7 @@ import { delay } from "../driver/headless.js";
 import type { ErrorEventData, ResultEventData, TextEventData } from "../driver/headless.js";
 import type { WorkflowNode } from "../workflow/executor.js";
 import { buildContextPack } from "./context-pack.js";
-import { readSnapshot, resolveSessionFile } from "./snapshot.js";
+import { readSnapshot, resolveSessionFile, type RequirementSnapshot } from "./snapshot.js";
 import { readSessionDocument, SessionFileConflictError, SessionFileError, writeSessionDocument } from "./session-files.js";
 import { executionInputHash } from "./checkpoint.js";
 
@@ -144,7 +144,8 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
         workflow_id: ctx.workflow_id,
         files: [...def.spec.nodes, node].flatMap((item) => item.artifact === undefined ? [] : [item.artifact]),
       });
-      if (executionInputHash(def, node, snapshot, options.maxPackChars) !== payload["execution_input_hash"]) return false;
+      const driver = options.resolveDriver(node.run?.agent ?? "");
+      if (executionInputHash(def, node, snapshot, options.maxPackChars, driver.configuration_hash ?? null) !== payload["execution_input_hash"]) return false;
       if (node.artifact !== undefined) {
         const current = snapshot.docs.find((doc) => doc.file === node.artifact);
         if (payload["artifact_after_hash"] !== current?.content_hash) return false;
@@ -197,6 +198,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
     };
 
     let prompt = "";
+    let snapshot: RequirementSnapshot | null = null;
     let snapshotFields: Record<string, unknown> = {};
     let artifact_fields: Record<string, unknown> = {};
     let artifact_before_hash: string | null = null;
@@ -241,7 +243,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
 
     // 1. 每次尝试重新读取输入；准备失败也要落终态，不能派发缺失上下文。
     try {
-      const snapshot = await readSnapshot(session, {
+      snapshot = await readSnapshot(session, {
         workflow_id: ctx.workflow_id,
         files: [...def.spec.nodes, node].flatMap((item) => item.artifact === undefined ? [] : [item.artifact]),
       });
@@ -249,7 +251,6 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
         snapshot_id: snapshot.snapshot_id,
         snapshot_event_seq: snapshot.event_seq,
         snapshot_event_chain_hash: snapshot.event_chain_hash,
-        execution_input_hash: executionInputHash(def, node, snapshot, options.maxPackChars),
       };
       if (node.artifact !== undefined) {
         artifact_before_hash = snapshot.docs.find((doc) => doc.file === node.artifact)?.content_hash ?? null;
@@ -286,6 +287,8 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
       return complete("failed", { error: `驱动解析失败：${reason}`, text: "", failure_stage: "configuration", retryable: false });
     }
 
+    snapshotFields["execution_input_hash"] = executionInputHash(def, node, snapshot!, options.maxPackChars, driver.configuration_hash ?? null);
+    if (driver.configuration_hash !== undefined) snapshotFields["agent_configuration_hash"] = driver.configuration_hash;
     await started(driver.name);
 
     // 3. 派发 worker：聚合流式文本，result 事件优先；中间事件不入事件流

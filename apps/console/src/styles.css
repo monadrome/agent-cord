@@ -1073,7 +1073,56 @@ p {
   margin-bottom: 8px;
 }
 
-/* ---- 窄屏 ---- */
+/* ---- Agent 工作台 ---- */
+.agent-workspace { letter-spacing: 0; }
+.agent-workspace h1 { font-size: 24px; margin: 0 0 3px; }
+.agent-page-title { display: flex; align-items: center; gap: 12px; }
+.agent-page-title > svg { color: var(--accent); flex: 0 0 auto; }
+.agent-actions { display: flex; align-items: center; gap: 8px; }
+.agent-icon-button { width: 38px; height: 38px; padding: 0; display: grid; place-items: center; }
+.agent-tool { position: relative; display: inline-flex; }
+.agent-tooltip { position: absolute; right: 0; top: calc(100% + 7px); z-index: 20; padding: 5px 8px; border-radius: 4px; background: var(--ink); color: white; font-size: 12px; white-space: nowrap; opacity: 0; pointer-events: none; }
+.agent-tool:hover .agent-tooltip, .agent-tool:focus-within .agent-tooltip { opacity: 1; }
+.agent-diagnostics { padding: 14px 0; margin-bottom: 18px; border-top: 2px solid var(--warn); border-bottom: 1px solid var(--line); }
+.agent-diagnostics header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.agent-diagnostics header svg { color: var(--warn); }
+.agent-diagnostics header > span { margin-left: auto; color: var(--danger); font-size: 13px; }
+.agent-diagnostics ul { margin: 10px 0 0; padding-left: 20px; color: var(--ink-soft); font-size: 13px; overflow-wrap: anywhere; }
+.agent-diagnostics li + li { margin-top: 5px; }
+.agent-rejected { display: flex; flex-wrap: wrap; gap: 7px 14px; margin-top: 10px; color: var(--danger); font-size: 13px; overflow-wrap: anywhere; }
+.agent-filters { display: grid; grid-template-columns: minmax(180px, 1fr) 170px 145px; align-items: end; gap: 14px; margin: 22px 0; }
+.agent-filters .select { max-width: none; width: 100%; height: 38px; }
+.agent-search-input { position: relative; display: block; }
+.agent-search-input svg { position: absolute; top: 11px; left: 10px; color: var(--ink-faint); }
+.agent-search-input input { height: 38px; padding-left: 34px; }
+.agent-list-head { display: flex; justify-content: space-between; align-items: baseline; margin: 0 0 12px; gap: 12px; }
+.agent-columns, .agent-row { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(105px, .8fr) minmax(115px, 1fr) minmax(115px, .85fr); gap: 16px; align-items: center; }
+.agent-columns { font-size: 12px; color: var(--ink-soft); padding: 8px 12px; border-bottom: 1px solid var(--line-strong); }
+.agent-list { list-style: none; margin: 0; padding: 0; }
+.agent-row { min-height: 62px; padding: 12px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 13px; }
+.agent-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.agent-name svg { color: var(--ok); flex: 0 0 auto; }
+.agent-name strong { font-weight: 600; word-break: normal; overflow-wrap: anywhere; }
+.agent-source { color: var(--ink-soft); }
+.agent-source-workspace { color: var(--ok); }
+.agent-protocol { display: flex; flex-direction: column; min-width: 0; }
+.agent-protocol code { overflow-wrap: anywhere; }
+.agent-config-hash { color: var(--ink-soft); font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.agent-loading { min-height: 185px; display: grid; place-items: center; color: var(--ink-soft); font-size: 13px; }
+.agent-spinning { animation: agent-spin 1.1s linear infinite; }
+@keyframes agent-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .agent-spinning { animation: none; } }
+@media (max-width: 720px) {
+  .agent-workspace .agent-page-head { flex-direction: row; align-items: center; flex-wrap: wrap; }
+  .agent-filters { grid-template-columns: 1fr 1fr; gap: 12px; }
+  .agent-search { grid-column: 1 / -1; }
+  .agent-columns { display: none; }
+  .agent-row { grid-template-columns: minmax(0, 1fr) 120px; gap: 8px 14px; padding: 13px 10px; min-height: 94px; }
+  .agent-source { text-align: right; }
+  .agent-config-hash { text-align: right; }
+  .agent-protocol { flex-direction: row; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+}
+
 @media (max-width: 720px) {
   .content {
     width: 94vw;

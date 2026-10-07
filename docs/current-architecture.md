@@ -85,6 +85,8 @@ worker agent 的来源：内置驱动清单（claude / codex / kimi 直连，ACP
 
 工作区配置编译为独立 resolver，不写全局模板表；driver 固定构造时的参数。`AgentService` 提供公开清单与串行显式重载，成功后原子替换配置，文件整体错误时保留旧配置。新 run 固定当前 resolver；在途 run 不受重载影响，重启恢复使用当前文件。配置无效的别名不能退回同名内置 agent（ADR-0027）。
 
+内置 driver 的 configuration_hash 从有效普通/只读/resume 启动参数派生（ACP 为 bin/args），全部 env 不参与；任务事件记录 agent_configuration_hash 并纳入 execution_input_hash，审批上下文也覆盖该身份。重启时同名 agent 参数变化导致旧任务与审批失效，在途 run 仍固定原身份（ADR-0031）。
+
 默认 `simple-sdlc v1` 流程为：
 
 ```text
@@ -108,9 +110,11 @@ server 默认监听 `127.0.0.1:7250`，工作区由 `CORD_ROOT` 指定。核心�
 
 ## 6. Console
 
-console 使用 hash 路由，页面包括工作台、需求列表、需求详情和 SDLC 管理。它通过 `apps/server/src/contracts.ts` 共享 DTO，只消费 server 投影；事件流、账本和 workflow 状态不在浏览器重复计算。
+console 使用 hash 路由，页面包括工作台、需求列表、需求详情、SDLC 管理和 Agent 工作台。它通过 `apps/server/src/contracts.ts` 共享 DTO，只消费 server 投影；事件流、账本和 workflow 状态不在浏览器重复计算。
 
 需求详情页启动 run 时可选 SDLC 与版本（默认 = 内置 SDLC 最新版）；SDLC 页支持模板载入、草稿保存/恢复、克隆已发布版本到编辑器、版本归档。
+
+Agent 页支持公开清单搜索、来源与协议筛选、配置诊断/指纹、刷新和显式重载；加载失败与重载失败保留已有清单，成功后更新 server 返回的配置版本。不读取或编辑凭据、env 或角色提示。
 
 ## 7. 当前非目标
 

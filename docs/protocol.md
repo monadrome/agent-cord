@@ -41,6 +41,8 @@ driver 保留明确空最终字符串，与无显式最终文本的 null 区分�
 
 ADR-0030 增加 `execution_input_hash`（agent started/completed）：覆盖完整 workflow、节点、需求文档 hash、账本摘要、已退出进度和上下文预算，排除事件序号/时间戳。可写当前 artifact 以 completed 后态验证，不把自身写入作为输入变化。`snapshot_id` 继续记录完整 provenance，两者作用不同。
 
+ADR-0031 增加 driver 可选 `configuration_hash` 与任务事件 `agent_configuration_hash`，内置 headless/ACP 从固定有效启动参数派生，全部 env 排除。该身份纳入 execution_input_hash（内部域 v2）和节点审批上下文；同名模型/角色参数变更后，未退出节点重新执行并重新审批。外部 driver 未提供身份时仍支持，但宿主需提供可靠身份才能覆盖其配置变化。
+
 ## 2. Ledger 投影
 
 权威实现：[`src/core/reducer.ts`](../src/core/reducer.ts)。
@@ -120,4 +122,4 @@ REST 的 `approval_id` 是等待事件 ULID；旧静态编码可解析但不允�
 
 `cord/agents.yaml` 由独立 registry 编译（ADR-0027），ACP 和自定义 headless 参数不修改全局表。`registerAgentsYaml` 保留为配置检查入口，不再注册全局模板；使用 `resolveWithAgentsYaml` / `createAgentRegistry` 获取工作区 resolver。顶层结构或 IO 错误拒绝重载，单条定义错误按字段路径告警并阻断该别名。模板与 args 必须二选一；模板形态可省略 `bin`，自定义 args 形态必须提供。
 
-`GET /api/v1/agents` 返回 `revision`、`agents[{name, kind, source, template}]`、`warnings`、`rejected`。它表示配置可解析，不探测安装或凭据。`POST /api/v1/agents/reload` 需要 `Idempotency-Key`，成功后替换配置并递增 revision，失败保持原配置；删除可选文件后重载恢复内置清单。在途 run 固定 resolver，后续 run 使用新配置；重启后 resolver 从当前文件重建，revision 重新编号。响应不携带 env、完整 args、角色 prompt 或 `agents_json`。
+`GET /api/v1/agents` 返回 `revision`、`agents[{name, kind, source, template, configuration_hash}]`、`warnings`、`rejected`。configuration_hash 无身份时为 null，表示执行定义，不探测安装、环境变量或外部命名 agent 文件。`POST /api/v1/agents/reload` 需要 `Idempotency-Key`，成功后替换配置并递增 revision，失败保持原配置；删除可选文件后重载恢复内置清单。在途 run 固定 resolver 与身份，后续 run 使用新配置；重启后 resolver 从当前文件重建，revision 重新编号。响应不携带 env、完整 args、角色 prompt 或 `agents_json`。console Agent 页只展示此投影并发起明确命令。

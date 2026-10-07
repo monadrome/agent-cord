@@ -65,3 +65,10 @@
 - resumed node.entered 会清除完成标记，使连续两次审批中断恢复可能无理由重复执行 worker。
 - runGate 的 pending 分支绕过 checker；人工等待返回后也不重读证据，已推翻共识可能被旧选择放行。
 - approval_id 与 decided 暂存只绑定 node/gate，worker 因新输入重跑后，旧审批选择可能被新 gate 消费；需要等待事件版本绑定。
+
+## 实现校准（2026-10-06，Agent 配置身份与控制台）
+
+- 当前 execution_input_hash 覆盖 workflow 与需求输入，但不含命名 agent 的 model/effort/角色/启动参数。同别名配置改变后的重启可能复用旧结果。
+- `AgentService` 已提供公开清单和重载 API，console 没有入口，也未在 typed client 暴露这两个命令。
+- 有效配置指纹应从 driver 实际启动参数派生，而非 YAML 原文或进程 revision；忽略的旋钮、空格/字段顺序不应改变身份，凭据值与 env 不参与指纹。
+- 控制台沿用现有设计，用来源/协议筛选和紧凑列表呈现公开配置；失败重载保持当前清单，成功后显示 server 返回的配置版本。

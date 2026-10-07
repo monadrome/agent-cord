@@ -129,7 +129,7 @@ describe("工作区 agent registry", () => {
     const reload = await request(server, "POST", "/api/v1/agents/reload", undefined, "reload-config");
     expect(reload.status).toBe(200);
     expect(reload.body.revision).toBe(2);
-    expect(reload.body.agents).toContainEqual({ name: "reviewer", kind: "headless", source: "workspace", template: "claude" });
+    expect(reload.body.agents).toContainEqual({ name: "reviewer", kind: "headless", source: "workspace", template: "claude", configuration_hash: expect.stringMatching(/^[0-9a-f]{64}$/) });
     expect(reload.body.rejected).toEqual(expect.arrayContaining(["malformed", "codex"]));
     expect(reload.body.warnings.join("\n")).toContain("agents.malformed.bin");
     expect(JSON.stringify(reload.body)).not.toContain("PRIVATE_");
@@ -222,24 +222,33 @@ describe("工作区 agent registry", () => {
     expect(await readFile(join(root, "cord", "REQ-NEW", "findings.md"), "utf8")).toContain("NEW_CONFIG");
   });
 
-  it("重启后按当前文件恢复挂起 run，已经完成的 agent 任务不重复执行", async () => {
+  it.each([false, true])("重启后按当前配置恢复：配置变更=%s，只有相同身份才复用任务", async (changed) => {
     const { root, server } = await workspace("OLD");
     await publish(server, true);
     await start(server, "REQ-RESTART");
     await wait_for(async () => (await server.sessions.listApprovals("REQ-RESTART")).length === 1);
+    const old_approval = (await server.sessions.listApprovals("REQ-RESTART"))[0]!;
     await server.app.close();
     server.index.close();
     servers.splice(servers.indexOf(server), 1);
-    await write_config(root, "AFTER_RESTART");
+    if (changed) await write_config(root, "AFTER_RESTART");
     const restarted = await buildApp({ root });
     servers.push(restarted);
     expect(restarted.agents.catalog().revision).toBe(1);
+    if (changed) {
+      const stale = await request(restarted, "POST", `/api/v1/requirements/REQ-RESTART/approvals/${old_approval.approval_id}/decide`, { choice: "确认放行" }, "reject-old-config-approval");
+      expect(stale.status).toBe(409);
+      await wait_for(async () => (await restarted.sessions.listApprovals("REQ-RESTART")).some((item) => item.approval_id !== old_approval.approval_id));
+    }
     await approve(restarted, "REQ-RESTART");
     await wait_for(async () => restarted.runs.activeRunId("REQ-RESTART") === null);
     expect(restarted.runs.listRuns("REQ-RESTART")[0]?.status).toBe("completed");
-    expect(await readFile(join(root, "cord", "REQ-RESTART", "plan.md"), "utf8")).toContain("OLD");
-    expect(await readFile(join(root, "cord", "REQ-RESTART", "findings.md"), "utf8")).toContain("AFTER_RESTART");
+    expect(await readFile(join(root, "cord", "REQ-RESTART", "plan.md"), "utf8")).toContain(changed ? "AFTER_RESTART" : "OLD");
+    expect(await readFile(join(root, "cord", "REQ-RESTART", "findings.md"), "utf8")).toContain(changed ? "AFTER_RESTART" : "OLD");
     const events = await (await restarted.sessions.open("REQ-RESTART")).events.readOrdered();
-    expect(events.filter((event) => event.type === "agent.task.completed")).toHaveLength(2);
+    const tasks = events.filter((event) => event.type === "agent.task.completed");
+    expect(tasks).toHaveLength(changed ? 3 : 2);
+    for (const task of tasks) expect((task.payload as Record<string, unknown>).agent_configuration_hash).toMatch(/^[0-9a-f]{64}$/);
+    if (changed) expect((tasks[0]!.payload as Record<string, unknown>).agent_configuration_hash).not.toBe((tasks[1]!.payload as Record<string, unknown>).agent_configuration_hash);
   });
 });

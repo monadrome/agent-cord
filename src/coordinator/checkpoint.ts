@@ -11,9 +11,11 @@ export function executionInputHash(
   node: Node,
   snapshot: RequirementSnapshot,
   max_pack_chars = 60_000,
+  agent_configuration_hash: string | null = null,
 ): string {
   return sha256Hex(canonicalJson({
-    domain: "cord.execution-input.v1",
+    domain: "cord.execution-input.v2",
+    agent_configuration_hash,
     workflow: def,
     node,
     req_id: snapshot.req_id,
@@ -26,13 +28,14 @@ export function executionInputHash(
   }));
 }
 
-export async function readApprovalContextHash(def: WorkflowDef, node: Node, session: SessionHandle): Promise<string> {
+export async function readApprovalContextHash(def: WorkflowDef, node: Node, session: SessionHandle, agent_configuration_hash: string | null = null): Promise<string> {
   const snapshot = await readSnapshot(session, {
     workflow_id: def.metadata.id,
     files: [...def.spec.nodes, node].flatMap((item) => item.artifact === undefined ? [] : [item.artifact]),
   });
   return sha256Hex(canonicalJson({
     domain: "cord.approval-context.v1", workflow: def, node,
+    agent_configuration_hash,
     req_id: snapshot.req_id, title: snapshot.title,
     docs: snapshot.docs.map(({ file, exists, content_hash }) => ({ file, exists, content_hash })),
     ledger: snapshot.ledger,

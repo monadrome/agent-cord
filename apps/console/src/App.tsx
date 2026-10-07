@@ -1,6 +1,6 @@
 /**
  * 控制台外壳与 hash 路由（react-router 未安装，用 hash 手写）：
- * `#/` 工作台、`#/requirements` 需求列表、`#/requirements/:id[/:tab|?tab=]` 需求详情、`#/sdlcs` SDLC。
+ * `#/` 工作台、`#/requirements` 需求、`#/requirements/:id[/:tab|?tab=]` 详情、`#/sdlcs` SDLC、`#/agents` Agent。
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactElement } from "react";
@@ -8,12 +8,14 @@ import { Dashboard } from "./pages/Dashboard.js";
 import { Requirements } from "./pages/Requirements.js";
 import { DETAIL_TABS, RequirementDetail, type DetailTab } from "./pages/RequirementDetail.js";
 import { Sdlcs } from "./pages/Sdlcs.js";
+import { Agents } from "./pages/Agents.js";
 
 type Route =
   | { page: "dashboard" }
   | { page: "requirements" }
   | { page: "requirement"; reqId: string; tab: DetailTab }
-  | { page: "sdlcs" };
+  | { page: "sdlcs" }
+  | { page: "agents" };
 
 function isTab(value: string | null | undefined): value is DetailTab {
   return value !== null && value !== undefined && (DETAIL_TABS as readonly string[]).includes(value);
@@ -35,6 +37,7 @@ export function parseHash(hash: string): Route {
     return { page: "requirement", reqId: decodeURIComponent(second), tab: isTab(tabParam) ? tabParam : "overview" };
   }
   if (first === "sdlcs") return { page: "sdlcs" };
+  if (first === "agents") return { page: "agents" };
   return { page: "dashboard" };
 }
 
@@ -42,6 +45,7 @@ const NAV: readonly { href: string; label: string; page: Route["page"] }[] = [
   { href: "#/", label: "工作台", page: "dashboard" },
   { href: "#/requirements", label: "需求", page: "requirements" },
   { href: "#/sdlcs", label: "SDLC", page: "sdlcs" },
+  { href: "#/agents", label: "Agent", page: "agents" },
 ];
 
 export function App(): ReactElement {
@@ -92,6 +96,7 @@ export function App(): ReactElement {
           />
         ) : null}
         {route.page === "sdlcs" ? <Sdlcs /> : null}
+        {route.page === "agents" ? <Agents /> : null}
       </main>
     </div>
   );

@@ -4,7 +4,8 @@
  * 决策放行 → 轮询至 completed → 读账本 / 时间线 / 事件断言；并覆盖幂等键复用、错误形状、
  * 文档读写、SDLC 校验/发布。前端不做状态机推导，断言以 server 投影为准。
  */
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { stringify as stringifyYaml } from "yaml";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -42,6 +43,31 @@ async function waitFor(check: () => Promise<boolean>, timeoutMs = 15_000): Promi
 }
 
 describe("console API client：默认 SDLC 闭环", () => {
+  it("Agent 清单、重载、幂等重放和错误恢复保持真实 server 配置投影", async () => {
+    const initial = await client.listAgents();
+    expect(initial.revision).toBe(1);
+    expect(initial.agents.some((agent) => agent.name === "claude")).toBe(true);
+    const file = join(root, "cord", "agents.yaml");
+    await writeFile(file, stringifyYaml({ agents: {
+      local: { kind: "acp", bin: "my-agent", args: ["serve"], env: { TEST_VALUE: "PRIVATE_VALUE" } },
+      broken: { kind: "headless", template: "missing" },
+    } }));
+    const updated = await client.reloadAgents("agent-config-action");
+    expect(updated.revision).toBe(2);
+    expect(updated.agents).toContainEqual({ name: "local", kind: "acp", source: "workspace", template: null, configuration_hash: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect(updated.rejected).toEqual(["broken"]);
+    expect(JSON.stringify(updated)).not.toContain("PRIVATE_VALUE");
+    expect((await client.reloadAgents("agent-config-action")).revision).toBe(2);
+    await writeFile(file, "agents: [malformed");
+    await expect(client.reloadAgents()).rejects.toMatchObject({ status: 400, code: "bad_request" });
+    expect((await client.listAgents()).revision).toBe(2);
+    await writeFile(file, "agents: {}");
+    const recovered = await client.reloadAgents();
+    expect(recovered.revision).toBe(3);
+    expect(recovered.rejected).toEqual([]);
+    expect(recovered.agents.some((agent) => agent.name === "local")).toBe(false);
+  });
+
   it("health → 创建需求 → 启动 run → 人工 gate 决策 → completed → 账本/时间线一致", async () => {
     const health = await client.health();
     expect(health.ok).toBe(true);

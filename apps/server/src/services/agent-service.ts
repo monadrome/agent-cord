@@ -15,7 +15,7 @@ export class AgentService {
   catalog(): AgentCatalogView {
     return {
       revision: this.revision,
-      agents: this.registry.list(),
+      agents: this.registry.list().map((entry) => ({ ...entry, configuration_hash: this.registry.resolve(entry.name).configuration_hash ?? null })),
       warnings: [...this.warnings],
       rejected: [...this.registry.rejected],
     };

@@ -23,6 +23,7 @@ import {
 } from "@agentclientprotocol/sdk";
 import { execa } from "execa";
 import type { AgentDriver, AgentEvent, AgentTask } from "../core/ports.js";
+import { canonicalJson, sha256Hex } from "../core/hash.js";
 import {
   AsyncQueue,
   DEFAULT_KILL_GRACE_MS,
@@ -168,6 +169,7 @@ export interface AcpDriverOptions {
 
 export class AcpDriver implements AgentDriver {
   readonly name: string;
+  readonly configuration_hash: string;
   /** agent 二进制（doctor / registry 观测用） */
   readonly bin: string;
   readonly args: string[];
@@ -181,6 +183,7 @@ export class AcpDriver implements AgentDriver {
     this.bin = options.bin;
     this.args = [...(options.args ?? ["acp"])];
     this.name = options.name ?? `acp:${options.bin}`;
+    this.configuration_hash = sha256Hex(canonicalJson({ domain: "cord.agent-config.acp.v1", name: this.name, bin: this.bin, args: this.args }));
     this.env = { ...options.env };
     this.permissionTimeoutMs = options.permission_timeout_ms ?? DEFAULT_PERMISSION_TIMEOUT_MS;
     this.killGraceMs = options.kill_grace_ms ?? DEFAULT_KILL_GRACE_MS;

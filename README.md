@@ -15,6 +15,7 @@ agent-cord 是一个多 agent 共识协作基座：把需求、决策、证据�
 - 未退出节点只在输入与产物指纹一致时复用成功 worker；审批绑定具体等待事件，需求/证据变化后旧选择返回 409，并先重跑过期任务或重新检查，再确认新审批。
 - 用 `agents.yaml` 注册自定义 agent（ACP 子进程、headless CLI、自定义参数模板），与内置 claude / codex / kimi 并列；模板定制支持 `model` / `effort` / `max_turns` / `budget_usd` / `system_prompt` / `agent` / `agents_json` 旋钮——`system_prompt` 是软封装（追加提示），`agent` + `agents_json` 是硬封装（`--agent` 整个会话以该 subagent 身份运行，工具与权限一并继承），把 persona 注册成命名 agent。
 - 自定义 agent 配置按工作区隔离；通过清单 API 查看协议和诊断，通过显式重载应用配置。重载失败保留旧配置，在途 run 固定启动时的 agent 定义。
+- 控制台「Agent」页可搜索与筛选公开配置、查看诊断和配置指纹、刷新与重载；启动参数身份纳入任务和审批输入，同名 agent 改模型或角色后不复用旧任务。
 - 用参数化 checker（`checks[].with`）拼装证据门禁：文件存在/非空/含章节/锚点数/事件已发，参数非法 fail-closed。
 - 声明 `run.retry` 让节点内的 agent 任务按退避重试（重试附上次失败摘要）；run 可随时取消——取消先落事件再中止执行器，driver 杀进程树，人工 gate 挂起同时失效。
 - 用独立盲评投票处理适合自动化的决策点，分歧和高风险情况升级人工。
@@ -88,6 +89,8 @@ agents:
 节点通过 `run: { agent: implementer }` 选择 agent。模板形态可省略 `bin`，使用模板默认二进制；自定义 args 必须声明 `bin`，只替换 `{{prompt}}`，不会自动提供只读限制或 resume 参数。
 
 编辑后调用 `POST /api/v1/agents/reload`（携带唯一 `Idempotency-Key`），再用 `GET /api/v1/agents` 检查 revision、清单与告警。清单表示配置可解析，CLI 安装和凭据可用性由实际运行验证。单条无效配置会被告警并阻断其别名；文件整体错误保留上一份有效配置。在途 run 继续使用启动配置，新 run 使用重载后的配置；server 重启恢复使用当前文件，revision 从 1 重新编号。凭据从本机环境传入，清单不返回 env、args 或角色提示。
+
+控制台的「Agent」页提供同一清单和重载操作。`configuration_hash` 表示实际启动参数身份，包含模板生效的模型/角色参数；全部 env 不参与。任务事件保存 `agent_configuration_hash` 并将其纳入恢复指纹，配置参数变化后的旧审批需重新确认。CLI 安装状态、环境变量与外部命名 agent 文件内容不在该指纹覆盖范围内。
 
 ## 数据布局
 
@@ -184,7 +187,7 @@ POST /doctor
 - [文档入口](./docs/INDEX.md)：当前实现、协议、ADR 和设计归档的阅读路径。
 - [当前实现架构](./docs/current-architecture.md)：server、console、数据布局和运行路径。
 - [核心协议速查](./docs/protocol.md)：事件、账本、workflow、gate 和 voting 的实现契约。
-- [ADR 目录](./docs/adr/)：架构决策记录，当前包含 ADR-0001 ~ ADR-0030。
+- [ADR 目录](./docs/adr/)：架构决策记录，当前包含 ADR-0001 ~ ADR-0031。
 - [安全与权限模型](./docs/09-security.md)
 - [路线图](./docs/10-roadmap.md)
 - [风险与开放问题](./docs/11-risks.md)

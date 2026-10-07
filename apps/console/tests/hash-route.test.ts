@@ -15,6 +15,7 @@ describe("parseHash", () => {
   it("需求列表与 SDLC 页面", () => {
     expect(parseHash("#/requirements")).toEqual({ page: "requirements" });
     expect(parseHash("#/sdlcs")).toEqual({ page: "sdlcs" });
+    expect(parseHash("#/agents")).toEqual({ page: "agents" });
   });
 
   it("需求详情默认概览 tab；支持路径段与 ?tab= 两种写法", () => {

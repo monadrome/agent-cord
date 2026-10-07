@@ -28,6 +28,7 @@ export interface AgentCatalogView {
     kind: "acp" | "headless";
     source: "workspace" | "registry";
     template: string | null;
+    configuration_hash: string | null;
   }>;
   warnings: string[];
   rejected: string[];

@@ -44,6 +44,7 @@ interface ActiveRun {
   promise: Promise<void>;
   /** run 取消（ADR-0025）：abort → 执行器节点边界止步 + 人工挂起唤醒 + agent 子进程收束 */
   controller: AbortController;
+  driverResolver?: (name: string) => AgentDriver;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -226,7 +227,9 @@ export class RunService {
     let current_hash: string;
     try {
       const anchors = nodeAnchors(reqId, node.artifact);
-      const evaluated = await evaluateGate(gate, createBuiltinRegistry(), { session_dir: session.dir, session, node_id: node.id, anchors, payload: { anchors } }, await readApprovalContextHash(versioned.def, node, session));
+      const resolver = this.active.get(reqId)?.driverResolver ?? this.options.driverResolverForRun?.() ?? this.options.driverResolver;
+      const config_hash = node.run !== undefined ? resolver?.(node.run.agent).configuration_hash ?? null : null;
+      const evaluated = await evaluateGate(gate, createBuiltinRegistry(), { session_dir: session.dir, session, node_id: node.id, anchors, payload: { anchors } }, await readApprovalContextHash(versioned.def, node, session, config_hash));
       current_hash = evaluated.evaluation_hash;
     } catch {
       throw conflict("无法验证当前审批依据，拒绝记录放行，请先修复输入");
@@ -372,7 +375,8 @@ export class RunService {
     const driverResolver = this.options.driverResolverForRun?.() ?? this.options.driverResolver;
     const executor = createExecutor({
       humanGate,
-      gateInputHash: (node) => readApprovalContextHash(def, node, session),
+      gateInputHash: (node) => readApprovalContextHash(def, node, session,
+        node.run !== undefined ? driverResolver?.(node.run.agent).configuration_hash ?? null : null),
       payloadFor: (node) => ({ anchors: nodeAnchors(session.req_id, node.artifact) }),
       signal: controller.signal,
       // ADR-0023：节点声明 run 时由协调 agent 派发 worker；未配置 resolver 时执行器记 notes 跳过
@@ -401,7 +405,9 @@ export class RunService {
         for (const key of this.decided.keys()) if (key.startsWith(`${session.req_id}:`)) this.decided.delete(key);
         this.active.delete(session.req_id);
       });
-    this.active.set(session.req_id, { run_id: run.run_id, req_id: session.req_id, promise, controller });
+    this.active.set(session.req_id, { run_id: run.run_id, req_id: session.req_id, promise, controller,
+      ...(driverResolver !== undefined ? { driverResolver } : {}),
+    });
   }
 
   /**

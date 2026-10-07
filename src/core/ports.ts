@@ -231,6 +231,8 @@ export interface AgentEvent {
 
 export interface AgentDriver {
   readonly name: string;
+  /** ADR-0031：固定有效启动定义的 hash；env/凭据不参与，可选供外部 driver 兼容 */
+  readonly configuration_hash?: string;
   /** 流式事件 + 最终结果文本 */
   run(task: AgentTask): AsyncIterable<AgentEvent>;
   resume(session_id: string, task: AgentTask): AsyncIterable<AgentEvent>;

@@ -113,3 +113,14 @@
 - 实际 HTTP smoke：输入不变重启只执行 worker 1 次且审批 ID 不变；人工等待时 PRD 更新使旧审批返回 409、先重新派发最新输入再生成新审批（worker 共 2 次）；账本推翻使旧审批失效并机器阻断，没有伪造人工决策。health/doctor 通过。
 - 预览 `http://127.0.0.1:7294`，临时工作区 `/tmp/cord-stage11-preview`，结果 `/tmp/cord-stage11-preview/smoke-result.json`，日志 `/tmp/cord-stage11-preview.log`。
 - 本地实现提交 `9b42fa0`；推送报 GitHub 低速超时，45 秒有界重试未返回，远端 ls-remote 15 秒核验超时。提交保留，远端更新未确认；预览 health 仍为 200。
+
+## 2026-10-06（阶段 12）
+
+- 工作区干净，HEAD `05cd4d8`；上一轮为有已验证实现的进展，远端仍待核验。
+- 开始将有效 agent 启动身份纳入任务恢复/审批指纹，并为已有 agent 清单与重载 API 增加 console 工作台。
+- ADR-0031 先行：内置 driver 固定 configuration_hash，排除全部 env；task 记录 agent_configuration_hash，并纳入 execution_input_hash v2 与审批上下文。在途 run 保持原身份，重启参数变化拒绝旧审批并重新生成任务。
+- console 新增 Agent 导航与工作台，typed client 复用公开 DTO，提供搜索/来源/协议筛选、诊断、刷新、显式重载和失败保留清单；仅新增 lucide-react 图标依赖。
+- 436 测试 / 38 文件通过，typecheck/build 通过；真实 HTTP 验证 live reload 不改变在途配置、重启变更使旧审批 409 且 worker 重跑。
+- Playwright + Chrome 验证 1440/390/320 宽度无溢出/行内重叠；筛选、tooltip、按钮在请求期间禁用、重载成功/失败保留清单、loading/empty/error retry 全通过，pageerror 为 0。桌面/手机截图已人工检查并修正页头与长名称断行。
+- 预览 `http://127.0.0.1:7295/#/agents`；临时工作区 `/tmp/cord-stage12-preview`，smoke-result.json / browser-result.json 与 agents-desktop.png / agents-mobile.png 保存实际验收证据。
+- 唤醒后重跑全量 436 测试 / 38 文件通过，`npm run typecheck`、`npm run build:all`、`git diff --check` 通过；阶段 12 进入提交与推送。

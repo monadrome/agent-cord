@@ -8,6 +8,7 @@
  * - base URL 可注入（测试直连真实 server），默认 "" 表示走 vite 开发代理。
  */
 import type {
+  AgentCatalogView,
   ApprovalItem,
   CreateRequirementInput,
   DashboardView,
@@ -58,6 +59,10 @@ export interface DashboardResponse extends DashboardView {
 }
 
 export interface DoctorResponse extends DoctorView {
+  request_id: string;
+}
+
+export interface AgentCatalogResponse extends AgentCatalogView {
   request_id: string;
 }
 
@@ -257,6 +262,8 @@ export interface ApiClient {
   health(): Promise<HealthResponse>;
   doctor(): Promise<DoctorResponse>;
   dashboard(): Promise<DashboardResponse>;
+  listAgents(): Promise<AgentCatalogResponse>;
+  reloadAgents(key?: string): Promise<AgentCatalogResponse>;
 
   listRequirements(): Promise<RequirementsResponse>;
   getRequirement(reqId: string): Promise<RequirementResponse>;
@@ -300,6 +307,8 @@ export function createClient(baseUrl = ""): ApiClient {
     health: () => request<HealthResponse>(baseUrl, "/api/v1/health"),
     doctor: () => request<DoctorResponse>(baseUrl, "/api/v1/doctor", { method: "POST" }),
     dashboard: () => request<DashboardResponse>(baseUrl, "/api/v1/dashboard"),
+    listAgents: () => request<AgentCatalogResponse>(baseUrl, "/api/v1/agents"),
+    reloadAgents: (key) => request<AgentCatalogResponse>(baseUrl, "/api/v1/agents/reload", writeInit("POST", undefined, key)),
 
     listRequirements: () => request<RequirementsResponse>(baseUrl, "/api/v1/requirements"),
     getRequirement: (reqId) => request<RequirementResponse>(baseUrl, reqPath(reqId)),
