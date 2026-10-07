@@ -1,0 +1,24 @@
+# 按本机已安装的 CLI 选择定义；凭据从环境继承，不写入 YAML。
+agents:
+  context-coordinator:
+    kind: headless
+    template: codex
+    effort: high
+  claude-architect:
+    kind: headless
+    template: claude
+    max_turns: 6
+    budget_usd: 2
+    agent: architect
+    agents_json: >-
+      {"architect":{"description":"需求快照协调与架构草稿","prompt":"只依据当前需求快照与证据，提出可验证的方案和下一步。保持草稿，缺失事实显式询问，不批准门禁或合入代码。","tools":["Read","Grep","Glob"],"model":"inherit"}}
+  codex-planner:
+    kind: headless
+    template: codex
+    effort: high
+  kimi-acp:
+    kind: acp
+    bin: kimi
+    args: [acp]
+# 自定义 wrapper 可用 kind: headless / bin / args；args 只替换 {{prompt}}。
+# wrapper 自己负责只读权限和结果输出；需要协议权限请求时优先 ACP。

@@ -110,3 +110,4 @@ export {
   LEDGER_FILE,
   SNAPSHOT_DOC_FILES,
 } from "./session.js";
+export { readSessionDocument, statSessionDocument, writeSessionDocument, SessionFileError, SessionFileConflictError } from "./session-files.js";

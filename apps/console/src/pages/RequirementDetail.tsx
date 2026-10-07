@@ -485,6 +485,7 @@ function DocsTab({ reqId, docs, initial_doc = "prd" }: { reqId: string; docs: Re
   const [content, setContent] = useState("");
   const [saved, setSaved] = useState("");
   const [loading, setLoading] = useState(true);
+  const [readable, setReadable] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -492,6 +493,7 @@ function DocsTab({ reqId, docs, initial_doc = "prd" }: { reqId: string; docs: Re
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setReadable(false);
     setNotice(null);
     setError(null);
     void api
@@ -500,6 +502,7 @@ function DocsTab({ reqId, docs, initial_doc = "prd" }: { reqId: string; docs: Re
         if (cancelled) return;
         setContent(result.content);
         setSaved(result.content);
+        setReadable(true);
       })
       .catch((cause: unknown) => {
         if (cancelled) return;
@@ -507,6 +510,7 @@ function DocsTab({ reqId, docs, initial_doc = "prd" }: { reqId: string; docs: Re
         if (cause instanceof ApiClientError && cause.status === 404) {
           setContent("");
           setSaved("");
+          setReadable(true);
           setNotice("文档尚未生成，可直接编写并保存");
         } else {
           setError(describeError(cause));
@@ -553,7 +557,7 @@ function DocsTab({ reqId, docs, initial_doc = "prd" }: { reqId: string; docs: Re
             onClick={() => { if (name !== doc) { setLoading(true); setDoc(name); } }}
           >
             {name}.md
-            {docs !== null && !docs[name] ? <span className="muted small"> · 未生成</span> : null}
+            {docs !== null && !docs[name] ? <span className="muted small"> · 不可用</span> : null}
           </button>
         ))}
       </div>
@@ -566,7 +570,7 @@ function DocsTab({ reqId, docs, initial_doc = "prd" }: { reqId: string; docs: Re
             className="editor mono"
             rows={18}
             value={content}
-            disabled={loading}
+            disabled={loading || !readable || busy}
             onChange={(event) => setContent(event.target.value)}
             placeholder={loading ? "加载中…" : "在此编写文档内容（Markdown）"}
             aria-label={`${doc}.md 内容`}
@@ -574,14 +578,14 @@ function DocsTab({ reqId, docs, initial_doc = "prd" }: { reqId: string; docs: Re
         </div>
         <div className="doc-pane">
           <div className="doc-pane-title">渲染预览</div>
-          {loading ? <div className="markdown-empty">加载中…</div> : <MarkdownPreview source={content} />}
+          {loading ? <div className="markdown-empty">加载中…</div> : readable ? <MarkdownPreview source={content} /> : <div className="markdown-empty">无法读取文档</div>}
         </div>
       </div>
       <div className="form-actions">
-        <button type="button" className="btn btn-primary" disabled={loading || busy || !dirty} onClick={() => void save()}>
+        <button type="button" className="btn btn-primary" disabled={loading || !readable || busy || !dirty} onClick={() => void save()}>
           {busy ? "保存中…" : "保存"}
         </button>
-        {dirty ? <span className="muted small">有未保存的修改</span> : <span className="muted small">已与磁盘一致</span>}
+        {!readable ? <span className="muted small">未读取文档</span> : dirty ? <span className="muted small">有未保存的修改</span> : <span className="muted small">已与磁盘一致</span>}
       </div>
     </Section>
   );

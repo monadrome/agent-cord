@@ -238,6 +238,15 @@ describe("协调提议受控采用", () => {
 });
 
 describe("Context Session Agent REST", () => {
+  it("Codex 非终态配置通知保留辅助通道，协调仍得到严格 JSON 与会话身份", async () => {
+    await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: { coordinator: { kind: "headless", bin: process.execPath,
+      args: [fixture, "--mode", "codex-warning", "--result-text", JSON.stringify(proposal), "{{prompt}}"] } } }));
+    await server.agents.reload(); const result = await start();
+    expect(await done(result.body.round.round_id)).toMatchObject({ status: "ok", proposal });
+    const completion = (await server.sessions.readEvents("REQ-CONTEXT")).find((event) => event.type === "coordinator.round.completed");
+    expect(completion?.payload).toMatchObject({ agent_session_id: "thread-1" });
+    expect(JSON.stringify(completion?.payload)).not.toContain("NON_FATAL_CONFIGURATION_NOTICE");
+  });
   it("终态查询返回时后台槽位已释放，连续发起无需额外等待或固定延迟", async () => {
     for (let index = 0; index < 3; index++) {
       const response = await start(`consecutive-${index}`);

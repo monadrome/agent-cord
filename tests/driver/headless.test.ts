@@ -77,6 +77,13 @@ async function expectDead(pid: number): Promise<void> {
 }
 
 describe("parseHeadlessLine", () => {
+  it("Codex 非终态 error/warning item 是辅助通知，顶层失败仍是 error", () => {
+    for (const type of ["error", "warning"]) {
+      const raw = { type: "item.completed", item: { id: "notice-1", type, message: "辅助配置通知" } };
+      expect(parseHeadlessLine(JSON.stringify(raw))).toMatchObject([{ type: "text", data: { text: "辅助配置通知", channel: "metadata", raw: raw.item } }]);
+    }
+    expect(parseHeadlessLine('{"type":"turn.failed","error":{"message":"真实失败"}}')).toMatchObject([{ type: "error", data: { message: "真实失败" } }]);
+  });
   it("明确空最终字符串不变成 null，也不回退另一个字段", () => {
     const [empty] = parseHeadlessLine('{"type":"result","subtype":"success","result":"","text":"unexpected fallback"}');
     expect(resultData(empty).text).toBe("");
@@ -219,7 +226,15 @@ describe("HeadlessDriver", () => {
     const tool = events.find((e) => e.type === "tool_use");
     expect(toolData(tool)).toMatchObject({ name: "command_execution", input: "ls -la" });
     expect(events.at(-1)?.type).toBe("result");
-    expect(resultData(events.at(-1))).toMatchObject({ text: null, session_id: null });
+    expect(resultData(events.at(-1))).toMatchObject({ text: null, session_id: "thread-1" });
+    expect(events.at(-1)?.session_id).toBe("thread-1");
+  });
+
+  it("Codex 配置通知不能污染产物正文，完成回执保留 thread ID", async () => {
+    const events = await collect(fakeDriver("codex", "codex-warning").run(task()));
+    const content = events.filter((event) => event.type === "text" && textData(event).channel !== "metadata").map((event) => textData(event).text).join("");
+    expect(content).toBe("codex says hi");
+    expect(resultData(events.at(-1)).session_id).toBe("thread-1");
   });
 
   it("纯文本输出全部按 text 事件透传", async () => {
@@ -369,7 +384,7 @@ describe("HeadlessDriver CLI 参数", () => {
       "-c",
       'sandbox_mode="workspace-write"',
       "-c",
-      'ask_for_approval="never"',
+      'approval_policy="never"',
       "p",
     ]);
     expect(driver.buildArgv({ prompt: "p", cwd: "/w", readonly: true })).toEqual([
@@ -379,7 +394,7 @@ describe("HeadlessDriver CLI 参数", () => {
       "-c",
       'sandbox_mode="read-only"',
       "-c",
-      'ask_for_approval="never"',
+      'approval_policy="never"',
       "p",
     ]);
     expect(driver.buildArgv({ prompt: "p", cwd: "/w" }, "s1")).toEqual([
@@ -391,7 +406,7 @@ describe("HeadlessDriver CLI 参数", () => {
       "-c",
       'sandbox_mode="workspace-write"',
       "-c",
-      'ask_for_approval="never"',
+      'approval_policy="never"',
       "p",
     ]);
   });
@@ -479,7 +494,7 @@ describe("HeadlessDriver CLI 参数", () => {
       "-c",
       'sandbox_mode="workspace-write"',
       "-c",
-      'ask_for_approval="never"',
+      'approval_policy="never"',
       "p",
     ]);
   });

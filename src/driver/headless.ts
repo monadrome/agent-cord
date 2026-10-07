@@ -15,7 +15,7 @@ import { canonicalJson, sha256Hex } from "../core/hash.js";
 // 事件数据约定（AgentEvent.data 的具体形态）
 //
 // 两个 driver 统一在 data 里给出以下形状，并在 raw 中原样保留上游事件（不损失粒度）；
-// 会话 id 落在 `data.session_id`（`AgentEvent.session_id` 是契约里的统一槽位，M2 尚未回填顶层）。
+// 运行流回填统一 session_id 回执；终态 data 保留兼容槽位（ADR-0037）。
 // ---------------------------------------------------------------------------
 
 export type DriverErrorKind =
@@ -56,7 +56,7 @@ export interface AgentUsage {
 export interface ResultEventData {
   /** 最终结果文本；空字符串保留明确空结果，null 表示无显式文本 */
   text: string | null;
-  /** 会话 id：resume 需要它；契约槽位是 `AgentEvent.session_id`，M2 由 data 携带 */
+  /** 会话 id：运行流维护回执，data 与 AgentEvent.session_id 均供宿主读取 */
   session_id: string | null;
   usage?: AgentUsage | null;
   raw?: unknown;
@@ -383,6 +383,9 @@ export function parseHeadlessLine(line: string): AgentEvent[] {
   if (type !== undefined && type.startsWith("item.") && isRecord(value.item)) {
     const item = value.item;
     const itemType = asString(item.type) ?? "";
+    if (itemType === "error" || itemType === "warning") {
+      return [textEvent(extractMessage(item), item, "metadata")];
+    }
     if (itemType === "agent_message" || itemType === "reasoning" || itemType === "plan") {
       const text = typeof item.text === "string" ? item.text : "";
       return [textEvent(text, item, itemType === "agent_message" ? undefined : "metadata")];
@@ -528,7 +531,7 @@ const BUILTIN_TEMPLATES: readonly HeadlessCliTemplate[] = [
       "-c",
       `sandbox_mode="${readonly ? "read-only" : "workspace-write"}"`,
       "-c",
-      'ask_for_approval="never"',
+      'approval_policy="never"',
       prompt,
     ],
   },
@@ -647,6 +650,7 @@ export class HeadlessDriver implements AgentDriver {
     const queue = new AsyncQueue<AgentEvent>();
     let timedOut = false;
     let sawResult = false;
+    let active_session_id: string | null = resumeSessionId ?? null;
     const stderrTail: string[] = [];
 
     const child = execa(bin, args, {
@@ -663,15 +667,22 @@ export class HeadlessDriver implements AgentDriver {
 
     const push = (events: AgentEvent[]): void => {
       for (const event of events) {
+        const data = isRecord(event.data) ? event.data : null;
+        const receipt = event.session_id ?? (data === null ? null : extractSessionId(data) ?? (isRecord(data.raw) ? extractSessionId(data.raw) : null));
+        if (typeof receipt === "string" && receipt.length > 0) active_session_id = receipt;
         if (event.type === "result") sawResult = true;
-        queue.push(event);
+        queue.push(active_session_id === null ? event : {
+          ...event, session_id: active_session_id,
+          ...(data !== null && (event.type === "result" || event.type === "error") && data.session_id == null
+            ? { data: { ...data, session_id: active_session_id } } : {}),
+        });
       }
     };
 
     let sigkillTimer: NodeJS.Timeout | undefined;
     const timeoutTimer = setTimeout(() => {
       timedOut = true;
-      queue.push(errorEvent(`headless task timed out after ${timeoutMs}ms`, "timeout"));
+      push([errorEvent(`headless task timed out after ${timeoutMs}ms`, "timeout")]);
       killProcessTree(proc, "SIGTERM");
       sigkillTimer = setTimeout(() => killProcessTree(proc, "SIGKILL"), this.killGraceMs);
     }, timeoutMs);
@@ -680,7 +691,7 @@ export class HeadlessDriver implements AgentDriver {
     // 不能依赖消费方 break：async generator 暂停在 queue.next() 时 return() 会排队等
     // 当前 await 解决，静默中的子进程不产出事件 = 死锁直到超时。
     const onAbort = (): void => {
-      queue.push(errorEvent("task aborted by caller", "agent"));
+      push([errorEvent("task aborted by caller", "agent")]);
       queue.close();
       killProcessTree(proc, "SIGTERM");
       sigkillTimer = setTimeout(() => killProcessTree(proc, "SIGKILL"), this.killGraceMs);
@@ -740,16 +751,16 @@ export class HeadlessDriver implements AgentDriver {
       }
 
       if (spawnFailure !== undefined) {
-        queue.push(errorEvent(spawnFailure, "spawn"));
+        push([errorEvent(spawnFailure, "spawn")]);
       } else if (!timedOut && !sawResult && exitCode !== 0) {
         const tail = stderrTail.join("").trim();
-        queue.push(
+        push([
           errorEvent(
             `cli exited with ${signal !== undefined ? `signal ${signal}` : `code ${String(exitCode)}`}` +
               (tail.length > 0 ? `: ${tail}` : ""),
             "agent",
           ),
-        );
+        ]);
       }
     };
 

@@ -40,6 +40,8 @@ ADR-0029 增加 `artifact_before_hash`（started/completed）、`artifact_after_
 
 driver 保留明确空最终字符串，与无显式最终文本的 null 区分；初始化、协议进度、用户回声、思考等已识别辅助输出以 `TextEventData.channel=metadata` 保留 raw，coordinator 不把它们拼为 fallback 产物。未标记的文本仍视为内容，维持自定义 driver 兼容性。
 
+ADR-0037 增 Codex item.error/warning 非终态通知的 metadata 映射；顶层 error/turn.failed 仍是失败，不通过 JSON 子串提取掩盖混合结果。headless 当次 execute 保留初始化/thread.started 会话回执，填入后续 AgentEvent.session_id 与 result/error.data.session_id；新 run 不共享旧身份。Codex 模板使用当前 `approval_policy="never"`，不提升沙箱权限，有效配置身份随启动参数更新。真实 0.160.0 两轮协调验证已证明本机组合可用，不代表全部 provider 或统计质量。
+
 ADR-0030 增加 `execution_input_hash`（agent started/completed）：覆盖完整 workflow、节点、需求文档 hash、账本摘要、已退出进度和上下文预算，排除事件序号/时间戳。可写当前 artifact 以 completed 后态验证，不把自身写入作为输入变化。`snapshot_id` 继续记录完整 provenance，两者作用不同。
 
 ADR-0031 增加 driver 可选 `configuration_hash` 与任务事件 `agent_configuration_hash`，内置 headless/ACP 从固定有效启动参数派生，全部 env 排除。该身份纳入 execution_input_hash（内部域 v2）和节点审批上下文；同名模型/角色参数变更后，未退出节点重新执行并重新审批。外部 driver 未提供身份时仍支持，但宿主需提供可靠身份才能覆盖其配置变化。
@@ -86,6 +88,12 @@ checker 结果是 `pass`、`block` 或 `warn`。未知 checker、抛错和非法
 `ledger-has-confirmed` 从当前 session 事件投影判定；默认无 session 目录路径严格读取 events.jsonl，不回退旧 ledger.yaml（ADR-0029）。只有无冲突的 confirmed 条目可放行，非法 entry_id、坏事件、外部 session 事件和读故障均 block。显式 readLedger adapter 继续支持，宿主负责提供最新投影，返回值经 schema 验证。
 
 `checks` 项可带 `with` 参数（ADR-0024），透传为 `CheckerContext.params`；参数非法由 checker 按 `block` 处理，不用缺省值猜。内置 checker：`anchors-present`、`ledger-has-confirmed`、`vote-confirmed`，以及参数化的 `file-exists {path}`、`file-nonempty {path, min_bytes?}`、`doc-has-section {path, heading}`、`anchors-min-count {min}`、`event-emitted {type, within_node?}`。文件类 path 一律限制在 session 目录内。
+
+ADR-0036 将文档访问集中到 core/session-files：规范相对路径、session 根为普通目录、路径段无符号链接、叶文件为 nlink=1 的普通文件；禁止事实/管理路径。file-exists 使用 no-follow 描述符只读元信息，不加载正文；内容 checker 使用同一描述符边界读取 UTF-8。缺失或无法验证均 block，无有效证据锚点，修复后可重新求值。coordinator 旧 helper 路径保留 re-export。
+
+REST 快照文档 read/write/detail 使用同一 helper：readDoc 仅真实缺失为 404，边界错误 409，其余 IO 错误 500，不返回文档正文或底层错误原文。详情不把非法文件声明为可用。writeDoc 独占临时文件、fsync、rename；替换失败保留旧文档并清理临时文件，IO 失败仍遵循幂等未确认规则。Node 最终文件 no-follow 与父路径检查不提供跨进程父目录替换的强事务，不替代 OS 沙箱。
+
+console 读取失败保持编辑/保存禁用，不能声明已与磁盘一致或当成新文档；真实 404 仍允许创建，切换文档可重新读取修复后的文件，保存期间禁用编辑与文档切换。
 
 节点可声明执行体 `run`（ADR-0023）：`{ agent, prompt?, readonly?, timeout_ms?, retry? }`。执行顺序为 pre gates → node.run → post gates；node.run 由注入执行器的 `NodeRunner` 端口处理（生产实现是协调 agent，见 `src/coordinator/`），未注入时跳过并在 node.exited 记 `notes`。未退出节点恢复时通过 `NodeRunner.isCompletionReusable` 验证当前输入 hash 与产物后态，相同才复用历史 ok；旧事件没有指纹、验证错误或接口未提供时重新执行（ADR-0030）。已退出节点保持原事实，不自动回滚。
 

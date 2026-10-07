@@ -112,3 +112,14 @@
 - 请求身份必须保留所有合法 JSON 自有字段，含 __proto__；使用标准 JSON replacer + Object.fromEntries 排序，再由现有纯 hash API 计算。历史事件的 canonical 协议不改变。
 - 业务后的 5xx 或缓存故障不能证明无副作用，pending 必须保留；占位写入回执丢失也使用同一规则，重启不会自动重新执行。
 - 537 个离线用例、实际 HTTP 五并发关键入口与重启验证均通过；所有声明 idempotency 的命令共用同一生命周期，原协调/版本/审批闭环未回退。流式写响应无法作为可缓存结果，明确未确认而不悬挂等待者。
+
+## 实现校准（2026-10-07，文档与文件证据边界）
+
+- file-exists 用 stat、另外两个 checker 用 readFile，词法合法的路径仍会跟随文件/父目录符号链接，硬链接和管理路径也可作为放行证据。
+- SessionService.readDoc 捕获所有错误并返回 404，console 将其解释为未生成文档；writeDoc 使用直接 writeFile，既跟随链接又可能截断旧文档后写失败。
+- 协调器已有独立普通文件检查/no-follow/原子临时文件写回，适合提升为核心共享 helper；保留旧 coordinator 导入路径，避免破坏已有 worker 行为。
+- 本机可执行 claude/codex/kimi 已安装；尚未证明真实模型凭据可用，后续只在隔离临时工作区做有界协调验证，不读取或记录凭据。
+- 真实 Codex 协调验证发现 parser 将非终态 item.error 的弃用配置通知作为正文；模型实际返回合法 JSON，但被污染后 fail-closed。新增 ADR-0037 结构化 metadata 映射、流级 session ID 和当前 approval_policy 参数修复。
+- 修复后两轮真实调用成功，VERSION_A/B 的提议反映最新 PRD，输入/快照/会话 ID 均不同，旧轮次 current=false，文档不变。真实验证只证明本机该 CLI/模型组合可跑，不证明所有 provider 或统计质量。
+- workspace doctor 的 merge driver 检查不同于 session doctor，临时 git 仓库仍需注册本地 merge driver；完成该初始化后 HTTP/浏览器验收与 workspace doctor 全通过。
+- 读错误后的 UI 不能解锁编辑或显示“已与磁盘一致”，真实 404 才进入新文档状态；浏览器已验证错误、缺失、保存与恢复，控制台仍只展示 server 投影。

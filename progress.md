@@ -46,6 +46,14 @@
 - 最后补齐流式写响应的失败收束，最终 537 测试 / 45 文件、build:all/typecheck/diff 全通过。最新代码的第二轮真实 HTTP 五并发闭环再次通过。
 - 最终离线预览 `http://127.0.0.1:7304/#/requirements/REQ-IDEMPOTENCY-DEMO/coordination`，工作区 `/tmp/cord-stage16-preview-final`，smoke-result.json / browser-result.json 与 desktop/mobile 截图保存证据；1440/390/320 无溢出，pageerror=0，doctor=true，协调提议可采用。
 - 功能提交 `1056ed1`，推送成功（origin/exp/impl：`49982d3` → `1056ed1`），预览 health 正常；持续目标下一轮继续文件 checker/REST 文档访问边界与真实模型运行。
+- 开始阶段 17：核验 `0231ab2` 与干净工作树，定位文件 checker/REST 文档路径跟随链接与 IO 伪装缺失；准备共享 helper、回归、接入示例和临时工作区真实 CLI 验证。
+- ADR-0036 先行，提升 core/session-files，共用 no-follow 普通文件元信息/读取与原子写回，checker/REST 使用同一边界；旧 coordinator 导入保留。43 个相关用例和 18 个扩展定向用例、typecheck 通过。
+- 新增 examples/agents.yaml 与 agent-sdlc.yaml，包含 ACP、Claude 命名角色和 Codex；配置/角色 JSON/流程/checker 解析通过。准备两个最新 PRD 下的真实 Codex 协调轮次，隔离临时工作区、有界超时，不自动采用或批准。
+- 全量 555 测试通过后真实 Codex 首轮 failed/output；诊断第二轮证明 item.error 配置通知污染了合法 JSON 且 thread 回执丢失。ADR-0037 与 4 个协议回归先行，修复 metadata/session ID/approval_policy，62 个相关用例通过。
+- 修复后两轮真实 Codex 0.160.0 协调 VERSION_A/B 均 ok/current，不同输入/快照/会话 ID，旧轮次失效，PRD 未改、doctor=true。证据 `/tmp/cord-stage17-real-result.json` 与临时工作区 real-result.json；全量 558 测试 / 49 文件与 typecheck/diff 通过，准备真实提议预览与 HTTP 边界验收。
+- 临时 git 仓库补本地 merge driver 注册后 HTTP 边界/门禁恢复与 workspace doctor 全通过；读错误控制台保持编辑/保存禁用，404 新文档仍可创建。Playwright 1440/390/320 无溢出/pageerror，真实 VERSION_B 提议正确呈现。
+- 最终 558 离线测试 / 49 文件、build:all/typecheck/diff 全通过。真实提议预览 `http://127.0.0.1:7305/#/requirements/REQ-REAL-CONTEXT/coordination`；real/http/browser-result.json 与截图保留在临时工作区，公开研究记录不提交运行数据或凭据。
+- 阶段 17 进入提交推送；后续真实开发需求全链路、Claude/ACP 实际调用仍待验证，持续目标不以两轮 Codex 协调测试代替全部需求。
 
 ## 2026-09-25
 

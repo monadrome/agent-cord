@@ -4,8 +4,9 @@
  * fail-closed 约定：无法判定（注册表无此名由执行器兜底、账本读不到、锚点不合法）一律返回
  * `block`，不放行——「无证据不入账」对门禁结论同样成立。
  */
-import { readFile, stat } from "node:fs/promises";
-import { basename, join, resolve, sep } from "node:path";
+import { readFile } from "node:fs/promises";
+import { basename, join } from "node:path";
+import { readSessionDocument, statSessionDocument } from "../core/session-files.js";
 import { z } from "zod";
 import { matchesWorkflowScope } from "./scope.js";
 import {
@@ -203,14 +204,6 @@ function parseParams<T>(
   return { ok: false, result: block(`checker "${checkerName}" 参数非法（fail-closed）：${detail}`) };
 }
 
-/** path 只允许落在 session 目录内（resolve 后必须仍在目录下，防 ../../ 越界读） */
-function resolveSessionPath(sessionDir: string, relPath: string): string | null {
-  const root = resolve(sessionDir);
-  const target = resolve(root, relPath);
-  if (target !== root && !target.startsWith(root + sep)) return null;
-  return target;
-}
-
 /** 文件类 checker 的证据锚点：与 run-service 的 nodeAnchors 同一形态 */
 function docAnchor(ctx: CheckerContext, path: string): Anchor {
   return { kind: "doc", anchor: `cord/${basename(ctx.session_dir)}/${path}` };
@@ -226,14 +219,12 @@ export function createFileExistsChecker(): Checker {
       const parsed = parseParams("file-exists", FileExistsParams, ctx);
       if (!parsed.ok) return parsed.result;
       const { path } = parsed.params;
-      const target = resolveSessionPath(ctx.session_dir, path);
-      if (target === null) return block(`path 越出 session 目录：${path}`);
       try {
-        const info = await stat(target);
-        if (!info.isFile()) return block(`存在但不是文件：${path}`);
+        const info = await statSessionDocument(ctx.session_dir, path);
+        if (info === null) return block(`文件不存在：${path}`);
         return pass(`文件存在：${path}（${info.size} 字节）`, [docAnchor(ctx, path)]);
-      } catch {
-        return block(`文件不存在：${path}`);
+      } catch (error) {
+        return block(`无法验证文件 ${path}（fail-closed）：${message(error)}`);
       }
     },
   };
@@ -252,14 +243,13 @@ export function createFileNonemptyChecker(): Checker {
       const parsed = parseParams("file-nonempty", FileNonemptyParams, ctx);
       if (!parsed.ok) return parsed.result;
       const { path, min_bytes: minBytes } = parsed.params;
-      const target = resolveSessionPath(ctx.session_dir, path);
-      if (target === null) return block(`path 越出 session 目录：${path}`);
-      let text: string;
+      let text: string | null;
       try {
-        text = await readFile(target, "utf8");
-      } catch {
-        return block(`文件不存在或不可读：${path}`);
+        text = await readSessionDocument(ctx.session_dir, path);
+      } catch (error) {
+        return block(`无法读取文件 ${path}（fail-closed）：${message(error)}`);
       }
+      if (text === null) return block(`文件不存在：${path}`);
       const contentBytes = Buffer.byteLength(text.replace(/<!--[\s\S]*?-->/g, "").trim(), "utf8");
       if (contentBytes < minBytes) {
         return block(`文件实质内容不足：${path}（${contentBytes} 字节 < 要求 ${minBytes} 字节）`);
@@ -282,14 +272,13 @@ export function createDocHasSectionChecker(): Checker {
       const parsed = parseParams("doc-has-section", DocHasSectionParams, ctx);
       if (!parsed.ok) return parsed.result;
       const { path, heading } = parsed.params;
-      const target = resolveSessionPath(ctx.session_dir, path);
-      if (target === null) return block(`path 越出 session 目录：${path}`);
-      let text: string;
+      let text: string | null;
       try {
-        text = await readFile(target, "utf8");
-      } catch {
-        return block(`文档不存在或不可读：${path}`);
+        text = await readSessionDocument(ctx.session_dir, path);
+      } catch (error) {
+        return block(`无法读取文档 ${path}（fail-closed）：${message(error)}`);
       }
+      if (text === null) return block(`文档不存在：${path}`);
       const wanted = heading.trim().toLowerCase();
       const found = text
         .split("\n")

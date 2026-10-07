@@ -60,6 +60,10 @@ ledger.yaml                        # 可重建的账本投影
 
 状态变更只能通过 `session.events.append`。事件写入时由 store 分配 `seq`、`prev_event_hash` 和时间戳，落盘并 fsync 后才通知订阅者。`ledger.yaml` 由 `createReducer().reduce(events)` 重建；`doctor` 检查事件链、序号、session 身份和投影一致性。
 
+快照文档与文件 gate 共用 core/session-files：拒绝链接/非普通文件/事实与管理路径，存在性检查只读元信息，读取使用 no-follow 描述符，写回独占临时文件并原子替换。REST 区分缺失 404、物理边界 409 与 IO 500；文档读取故障不能变成“未生成”，失败保存保留旧内容。该边界不代替 worker OS 沙箱或跨进程文件事务（ADR-0036）。
+
+headless 驱动保留流级会话回执，Codex 的 item.error/warning 非终态通知归 metadata，顶层任务错误仍失败。当前模板使用 approval_policy 配置，已通过真实 CLI 0.160.0 两轮新快照协调验证；详情见 [接入验证](./research/2026-10-07-real-context-agent.md) 与 ADR-0037。examples 提供三类 agent 与带人工审核的计划流程，CLI 安装/认证和其它 provider 的真实运行仍由实际调用验证。
+
 `cord/.index/server-index.sqlite` 只保存幂等键、run 登记和 SDLC 归档登记。删除它不会删除需求事实，但会丢失运行查询、幂等重放缓存和归档状态。
 
 ## 4. Workflow、运行与协调 agent

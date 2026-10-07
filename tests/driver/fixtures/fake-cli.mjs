@@ -103,9 +103,11 @@ switch (mode) {
     break;
   }
 
-  case "codex": {
+  case "codex":
+  case "codex-warning": {
     write({ type: "thread.started", thread_id: "thread-1" });
-    write({ type: "item.completed", item: { id: "item-1", type: "agent_message", text: "codex says hi" } });
+    if (mode === "codex-warning") write({ type: "item.completed", item: { id: "notification", type: "error", message: "NON_FATAL_CONFIGURATION_NOTICE" } });
+    write({ type: "item.completed", item: { id: "item-1", type: "agent_message", text: flagValue("--result-text") ?? "codex says hi" } });
     write({ type: "item.completed", item: { id: "item-2", type: "command_execution", command: "ls -la" } });
     if (sleepMs > 0) await sleep(sleepMs);
     write({ type: "turn.completed", usage: { input_tokens: 10, output_tokens: 5 } });

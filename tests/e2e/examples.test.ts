@@ -1,0 +1,28 @@
+/** 用户可复用示例由真实结构化解析器校验，不调用外部模型。 */
+import { readFile } from "node:fs/promises";
+import { describe, expect, it } from "vitest";
+import { parseAgentsYaml, createAgentRegistry } from "../../src/driver/agents-yaml.js";
+import { parseWorkflow } from "../../src/workflow/loader.js";
+import { topologicalOrder } from "../../src/workflow/executor.js";
+import { createBuiltinRegistry, findUnknownCheckers } from "../../src/workflow/checkers.js";
+
+describe("Agent 接入示例", () => {
+  it("Codex / Claude 角色 / ACP 配置可解析，流程 agent/checker 都可解析且保留人工 gate", async () => {
+    const loaded = parseAgentsYaml(await readFile(new URL("../../examples/agents.yaml", import.meta.url), "utf8"));
+    const registry = createAgentRegistry(loaded.yaml);
+    expect(loaded.warnings).toEqual([]); expect(registry.warnings).toEqual([]); expect(registry.rejected).toEqual([]);
+    expect(registry.resolve("context-coordinator").name).toBe("headless:context-coordinator");
+    expect(registry.resolve("claude-architect").name).toBe("headless:claude-architect");
+    const claude = loaded.yaml.agents["claude-architect"]!;
+    expect(claude.kind).toBe("headless");
+    if (claude.kind !== "headless") throw new Error("示例应使用 Claude headless 角色封装");
+    const roles = JSON.parse(claude.agents_json!);
+    expect(roles[claude.agent!]).toMatchObject({ tools: ["Read", "Grep", "Glob"], model: "inherit" });
+    expect(registry.resolve("kimi-acp").name).toBe("acp:kimi-acp");
+    const def = parseWorkflow(await readFile(new URL("../../examples/agent-sdlc.yaml", import.meta.url), "utf8"));
+    expect(topologicalOrder(def)).toEqual(["intake", "plan", "done"]);
+    expect(findUnknownCheckers(def, createBuiltinRegistry())).toEqual([]);
+    for (const node of def.spec.nodes) if (node.run !== undefined) expect(registry.resolve(node.run.agent).configuration_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(def.spec.nodes.flatMap((node) => node.gates).some((gate) => gate.pass.human_confirm)).toBe(true);
+  });
+});

@@ -92,6 +92,12 @@ agents:
 
 控制台的「Agent」页提供同一清单和重载操作。`configuration_hash` 表示实际启动参数身份，包含模板生效的模型/角色参数；全部 env 不参与。任务事件保存 `agent_configuration_hash` 并将其纳入恢复指纹，配置参数变化后的旧审批需重新确认。CLI 安装状态、环境变量与外部命名 agent 文件内容不在该指纹覆盖范围内。
 
+[接入示例](./examples/README.md) 提供可解析的 Codex 协调者、Claude Code 命名角色封装、Kimi ACP 配置，以及“需求检查 → 计划草稿 → 人工审核”的 SDLC。示例不含凭据，配置清单与离线测试只证明契约可解析，真实模型能力需实际运行核验。
+
+文件 checker、协调快照和 REST 文档使用同一普通文件边界：拒绝符号/硬链接、管理与事实文件、非规范路径及非普通文件。REST 真缺失返回 404，边界冲突返回 409，权限/IO 失败返回 500，避免把读故障当成新文档。文档保存使用独占临时文件与原子替换，失败保留旧内容；这不替代 worker 的 OS 沙箱或跨进程文件事务。详见 [ADR-0036](./docs/adr/ADR-0036-shared-document-boundary.md)。
+
+Codex headless 已用真实 CLI 0.160.0 验证两个新会话：更新 PRD 后提议使用新范围，旧提议不再有效。驱动保留 thread ID，将非终态配置通知留在 metadata，审批参数使用官方当前配置；测试仍默认离线，真实验证不证明所有模型或统计质量。详见 [ADR-0037](./docs/adr/ADR-0037-codex-runtime-notifications.md)。
+
 ## 数据布局
 
 ```text
@@ -218,7 +224,7 @@ curl -X POST http://127.0.0.1:7250/api/v1/requirements/REQ-001/coordination \
 - [文档入口](./docs/INDEX.md)：当前实现、协议、ADR 和设计归档的阅读路径。
 - [当前实现架构](./docs/current-architecture.md)：server、console、数据布局和运行路径。
 - [核心协议速查](./docs/protocol.md)：事件、账本、workflow、gate 和 voting 的实现契约。
-- [ADR 目录](./docs/adr/)：架构决策记录，当前包含 ADR-0001 ~ ADR-0035。
+- [ADR 目录](./docs/adr/)：架构决策记录，当前包含 ADR-0001 ~ ADR-0037。
 - [安全与权限模型](./docs/09-security.md)
 - [路线图](./docs/10-roadmap.md)
 - [风险与开放问题](./docs/11-risks.md)

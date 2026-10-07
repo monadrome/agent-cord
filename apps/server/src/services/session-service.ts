@@ -4,7 +4,7 @@
  * - 审批 / 时间线 / 需求状态一律从事件流实时派生，不落库（不存在双写漂移）；
  * - SessionHandle 进程内缓存（server 是唯一写者，句柄即订阅源）。
  */
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ulid as newEventUlid } from "ulid";
 import {
@@ -12,6 +12,10 @@ import {
   openSession,
   ULID_RE,
   matchesWorkflowScope,
+  readSessionDocument,
+  statSessionDocument,
+  writeSessionDocument,
+  SessionFileError,
   type EventEnvelope,
   type Ledger,
   type SessionHandle,
@@ -30,7 +34,7 @@ import type {
   VoteSummary,
 } from "../contracts.js";
 import { SNAPSHOT_DOC_NAMES } from "../contracts.js";
-import { conflict, notFound } from "../errors.js";
+import { conflict, notFound, internalError } from "../errors.js";
 
 const KNOWLEDGE_DIR = "knowledge";
 const SKIP_DIRS = new Set([KNOWLEDGE_DIR, ".index", ".sdlc"]);
@@ -230,11 +234,11 @@ export class SessionService {
 
   async detail(reqId: string, activeRun: boolean, def: WorkflowDef | null, workflow_revision?: string): Promise<RequirementDetail> {
     const summary = await this.summarize(reqId, activeRun, def, workflow_revision);
+    const handle = await this.open(reqId);
     const docs = {} as Record<SnapshotDocName, boolean>;
     for (const doc of SNAPSHOT_DOC_NAMES) {
       try {
-        await readFile(join(this.cordRoot, reqId, docFileName(doc)), "utf8");
-        docs[doc] = true;
+        docs[doc] = await statSessionDocument(handle.dir, docFileName(doc)) !== null;
       } catch {
         docs[doc] = false;
       }
@@ -243,18 +247,27 @@ export class SessionService {
   }
 
   async readDoc(reqId: string, doc: SnapshotDocName): Promise<string> {
-    await this.open(reqId);
+    const handle = await this.open(reqId);
+    let content: string | null;
     try {
-      return await readFile(join(this.cordRoot, reqId, docFileName(doc)), "utf8");
-    } catch {
-      throw notFound(`文档不存在：${reqId}/${docFileName(doc)}`);
+      content = await readSessionDocument(handle.dir, docFileName(doc));
+    } catch (error) {
+      if (error instanceof SessionFileError) throw conflict(`文档路径或文件类型不符合访问边界：${reqId}/${docFileName(doc)}`);
+      throw internalError(`文档读取失败，请核验文件和访问权限：${reqId}/${docFileName(doc)}`);
     }
+    if (content === null) throw notFound(`文档不存在：${reqId}/${docFileName(doc)}`);
+    return content;
   }
 
   /** 快照文档是 living 文档（ADR-0010 决策 5）：允许人编辑，状态机流转只经事件流 */
   async writeDoc(reqId: string, doc: SnapshotDocName, content: string): Promise<void> {
-    await this.open(reqId);
-    await writeFile(join(this.cordRoot, reqId, docFileName(doc)), content, "utf8");
+    const handle = await this.open(reqId);
+    try {
+      await writeSessionDocument(handle.dir, docFileName(doc), content);
+    } catch (error) {
+      if (error instanceof SessionFileError) throw conflict(`文档路径或文件类型不符合访问边界：${reqId}/${docFileName(doc)}`);
+      throw internalError(`文档保存失败，请核验当前内容后重新提交：${reqId}/${docFileName(doc)}`);
+    }
   }
 
   /** 账本：读取前经 rebuildLedger 重投影（唯一重建路径，ADR-0020 决策 4），保证与事件流一致 */

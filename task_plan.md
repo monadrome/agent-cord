@@ -233,6 +233,46 @@
 - 文件 checker 与 REST 文档访问尚未统一使用 coordinator 的物理文件边界，下一轮核验链接/事实文件/IO 故障。
 - 真实模型与真实需求验证、可复用自定义 agent 示例仍待完成，不能以本轮共享入口修复声称持续目标已全部完成。
 
+## 阶段 17：统一文档访问与接入验证（已实现并验证）
+
+- [x] 核验 `1056ed1` / `0231ab2` 与干净工作树，上一轮为已验证实现进展
+- [x] 定位 checker/REST 跟随链接、REST 读故障伪装 404、直接写入非原子的差异
+- [x] ADR-0036、共享 core 文档 helper，保留 coordinator 内部导入兼容入口
+- [x] checker 普通文件证据、REST 读写/可用性投影复用边界，链接/保留文件/缺失/IO 明确区分
+- [x] 覆盖文件证据成功/阻断/恢复、REST 外部文件不变、写入故障与门禁闭环
+- [x] 添加可复用 ACP/Claude 角色/Codex agent 配置和 SDLC 示例，结构化解析验证
+- [x] 临时工作区的真实 CLI 协调调用，核验最新快照/严格提议与来源；失败如实记录
+- [x] 全量 test/typecheck/build/diff、HTTP 验收、文档
+- [ ] 提交推送
+
+### 阶段 17 边界
+
+- 文件证据与快照文档只接受 session 内独立普通文件，拒绝链接、管理/事实文件和非规范路径。
+- file-exists 校验普通文件元信息，不为存在性检查加载整个内容；内容检查和 REST 读取使用 no-follow 描述符。
+- 缺失文档 404，物理边界错误 409，其他 IO 错误 500；普通读取失败不能引导控制台当作新文档覆盖。
+- 共享 helper 不等价于 OS 沙箱，Node 便携 API 不能承诺跨进程父目录替换的强事务；真实 CLI 在隔离临时工作区只产 Draft。
+
+### 阶段 17 验证记录
+
+- 首轮 12 个新增回归有 11 个失败，复现 checker 链接/事实文件放行、REST 链接/目录读取与直接写入；门禁测试调整独立 evidence.md，避免 PRD 的快照阻断先触发。
+- 共享 helper 实现后 43 个相关用例 / 4 文件、build/typecheck 通过；文件 helper 搬迁 + 同路径 re-export 不可在单 patch 重复操作，拆成顺序补丁后完成。
+- 补元信息不读正文/描述符清理/IO 500/根链接末尾斜杠，18 个新定向用例 / 4 文件与 typecheck 通过；ACP/Claude/Codex 示例用真实 parser 校验。
+- 本机 codex exec 帮助核验通过，准备隔离临时 git 工作区的两个新协调会话（90 秒预算/轮次），不采用或批准真实提议。
+- 全量 555 测试 / 49 文件、build/typecheck/diff 通过；真实 Codex 0.160.0 首轮 failed/output（完整 JSON 解析失败）而 token 用量已返回，doctor=true。准备规范化内容事件诊断，不能以调用成功冒充提议成功。
+- 第二次诊断证明模型已返回合法单 JSON，非终态 item.error（配置警告）被拼入正文；thread.started ID 未保留到结果。新增 ADR-0037、结构化通知/回执回归，官方 OpenAI 文档确认当前配置名为 approval_policy，准备修复真实 driver。
+- 4 个协议回归复现后修复，62 个 driver/配置/协调用例 / 3 文件与 build/typecheck/diff 通过；已知通知 metadata、终态错误不降级、thread 回执流级保留，Codex 审批配置更新。一次同文件重复 patch 操作拒绝且未写入，合并精确补丁后完成。
+- 真实 Codex 0.160.0 原始 production resolver 两轮 VERSION_A/B 均 ok/current，提议反映最新范围；输入/snapshot/session ID 不同、旧轮次 current=false、PRD 未被修改、doctor=true。证据 `/tmp/cord-stage17-real-result.json` 与临时工作区 real-result.json。
+- 修复后全量 558 测试 / 49 文件、typecheck/diff 通过；准备最新代码的 HTTP 与真实提议控制台预览。
+- HTTP 首轮所有文件边界/门禁恢复通过，workspace doctor 仅报临时 git 缺 merge driver 注册；session doctor 仍正常。宿主已明确退出，无存活 worker，按既有初始化步骤在临时仓库注册后重跑，保留真实协调事实。
+- 最终 558 测试 / 49 文件、build:all/typecheck/diff 通过，最新 HTTP 和浏览器验收通过；558 测试保持离线，真实 LLM 验收独立进行。
+- 第二轮 HTTP 证明符号/硬链接 409、缺失 404、外部原文不变、门禁 blocked → 修复 → completed，workspace doctor=true。浏览器 1440/390/320 无溢出/pageerror，读错误禁用编辑/保存、缺失可创建、修复可读。
+- 保留真实提议预览 `http://127.0.0.1:7305/#/requirements/REQ-REAL-CONTEXT/coordination`；证据 `/tmp/cord-stage17-real-result.json`、`/tmp/cord-stage17-http-result.json`、`/tmp/cord-stage17-browser-result.json` 与临时真实工作区截图。公开总结写入 docs/research/2026-10-07-real-context-agent.md。
+
+### 持续目标后续
+
+- 将可公开的真实开发需求接入示例 SDLC，完成计划 worker/独立评审/人工 gate 全链路验证；当前两轮真实协调不能证明整条开发流程完成。
+- Claude Code 角色封装和 ACP 仍需真实调用验证，CLI/version/model 的变化需兼容回归；不自动批准关键 gate 或合入。
+
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
 - [x] 核验当前分支与阶段 10；上一轮实现和远端同步属于已验证进展

@@ -1,0 +1,41 @@
+apiVersion: agent-cord.dev/v1alpha1
+kind: Workflow
+metadata:
+  id: agent-sdlc-example
+  name: 需求计划与人工审核
+spec:
+  nodes:
+    - id: intake
+      artifact: prd.md
+      gates:
+        - id: requirement-present
+          role: {}
+          attach: { node: intake, when: pre }
+          checks:
+            - ref: file-nonempty
+              with: { path: prd.md, min_bytes: 20 }
+          pass: { require: all, human_confirm: false }
+          on_fail: block
+    - id: plan
+      artifact: plan.md
+      depends_on: [intake]
+      run:
+        agent: codex-planner
+        timeout_ms: 180000
+        retry: { max_attempts: 2, backoff_ms: 1000 }
+        prompt: >-
+          根据当前 PRD 和共识为 {{req_id}} 制定实施计划，包含目标、任务和验收小节。
+          不修改代码，不批准门禁，只产 plan.md 草稿。
+      gates:
+        - id: plan-evidence
+          role: {}
+          attach: { node: plan, when: post }
+          checks:
+            - ref: file-nonempty
+              with: { path: plan.md, min_bytes: 40 }
+            - ref: doc-has-section
+              with: { path: plan.md, heading: 验收 }
+          pass: { require: all, human_confirm: true }
+          on_fail: block
+    - id: done
+      depends_on: [plan]
