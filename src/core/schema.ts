@@ -436,6 +436,9 @@ export const AgentTaskCompletedPayloadSchema = z.looseObject({
   node_id: z.string().min(1),
   driver: z.string().min(1),
   status: z.enum(["ok", "failed", "timeout", "cancelled"]),
+  /** ADR-0028：失败阶段与本次失败是否允许节点内重试 */
+  failure_stage: z.enum(["snapshot", "configuration", "driver", "artifact"]).optional(),
+  retryable: z.boolean().optional(),
   text: z.string().optional(),
   error: z.string().nullable().optional(),
   artifact: z.string().nullable().optional(),

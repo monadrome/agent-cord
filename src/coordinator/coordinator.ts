@@ -7,10 +7,8 @@
  * 3. 经 AgentDriver 调度（claude / codex / kimi / agents.yaml 注册别名），事件落盘；
  * 4. artifact 写回校验：agent 自写优先，非空文本回退为 coordinator 代写 draft。
  *
- * 纪律：实现不抛错——一切失败归约为 agent.task.completed{status} 事件，由执行器决定停在节点。
+ * 普通失败归约为 completed 事件；事件存储追加失败必须上抛，不能伪造持久化成功。
  */
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import { ulid } from "ulid";
 import type {
   AgentDriver,
@@ -26,6 +24,7 @@ import type { ErrorEventData, ResultEventData, TextEventData } from "../driver/h
 import type { WorkflowNode } from "../workflow/executor.js";
 import { buildContextPack } from "./context-pack.js";
 import { readSnapshot, resolveSessionFile } from "./snapshot.js";
+import { readSessionDocument, SessionFileError, writeSessionDocument } from "./session-files.js";
 
 const ADAPTER = "coordinator";
 const PROMPT_EXCERPT_CHARS = 4_096;
@@ -33,15 +32,19 @@ const DEFAULT_MAX_RESULT_CHARS = 32_768;
 const ABORTED = Symbol("run-aborted");
 
 /** 迭代器 next() 与取消信号竞速：worker 静默期（无事件）取消也要即时生效 */
-function raceAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T | typeof ABORTED> {
+async function raceAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T | typeof ABORTED> {
   if (signal === undefined) return promise;
-  if (signal.aborted) return Promise.resolve(ABORTED);
-  return Promise.race([
-    promise,
-    new Promise<typeof ABORTED>((resolve) => {
-      signal.addEventListener("abort", () => resolve(ABORTED), { once: true });
-    }),
-  ]);
+  let on_abort: () => void = () => {};
+  const aborted = new Promise<typeof ABORTED>((resolve) => {
+    on_abort = () => resolve(ABORTED);
+    if (signal.aborted) on_abort();
+    else signal.addEventListener("abort", on_abort, { once: true });
+  });
+  try {
+    return await Promise.race([promise, aborted]);
+  } finally {
+    signal.removeEventListener("abort", on_abort);
+  }
 }
 
 export interface CoordinatorOptions {
@@ -60,6 +63,12 @@ interface ArtifactSettle {
   written_by: "agent" | "coordinator" | "none";
 }
 
+interface AttemptOutcome {
+  status: NodeRunStatus;
+  error: string | null;
+  retryable: boolean;
+}
+
 /** artifact 写回双通道（ADR-0023 决策 4）：agent 自写优先，文本回退 coordinator 代写 draft */
 async function settleArtifact(
   node: WorkflowNode,
@@ -70,24 +79,13 @@ async function settleArtifact(
   if (node.artifact === undefined || node.run?.readonly === true) {
     return { artifact_written: false, written_by: "none" };
   }
-  const filePath = resolveSessionFile(session.dir, node.artifact);
-  if (filePath === null) {
-    throw new Error(`artifact 路径必须位于 session 目录内：${JSON.stringify(node.artifact)}`);
-  }
-  try {
-    const existing = await readFile(filePath, "utf8");
-    if (existing.trim().length > 0 && !isPlaceholderDoc(existing)) {
-      return { artifact_written: true, written_by: "agent" };
-    }
-  } catch {
-    // 文件不存在 → 走代写回退
+  const existing = await readSessionDocument(session.dir, node.artifact);
+  if (existing !== null && existing.trim().length > 0 && !isPlaceholderDoc(existing)) {
+    return { artifact_written: true, written_by: "agent" };
   }
   if (text.trim().length > 0) {
     const header = `<!-- 由协调 agent 代写（${driverName}，${new Date().toISOString()}）；经后续门禁与人审生效 -->\n\n`;
-    await mkdir(dirname(filePath), { recursive: true });
-    const temporary = `${filePath}.tmp`;
-    await writeFile(temporary, header + text.trim() + "\n", "utf8");
-    await rename(temporary, filePath);
+    await writeSessionDocument(session.dir, node.artifact, header + text.trim() + "\n");
     return { artifact_written: true, written_by: "coordinator" };
   }
   return { artifact_written: false, written_by: "none" };
@@ -129,7 +127,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
         // ADR-0025：取消信号在尝试边界生效（进行中的派发在 runAttempt 内即时收束）
         if (ctx.signal?.aborted === true) return { status: "cancelled" };
         const outcome = await runAttempt(node, session, ctx, attempt, maxAttempts, lastError);
-        if (outcome.status === "ok" || outcome.status === "cancelled") return outcome;
+        if (outcome.status === "ok" || outcome.status === "cancelled" || !outcome.retryable) return outcome;
         lastStatus = outcome.status;
         lastError = outcome.error;
         if (attempt < maxAttempts && backoffMs > 0) {
@@ -144,7 +142,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
 
   /**
    * 单次尝试：最新快照 + 上下文包（重试时带上次失败摘要，让 worker 避开同一失败模式）→
-   * 驱动解析 → 派发 → artifact 写回校验。一切失败归约为 completed{status} 事件。
+   * 驱动解析 → 派发 → artifact 写回校验。普通失败归约为 completed，存储追加错误上抛。
    */
   async function runAttempt(
     node: WorkflowNode,
@@ -153,7 +151,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
     attempt: number,
     maxAttempts: number,
     previousError: string | null,
-  ): Promise<{ status: NodeRunStatus; error: string | null }> {
+  ): Promise<AttemptOutcome> {
     const startedAt = Date.now();
     const agentName = node.run?.agent ?? "";
     const base = {
@@ -163,26 +161,12 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
       ...(maxAttempts > 1 ? { max_attempts: maxAttempts } : {}),
     };
 
-    // 1. 最新快照 + 上下文包（worker 永远不看事件流）
-    const snapshot = await readSnapshot(session, {
-      files: def.spec.nodes.flatMap((item) => item.artifact === undefined ? [] : [item.artifact]),
-    });
-    let prompt = buildContextPack(def, node, snapshot, {
-      ...(options.maxPackChars !== undefined ? { maxPackChars: options.maxPackChars } : {}),
-    });
-    if (previousError !== null) {
-      prompt += `\n\n## 上次尝试失败（第 ${attempt - 1} 次）\n${truncate(previousError, 2_000)}\n请避开同一失败模式。`;
-    }
-
-    const snapshotFields = {
-      snapshot_id: snapshot.snapshot_id,
-      snapshot_event_seq: snapshot.event_seq,
-      snapshot_event_chain_hash: snapshot.event_chain_hash,
-    };
+    let prompt = "";
+    let snapshotFields: Record<string, unknown> = {};
     const complete = async (
       status: NodeRunStatus,
       fields: Record<string, unknown>,
-    ): Promise<{ status: NodeRunStatus; error: string | null }> => {
+    ): Promise<AttemptOutcome> => {
       await append(session, "agent.task.completed", {
         ...base,
         ...snapshotFields,
@@ -194,46 +178,71 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
       return {
         status,
         error: typeof fields["error"] === "string" ? fields["error"] : null,
+        retryable: fields["retryable"] !== false,
       };
     };
-
-    // 2. 驱动解析（定义性错误，重试不会自愈 → 直接 failed 不消耗尝试次数语义外的机会）
-    if (
-      node.artifact !== undefined &&
-      node.run?.readonly !== true &&
-      resolveSessionFile(session.dir, node.artifact) === null
-    ) {
+    const started = async (driver_name: string): Promise<void> => {
       await append(session, "agent.task.started", {
         ...base,
         ...snapshotFields,
-        driver: agentName,
-        prompt_excerpt: truncate(prompt, PROMPT_EXCERPT_CHARS),
+        driver: driver_name,
+        ...(prompt.length > 0 ? { prompt_excerpt: truncate(prompt, PROMPT_EXCERPT_CHARS) } : {}),
       }, node.id);
+    };
+
+    if (node.artifact !== undefined && resolveSessionFile(session.dir, node.artifact) === null) {
+      await started(agentName);
       return complete("failed", {
-        error: `artifact 路径必须位于 session 目录内：${JSON.stringify(node.artifact)}`,
+        error: `artifact 路径必须位于 session 目录内，且不得指向事实文件或管理目录：${JSON.stringify(node.artifact)}`,
         text: "",
+        failure_stage: "configuration",
+        retryable: false,
       });
     }
+
+    // 1. 每次尝试重新读取输入；准备失败也要落终态，不能派发缺失上下文。
+    try {
+      const snapshot = await readSnapshot(session, {
+        workflow_id: ctx.workflow_id,
+        files: def.spec.nodes.flatMap((item) => item.artifact === undefined ? [] : [item.artifact]),
+      });
+      snapshotFields = {
+        snapshot_id: snapshot.snapshot_id,
+        snapshot_event_seq: snapshot.event_seq,
+        snapshot_event_chain_hash: snapshot.event_chain_hash,
+      };
+      prompt = buildContextPack(def, node, snapshot, {
+        ...(options.maxPackChars !== undefined ? { maxPackChars: options.maxPackChars } : {}),
+      });
+      if (previousError !== null) {
+        prompt += `\n\n## 上次尝试失败（第 ${attempt - 1} 次）\n${truncate(previousError, 2_000)}\n请避开同一失败模式。`;
+      }
+    } catch (error) {
+      await started(agentName);
+      return complete("failed", {
+        error: `快照准备失败：${error instanceof Error ? error.message : String(error)}`,
+        text: "",
+        failure_stage: "snapshot",
+        retryable: !(error instanceof SessionFileError),
+      });
+    }
+
+    if (ctx.signal?.aborted === true) {
+      await started(agentName);
+      return complete("cancelled", { text: "", error: "run 已取消", retryable: false });
+    }
+
+    // 2. 配置解析错误无法通过重试自愈。
     let driver: AgentDriver;
     try {
       driver = options.resolveDriver(agentName);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      await append(session, "agent.task.started", {
-        ...base,
-        ...snapshotFields,
-        driver: agentName,
-        prompt_excerpt: truncate(prompt, PROMPT_EXCERPT_CHARS),
-      }, node.id);
-      return complete("failed", { error: `驱动解析失败：${reason}`, text: "" });
+      await started(agentName);
+      return complete("failed", { error: `驱动解析失败：${reason}`, text: "", failure_stage: "configuration", retryable: false });
     }
 
-    await append(session, "agent.task.started", {
-      ...base,
-      ...snapshotFields,
-      driver: driver.name,
-      prompt_excerpt: truncate(prompt, PROMPT_EXCERPT_CHARS),
-    }, node.id);
+    await started(driver.name);
 
     // 3. 派发 worker：聚合流式文本，result 事件优先；中间事件不入事件流
     let chunks = "";
@@ -288,12 +297,13 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
     }
 
     const text = resultText ?? chunks;
-    if (cancelled) {
+    if (cancelled || Boolean(ctx.signal?.aborted)) {
       return complete("cancelled", {
         error: "run 已取消（workflow.run.cancelled）",
         text: truncate(text, options.maxResultChars ?? DEFAULT_MAX_RESULT_CHARS),
         agent_session_id: agentSessionId,
         usage: usage ?? null,
+        retryable: false,
       });
     }
     if (failure !== null) {
@@ -302,11 +312,28 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
         text: truncate(text, options.maxResultChars ?? DEFAULT_MAX_RESULT_CHARS),
         agent_session_id: agentSessionId,
         usage: usage ?? null,
+        failure_stage: "driver",
+        retryable: true,
       });
     }
 
     // 4. artifact 写回校验（双通道）
-    const settle = await settleArtifact(node, session, text, driver.name);
+    let settle: ArtifactSettle;
+    try {
+      settle = await settleArtifact(node, session, text, driver.name);
+    } catch (error) {
+      return complete("failed", {
+        error: `artifact 写回失败：${error instanceof Error ? error.message : String(error)}`,
+        text: truncate(text, options.maxResultChars ?? DEFAULT_MAX_RESULT_CHARS),
+        artifact: node.artifact ?? null,
+        artifact_written: false,
+        written_by: "none",
+        agent_session_id: agentSessionId,
+        usage: usage ?? null,
+        failure_stage: "artifact",
+        retryable: !(error instanceof SessionFileError),
+      });
+    }
     return complete("ok", {
       text: truncate(text, options.maxResultChars ?? DEFAULT_MAX_RESULT_CHARS),
       artifact: node.artifact ?? null,

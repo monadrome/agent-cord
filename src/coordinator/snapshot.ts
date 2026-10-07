@@ -4,11 +4,13 @@
  *
  * 快照 = 快照文档（截断）+ 账本条目摘要 + 工作流进度。历史细节留事件流，不进视图。
  */
-import { readFile } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { SessionHandle } from "../core/ports.js";
 import { SNAPSHOT_DOC_FILES } from "../core/session.js";
 import { canonicalJson, hashChain, sha256Hex } from "../core/hash.js";
+import { createReducer } from "../core/reducer.js";
+import { readSessionDocument } from "./session-files.js";
+
+export { resolveSessionFile } from "./session-files.js";
 
 export interface SnapshotDoc {
   /** 文件名（如 prd.md） */
@@ -28,6 +30,7 @@ export interface SnapshotLedgerEntry {
   entry_id: string;
   title: string;
   status: string;
+  conflict: boolean;
 }
 
 export interface WorkflowProgress {
@@ -53,23 +56,8 @@ export interface SnapshotOptions {
   maxDocChars?: number;
   /** workflow 声明的自定义 artifact；会与固定四个快照文档合并去重 */
   files?: readonly string[];
-}
-
-/** 解析 session 内相对文件；越界、绝对路径和空路径均返回 null。 */
-export function resolveSessionFile(sessionDir: string, file: string): string | null {
-  if (file.trim().length === 0 || isAbsolute(file)) return null;
-  const root = resolve(sessionDir);
-  const candidate = resolve(root, file);
-  const relativePath = relative(root, candidate);
-  if (
-    relativePath.length === 0 ||
-    relativePath === ".." ||
-    relativePath.startsWith(`..${sep}`) ||
-    isAbsolute(relativePath)
-  ) {
-    return null;
-  }
-  return candidate;
+  /** 仅投影该 workflow 的节点进度；省略时保留 session 全部进度 */
+  workflow_id?: string;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -92,40 +80,32 @@ export async function readSnapshot(
     let truncated = false;
     let contentHash: string | null = null;
     let contentLength = 0;
-    const filePath = resolveSessionFile(session.dir, file);
-    try {
-      if (filePath === null) throw new Error("invalid session-relative path");
-      const raw = await readFile(filePath, "utf8");
+    const raw = await readSessionDocument(session.dir, file);
+    if (raw !== null) {
       exists = true;
       truncated = raw.length > maxDocChars;
       content = raw.slice(0, maxDocChars);
       contentHash = sha256Hex(raw);
       contentLength = raw.length;
-    } catch {
-      // 文档缺失是合法状态（节点还没跑到）
     }
     docs.push({ file, exists, content, truncated, content_hash: contentHash, content_length: contentLength });
   }
 
-  let ledger: SnapshotLedgerEntry[] = [];
-  try {
-    const projection = await session.readLedger();
-    ledger = projection.entries.map((entry) => ({
-      entry_id: entry.entry_id,
-      title: entry.title,
-      status: entry.status,
-    }));
-  } catch {
-    // 账本读不到不阻断快照（gate 侧自会 fail-closed）
-  }
-
+  // 账本、进度与 provenance 必须来自同次事件读取，磁盘投影可滞后或缺失。
   const events = await session.events.readOrdered();
+  const ledger: SnapshotLedgerEntry[] = createReducer().reduce(events).entries.map((entry) => ({
+    entry_id: entry.entry_id,
+    title: entry.title,
+    status: entry.status,
+    conflict: entry.conflict,
+  }));
   const created = events.find((event) => event.type === "session.created");
   const titleValue = asRecord(created?.payload)?.["title"];
   const entered = new Set<string>();
   const exited = new Set<string>();
   for (const event of events) {
     const payload = asRecord(event.payload);
+    if (options.workflow_id !== undefined && payload?.["workflow_id"] !== options.workflow_id) continue;
     const nodeId = payload?.["node_id"];
     if (typeof nodeId !== "string") continue;
     if (event.type === "workflow.node.entered") entered.add(nodeId);
@@ -145,6 +125,7 @@ export async function readSnapshot(
     })),
     ledger,
     workflow: { entered: [...entered], exited: [...exited] },
+    workflow_id: options.workflow_id ?? null,
     event_seq: eventSeq,
     event_chain_hash: eventChainHash,
   };

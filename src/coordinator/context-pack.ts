@@ -105,7 +105,9 @@ export function buildContextPack(
   }
 
   if (snapshot.ledger.length > 0) {
-    const lines = snapshot.ledger.map((entry) => `- [${entry.status}] ${entry.entry_id} ${entry.title}`);
+    const lines = snapshot.ledger.map((entry) =>
+      `- [${entry.status}${entry.conflict ? " · 冲突，待人工处理" : ""}] ${entry.entry_id} ${entry.title}`,
+    );
     sections.push(``, `## 共识账本（已入账条目）`, lines.join("\n"));
   }
 

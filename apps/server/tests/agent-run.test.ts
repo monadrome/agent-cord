@@ -95,6 +95,43 @@ afterEach(async () => {
 });
 
 describe("agent 执行闭环（node.run + agents.yaml + 参数化 checker）", () => {
+  it("快照文件不可读 → run failed 与任务阶段留痕；修复后重新 start 断点完成", async () => {
+    await api("POST", "/api/v1/sdlcs/agent-sdlc/versions/publish", {
+      body: { yaml: AGENT_SDLC }, key: "publish-recovery-sdlc",
+    });
+    await api("POST", "/api/v1/requirements", {
+      body: { req_id: "REQ-RECOVER", title: "快照故障恢复", prd: "# PRD\n最新需求" }, key: "create-recovery",
+    });
+    const plan_path = join(root, "cord", "REQ-RECOVER", "plan.md");
+    await rm(plan_path);
+    await mkdir(plan_path);
+    const failed_run = await api("POST", "/api/v1/requirements/REQ-RECOVER/runs", {
+      body: { sdlc_id: "agent-sdlc" }, key: "start-unreadable",
+    });
+    expect(failed_run.status).toBe(202);
+    await waitFor(async () => {
+      const runs = await api("GET", "/api/v1/requirements/REQ-RECOVER/runs");
+      return runs.body.runs[0]?.status === "failed" && !server.runs.isActive("REQ-RECOVER");
+    });
+    const events = await api("GET", "/api/v1/requirements/REQ-RECOVER/events");
+    const failure = events.body.events.find((event: { type: string }) => event.type === "agent.task.completed");
+    expect(failure.payload).toMatchObject({ status: "failed", failure_stage: "snapshot", retryable: false });
+    await rm(plan_path, { recursive: true });
+    const recovered = await api("POST", "/api/v1/requirements/REQ-RECOVER/runs", {
+      body: { sdlc_id: "agent-sdlc" }, key: "start-repaired",
+    });
+    expect(recovered.status).toBe(202);
+    await waitFor(async () => {
+      const detail = await api("GET", "/api/v1/requirements/REQ-RECOVER");
+      return detail.body.requirement.status === "completed";
+    });
+    expect(await readFile(plan_path, "utf8")).toContain("final answer");
+    const final_events = await api("GET", "/api/v1/requirements/REQ-RECOVER/events");
+    expect(final_events.body.events.filter((event: { type: string; payload: any }) =>
+      event.type === "workflow.node.exited" && event.payload.node_id === "intake",
+    )).toHaveLength(1);
+  });
+
   it("发布 agent SDLC → 启动 run → agent.task 事件 → artifact 代写 → completed", async () => {
     // 校验 + 发布自定义 SDLC（带 node.run 与参数化 checker）
     const validated = await api("POST", "/api/v1/sdlcs/agent-sdlc/versions/validate", {

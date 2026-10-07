@@ -2,10 +2,12 @@
  * 协调 agent 测试（ADR-0023）：快照/上下文包/事件落盘/artifact 双通道写回/恢复不重复执行。
  * driver 用内存 fake（不 spawn 子进程）；session 用真实 initSession（tmpdir）。
  */
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { getEventListeners } from "node:events";
+import { ulid } from "ulid";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentDriver, AgentEvent, SessionHandle } from "../../src/core/ports.js";
 import { initSession } from "../../src/core/session.js";
 import type { WorkflowDef } from "../../src/core/schema.js";
@@ -139,6 +141,148 @@ function asPayload(event: { payload: unknown }): Record<string, unknown> {
 // ---------------------------------------------------------------------------
 
 describe("coordinator（NodeRunner）", () => {
+  it("快照读取失败落任务失败事件，不派发；输入修复后下一次可恢复", async () => {
+    await rm(join(session.dir, "prd.md"));
+    await mkdir(join(session.dir, "prd.md"));
+    const driver = okDriver("# Plan\n修复后正常产出");
+    const runner = createNodeRunner(DEF, { resolveDriver: () => driver, workspaceRoot: root });
+    const ctx = { workflow_id: "wf-agent", node_id: "plan" };
+    expect((await runner.runNode(DEF.spec.nodes[1]!, session, ctx)).status).toBe("failed");
+    expect(driver.prompts).toHaveLength(0);
+    const failure = (await session.events.readOrdered()).find((event) => event.type === "agent.task.completed");
+    expect(asPayload(failure!).failure_stage).toBe("snapshot");
+    await rm(join(session.dir, "prd.md"), { recursive: true });
+    await writeFile(join(session.dir, "prd.md"), "# PRD\n最新需求");
+    expect((await runner.runNode(DEF.spec.nodes[1]!, session, ctx)).status).toBe("ok");
+    expect(driver.prompts[0]).toContain("最新需求");
+  });
+
+  it("瞬态快照读取故障按节点策略重试，成功后重新采集上下文", async () => {
+    vi.spyOn(session.events, "readOrdered").mockRejectedValueOnce(new Error("transient event read IO"));
+    const driver = okDriver("# 最新计划");
+    const runner = createNodeRunner(DEF_RETRY, { resolveDriver: () => driver, workspaceRoot: root });
+    expect((await runner.runNode(DEF_RETRY.spec.nodes[1]!, session, { workflow_id: "wf-retry", node_id: "plan" })).status).toBe("ok");
+    expect(driver.prompts).toHaveLength(1);
+    expect(driver.prompts[0]).toContain("transient event read IO");
+    const completions = (await session.events.readOrdered()).filter((event) => event.type === "agent.task.completed");
+    expect(completions.map((event) => asPayload(event).status)).toEqual(["failed", "ok"]);
+    expect(asPayload(completions[0]!).failure_stage).toBe("snapshot");
+    expect(asPayload(completions[0]!).retryable).toBe(true);
+  });
+
+  it("快照准备期间取消，不启动 worker，不代写文档", async () => {
+    const controller = new AbortController();
+    const read = session.events.readOrdered.bind(session.events);
+    vi.spyOn(session.events, "readOrdered").mockImplementationOnce(async () => {
+      const events = await read();
+      controller.abort();
+      return events;
+    });
+    const driver = okDriver("不应派发");
+    const runner = createNodeRunner(DEF, { resolveDriver: () => driver, workspaceRoot: root });
+    const result = await runner.runNode(DEF.spec.nodes[1]!, session, { workflow_id: "wf-agent", node_id: "plan", signal: controller.signal });
+    expect(result.status).toBe("cancelled");
+    expect(driver.prompts).toHaveLength(0);
+    expect(await readFile(join(session.dir, "plan.md"), "utf8")).toContain("占位文档");
+  });
+
+  it("driver 后写回失败落 completed，保持节点未退出；修复文件后恢复", async () => {
+    const driver = okDriver("# Plan\n恢复计划");
+    driver.run = async function* (task) {
+      driver.prompts.push(task.prompt);
+      await rm(join(session.dir, "plan.md"));
+      await mkdir(join(session.dir, "plan.md"));
+      yield { type: "result", data: { text: "计划", session_id: "s-failed-write" } };
+    };
+    const runner = createNodeRunner(DEF, { resolveDriver: () => driver, workspaceRoot: root });
+    const executor = createExecutor({ humanGate: { ask: async () => "确认放行" }, nodeRunner: runner });
+    await expect(executor.run(DEF, session)).resolves.toBeUndefined();
+    const events = await session.events.readOrdered();
+    const failure = events.find((event) => event.type === "agent.task.completed");
+    expect(asPayload(failure!).status).toBe("failed");
+    expect(asPayload(failure!).failure_stage).toBe("artifact");
+    expect(asPayload(failure!).agent_session_id).toBe("s-failed-write");
+    expect(events.filter((event) => event.type === "workflow.node.exited").map((event) => asPayload(event).node_id)).toEqual(["intake"]);
+    await rm(join(session.dir, "plan.md"), { recursive: true });
+    const recovered_driver = okDriver("# 恢复计划");
+    await createExecutor({
+      humanGate: { ask: async () => "确认放行" },
+      nodeRunner: createNodeRunner(DEF, { resolveDriver: () => recovered_driver, workspaceRoot: root }),
+    }).run(DEF, session);
+    expect((await session.events.readOrdered()).filter((event) => event.type === "workflow.node.exited")).toHaveLength(3);
+  });
+
+  it("驱动配置错误即使 retry=3 也只尝试一次", async () => {
+    const resolve = vi.fn(() => { throw new Error("bad driver configuration"); });
+    const runner = createNodeRunner(DEF_RETRY, { resolveDriver: resolve, workspaceRoot: root });
+    expect((await runner.runNode(DEF_RETRY.spec.nodes[1]!, session, { workflow_id: "wf-retry", node_id: "plan" })).status).toBe("failed");
+    expect(resolve).toHaveBeenCalledTimes(1);
+    const completed = (await session.events.readOrdered()).filter((event) => event.type === "agent.task.completed");
+    expect(completed).toHaveLength(1);
+    expect(asPayload(completed[0]!).retryable).toBe(false);
+  });
+
+  it.each(["events.jsonl", "ledger.yaml", "reports/../events.jsonl", ".index/result.md"])("事实/管理路径 %s 不能作为 artifact 派发", async (artifact) => {
+    const driver = okDriver("不应执行");
+    const node = { ...DEF.spec.nodes[1]!, artifact };
+    const def = { ...DEF, spec: { nodes: [node] } };
+    const runner = createNodeRunner(def, { resolveDriver: () => driver, workspaceRoot: root });
+    expect((await runner.runNode(node, session, { workflow_id: "wf-agent", node_id: "plan" })).status).toBe("failed");
+    expect(driver.prompts).toHaveLength(0);
+    const events = await session.events.readOrdered();
+    expect(events.map((event) => event.type)).toEqual(["agent.task.started", "agent.task.completed"]);
+    expect(asPayload(events[1]!).retryable).toBe(false);
+  });
+
+  it("worker 结束后把 artifact 换成符号链接不能被归为成功", async () => {
+    const outside = join(root, "external.md");
+    await writeFile(outside, "OUTSIDE_CONTENT");
+    const driver = okDriver("不应代写");
+    driver.run = async function* () {
+      await rm(join(session.dir, "plan.md"));
+      await symlink(outside, join(session.dir, "plan.md"));
+      yield { type: "result", data: { text: "不应代写" } };
+    };
+    const runner = createNodeRunner(DEF, { resolveDriver: () => driver, workspaceRoot: root });
+    expect((await runner.runNode(DEF.spec.nodes[1]!, session, { workflow_id: "wf-agent", node_id: "plan" })).status).toBe("failed");
+    expect(await readFile(outside, "utf8")).toBe("OUTSIDE_CONTENT");
+  });
+
+  it("追加 started 失败必须上抛且不派发，不能伪造 completed", async () => {
+    const driver = okDriver("不应派发");
+    const broken: SessionHandle = { ...session, events: {
+      ...session.events,
+      readOrdered: () => session.events.readOrdered(),
+      readAll: () => session.events.readAll(),
+      subscribe: (handler) => session.events.subscribe(handler),
+      append: async () => { throw new Error("event storage unavailable"); },
+    } };
+    const runner = createNodeRunner(DEF, { resolveDriver: () => driver, workspaceRoot: root });
+    await expect(runner.runNode(DEF.spec.nodes[1]!, broken, { workflow_id: "wf-agent", node_id: "plan" })).rejects.toThrow("event storage unavailable");
+    expect(driver.prompts).toHaveLength(0);
+  });
+
+  it("completed 无法追加时上抛，不能重试已经执行的 worker", async () => {
+    const append = session.events.append.bind(session.events);
+    vi.spyOn(session.events, "append").mockImplementation(async (draft) => {
+      if (draft.type === "agent.task.completed") throw new Error("event fsync failure");
+      return append(draft);
+    });
+    const driver = okDriver("# 首次执行");
+    const runner = createNodeRunner(DEF_RETRY, { resolveDriver: () => driver, workspaceRoot: root });
+    await expect(runner.runNode(DEF_RETRY.spec.nodes[1]!, session, { workflow_id: "wf-retry", node_id: "plan" })).rejects.toThrow("event fsync failure");
+    expect(driver.prompts).toHaveLength(1);
+    expect((await session.events.readOrdered()).map((event) => event.type)).toEqual(["agent.task.started"]);
+  });
+
+  it("流式任务结束后释放所有取消监听器", async () => {
+    const driver = fakeDriver(Array.from({ length: 30 }, () => ({ type: "text", data: { text: "part" } })));
+    const controller = new AbortController();
+    const runner = createNodeRunner(DEF, { resolveDriver: () => driver, workspaceRoot: root });
+    await runner.runNode(DEF.spec.nodes[1]!, session, { workflow_id: "wf-agent", node_id: "plan", signal: controller.signal });
+    expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+  });
+
   it("agent 只回文本 → coordinator 代写 artifact（written_by=coordinator）", async () => {
     const runner = createNodeRunner(DEF, {
       resolveDriver: () => okDriver("# Plan\n\n第一步：做 A。\n"),
@@ -462,6 +606,34 @@ describe("上下文包（buildContextPack）", () => {
 
 describe("执行器 × node.run", () => {
   const humanGate = { ask: async () => "确认放行" };
+
+  it("同一 run 的下一个 worker 看见刚更新的 PRD 和未刷磁盘投影的新账本事件", async () => {
+    await writeFile(join(session.dir, "prd.md"), "# PRD\nVERSION_ONE");
+    const def: WorkflowDef = { ...DEF, spec: { nodes: [
+      DEF.spec.nodes[0]!, DEF.spec.nodes[1]!,
+      { id: "review", depends_on: ["plan"], run: { agent: "fake-agent", readonly: true }, gates: [] },
+    ] } };
+    const driver = fakeDriver([]);
+    driver.run = async function* (task) {
+      driver.prompts.push(task.prompt);
+      if (driver.prompts.length === 1) {
+        await writeFile(join(session.dir, "prd.md"), "# PRD\nVERSION_TWO");
+        for (const [type, payload] of [
+          ["ledger.entry.proposed", { entry_id: "C-99", title: "LATEST_CONFIRMED_DECISION", anchors: [{ kind: "doc", anchor: "prd.md" }] }],
+          ["ledger.entry.confirmed", { entry_id: "C-99" }],
+        ] as const) {
+          await session.events.append({ event_id: ulid(), session_id: session.req_id, type, schema_version: "1", actor: { kind: "human", id: "test" }, correlation_id: null, payload, source: { adapter: "test" } });
+        }
+      }
+      yield { type: "result", data: { text: "# 节点产物" } };
+    };
+    await createExecutor({ humanGate, nodeRunner: createNodeRunner(def, { resolveDriver: () => driver, workspaceRoot: root }) }).run(def, session);
+    expect(driver.prompts[0]).toContain("VERSION_ONE");
+    expect(driver.prompts[1]).toContain("VERSION_TWO");
+    expect(driver.prompts[1]).not.toContain("VERSION_ONE");
+    expect(driver.prompts[1]).toContain("[confirmed] C-99 LATEST_CONFIRMED_DECISION");
+    expect((await session.readLedger()).entries).toEqual([]);
+  });
 
   it("声明 run 的节点经 NodeRunner 执行并完成流程", async () => {
     const driver = okDriver("# Plan\n\n由 agent 产出。\n");

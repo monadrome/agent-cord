@@ -73,3 +73,15 @@
 - 实际 HTTP smoke：公开清单、显式重载、同键重放、临时 fake worker SDLC 到人工 gate 并完成；并发同键返回 revision [2,2] 且当前 revision 只递增一次。
 - 预览服务 `http://127.0.0.1:7291`，临时工作区 `/tmp/cord-stage8-preview`，日志 `/tmp/cord-stage8-preview.log`；不写入仓库运行时数据。
 - 本地功能提交 `f9dc09d`。GitHub 443 连接超时，首次推送未返回，停止后 20 秒有界重试仍失败；本地提交保留，远端尚未确认更新。
+
+## 2026-10-06（阶段 9）
+
+- 本轮开始工作区干净，HEAD 为 `8977912`。确认上一轮实现与测试已完成，远端检查仍超时。
+- 开始完善最新快照：从一次事件读取派生账本、进度与 provenance，按 workflow 隔离进度；补准备/写回失败留痕与实际文件边界。
+- ADR-0028 先行；账本直接从当前事件批次 reducer 投影，workflow 进度隔离，冲突保留并在上下文中标注。
+- 新增 session-files：普通文档校验、保留路径拒绝、符号链接/硬链接拒绝、独占随机临时文件 + fsync + rename + 故障清理。
+- 准备/配置/driver/artifact 的普通失败都有任务 completed 与 failure_stage/retryable，永久配置不重试；事件追加失败上抛，取消监听器完成后释放。
+- 44 个 coordinator 定向测试通过，覆盖最新 PRD/账本多节点同步、写回恢复、瞬态重试、准备取消、事件追加故障、链接与原子写失败清理；开始完整 workspace 验证。
+- 最终全量 366 测试 / 34 文件通过，`npm run typecheck`、`npm run build:all`、`git diff --check` 通过。
+- 实际 HTTP smoke：人工 gate 期间更新 PRD 并追加账本事件，磁盘账本尚未更新时下一 worker 的 prompt 仍收到最新输入；快照目录错误落失败阶段，修复后重新 start 断点完成；health/doctor 全通过。
+- 预览 `http://127.0.0.1:7292`，临时工作区 `/tmp/cord-stage9-preview`，结果 `/tmp/cord-stage9-preview/smoke-result.json`，日志 `/tmp/cord-stage9-preview.log`。

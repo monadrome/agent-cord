@@ -144,7 +144,8 @@ export type NodeRunStatus = "ok" | "failed" | "timeout" | "cancelled";
  * 节点执行体端口： Coordinator 的生产实现负责快照剪裁 → driver 调度 → agent.task 事件落盘。
  * 实现方约定：
  * - 所有事实经 session.events.append 落盘（agent.task.started / agent.task.completed）；
- * - 不抛错——失败归约为 status: failed/timeout 的 completed 事件，由执行器决定停在该节点。
+ * - 普通失败归约为 failed/timeout 的 completed 事件，由执行器决定停在该节点；
+ *   ADR-0028：事件存储追加失败必须上抛给宿主，不能伪造任务事实或继续派发。
  */
 export interface NodeRunner {
   runNode(

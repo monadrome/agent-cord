@@ -44,3 +44,10 @@
 - `parseAgentsYaml` 对所有条目整体校验，单条 schema 错误会阻断整个文件，与逐条降级的文档承诺不符。
 - `loadAgentsFile` 捕获全部读取异常并视为文件不存在，权限/IO 故障会静默失去自定义配置。
 - server 启动时只加载一次 `agents.yaml`，缺少清单与重载入口；计划增加配置快照，让在途 run 固定其 resolver，后续 run 使用新配置。
+
+## 实现校准（2026-10-06，协调快照一致性）
+
+- `session.readLedger` 仅读磁盘投影，coordinator 在 run 尚未结束时可能看不到最近的 ledger 事件；直接调用纯 reducer 处理本次 readOrdered 返回的事件，可避免副本滞后且不写投影文件。
+- `readSnapshot` 没有 workflow 过滤，同名节点的历史退出会进入当前流程的上下文。
+- 快照准备和 artifact 写回位于 coordinator 的 driver try/catch 之外，会出现 started 后没有 completed 的异常；驱动解析失败也会被外层 retry 循环重复执行，与文档不符。
+- 目录词法校验不能发现符号链接，固定 `${file}.tmp` 也可指向外部文件；artifact 可命名为 events.jsonl/ledger.yaml，必须在派发前拒绝。
