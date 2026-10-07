@@ -99,3 +99,4 @@
 - 实际 HTTP 验收：旧磁盘 confirmed 已在事件中推翻时被阻断；新确认未刷投影也可恢复；worker 明确空结果不覆盖旧文档，重载修复后生成新产物，前后 hash 与文件一致，doctor 通过。
 - 预览 `http://127.0.0.1:7293`，工作区 `/tmp/cord-stage10-preview`，结果 `/tmp/cord-stage10-preview/smoke-result.json`，日志 `/tmp/cord-stage10-preview.log`。
 - 改用 HTTP/1.1 查询远端成功，exp/impl 当前仍为 b06b96b；准备同步本轮与此前全部本地提交。
+- 本轮实现提交 `16090c6`；HTTP/1.1 推送成功（b06b96b → 16090c6），阶段 8/9 的积压本地提交已一并同步，无需改全局 Git 配置。
