@@ -1,6 +1,6 @@
 # 当前实现架构
 
-> 状态：M2/MVP + 协调 agent（2026-10-06）。本文描述仓库当前代码，不替代 ADR 的决策记录。
+> 状态：M2/MVP + 节点协调 + 独立 Context Session Agent（2026-10-07）。本文描述仓库当前代码，不替代 ADR 的决策记录。
 
 ## 1. 一句话概览
 
@@ -15,6 +15,7 @@ Fastify server
     ├── RunService：workflow runner、人工 gate、恢复、NodeRunner 注入
     ├── SdlcService：YAML 校验、发布版本、草稿、归档、模板库
     ├── AgentService：工作区配置快照、清单与显式重载
+    ├── CoordinationService：独立协调轮次、结构化提议投影、取消与中断恢复
     └── IndexStore：幂等键、运行登记、SDLC 归档登记（派生数据）
     │
     ├── cord/<req-id>/events.jsonl  事实来源
@@ -37,7 +38,7 @@ worker agent 子进程（ACP / 裸 headless CLI）
 |---|---|
 | `src/core` | EventEnvelope、JSONL store、哈希链、reducer、session、doctor |
 | `src/workflow` | YAML workflow、拓扑执行（pre gates → node.run → post gates）、内置 checker（含参数化）、人工 gate 端口 |
-| `src/coordinator` | 协调 agent：按 workflow artifact 动态采集需求快照、两层上下文包、provenance 指纹、NodeRunner 生产实现、artifact 双通道写回 |
+| `src/coordinator` | 节点协调（快照、上下文包、NodeRunner、artifact 写回）与独立 ContextSessionAgent（严格提议、来源验证、在途重检） |
 | `src/voting` | k=2~3 盲评、锚点校验、投票判定和留痕结构 |
 | `src/driver` | ACP 与 headless agent driver、agents.yaml 工作区独立 resolver 与逐条诊断 |
 | `apps/server` | Fastify REST/SSE、运行服务、SDLC 服务、派生 SQLite 索引 |
@@ -95,12 +96,15 @@ intake → align → plan → implement → verify → review → done
 
 当前默认流程包含证据 gate 和人工 review gate；真实 agent 产出由声明了 `run` 的自定义 SDLC（如模板库 agent-collab 档）承载。
 
+独立 ContextSessionAgent 不依赖 node.run：每轮固定 resolver，按当前 SDLC 版本采集最新快照（含同次事件投影的待人工 gate），新建 driver 会话，输出严格 JSON Draft 提议。来源引用、节点依赖和完成状态由宿主验证；运行期间输入变化则落 stale，不返回旧建议。它不启动 worker、不写文档、不放行 gate。CoordinationService 提供异步创建、查询和取消；轮次事实只在事件流，重启将未完成请求记 interrupted，不重放调用（ADR-0032）。当前 console 可看轮次事件，独立操作面板待后续实现。
+
 ## 5. Server 和 API
 
 server 默认监听 `127.0.0.1:7250`，工作区由 `CORD_ROOT` 指定。核心接口包括：
 
 - 查询：`/health`、`/dashboard`、`/requirements`、需求详情、timeline、ledger、votes、runs、approvals。
 - Agent：`GET /agents` 查看配置 revision、公开清单和诊断；`POST /agents/reload` 显式重载（幂等键），清单不包含 env、args 或角色 prompt。
+- 协调：`POST/GET /requirements/:req_id/coordination`、`GET /requirements/:req_id/coordination/:round_id`、`POST .../:round_id/cancel`；创建返回 202，每需求至多一个在途协调轮次。
 - 命令：创建需求、编辑快照文档、启动 run（可指定 `sdlc_id` + `sdlc_version`）、取消 run（`POST /runs/:run_id/cancel`，幂等）、处理人工审批。
 - 实时：`/requirements/:req_id/events/stream`，使用事件 `seq` 作为 SSE id，并支持 `Last-Event-ID` 回放。
 - SDLC：列表、读取版本、validate、publish、草稿（GET/PUT/DELETE `/sdlcs/:id/draft`）、版本归档（archive/unarchive）、模板库（`GET /sdlc-templates`）。归档版本禁止启动新 run，不影响在途/历史 run。

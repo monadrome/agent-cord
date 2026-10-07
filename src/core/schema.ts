@@ -242,6 +242,30 @@ export const WorkflowDefSchema = z.object({
 });
 export type WorkflowDef = z.infer<typeof WorkflowDefSchema>;
 
+/** ADR-0032：协调提议仅引用当前快照/工作流，不能携带任意命令或修改协议。 */
+export const CoordinationEvidenceSchema = z.discriminatedUnion("source", [
+  z.strictObject({ source: z.literal("document"), id: z.string().min(1).max(500) }),
+  z.strictObject({ source: z.literal("ledger"), id: z.string().regex(/^C-\d+$/) }),
+  z.strictObject({ source: z.literal("workflow"), id: z.string().min(1).max(500) }),
+]);
+const coordination_action_fields = {
+  reason: z.string().trim().min(1).max(2_000),
+  evidence: z.array(CoordinationEvidenceSchema).min(1).max(8),
+};
+export const CoordinationProposalSchema = z.strictObject({
+  summary: z.string().trim().min(1).max(2_000),
+  next_action: z.discriminatedUnion("kind", [
+    z.strictObject({ kind: z.literal("advance"), node_id: z.string().min(1).max(500), ...coordination_action_fields }),
+    z.strictObject({ kind: z.literal("ask_human"), question: z.string().trim().min(1).max(2_000), options: z.array(z.string().trim().min(1).max(500)).min(2).max(6), ...coordination_action_fields }),
+    z.strictObject({ kind: z.literal("wait"), ...coordination_action_fields }),
+    z.strictObject({ kind: z.literal("complete"), ...coordination_action_fields }),
+  ]),
+  risks: z.array(z.string().trim().min(1).max(1_000)).max(10),
+});
+export type CoordinationProposal = z.infer<typeof CoordinationProposalSchema>;
+export const CoordinationStatusSchema = z.enum(["ok", "failed", "timeout", "cancelled", "stale"]);
+export type CoordinationStatus = z.infer<typeof CoordinationStatusSchema>;
+
 // ---------------------------------------------------------------------------
 // 事件 payload 的已知类型（封闭枚举，新增走 ADR）
 // ---------------------------------------------------------------------------
@@ -266,6 +290,10 @@ export const EVENT_TYPES = [
   "workflow.run.cancelled",
   "agent.task.started",
   "agent.task.completed",
+  "coordinator.round.started",
+  "coordinator.round.requested",
+  "coordinator.round.completed",
+  "coordinator.round.cancel_requested",
   "human.decision.recorded",
   "reconcile.requested",
 ] as const;
@@ -487,6 +515,40 @@ export const WorkflowRunCancelledPayloadSchema = z.looseObject({
   reason: z.string().optional(),
 });
 
+const coordination_round_fields = {
+  round_id: z.string().regex(ULID_RE),
+  workflow_id: z.string().min(1),
+  driver: z.string().min(1),
+  input_hash: z.string().length(64).optional(),
+  prompt_hash: z.string().length(64).optional(),
+  agent_configuration_hash: z.string().length(64).optional(),
+  snapshot_id: z.string().length(64).optional(),
+  snapshot_event_seq: z.number().int().nonnegative().optional(),
+  snapshot_event_chain_hash: z.string().length(64).optional(),
+};
+export const CoordinatorRoundStartedPayloadSchema = z.looseObject(coordination_round_fields);
+export const CoordinatorRoundRequestedPayloadSchema = z.looseObject({
+  round_id: z.string().regex(ULID_RE), workflow_id: z.string().min(1), driver: z.string().min(1),
+  sdlc_id: z.string().min(1), sdlc_version: z.number().int().positive(),
+});
+export const CoordinatorRoundCompletedPayloadSchema = z.looseObject({
+  ...coordination_round_fields,
+  status: CoordinationStatusSchema,
+  proposal: CoordinationProposalSchema.nullable(),
+  error: z.string().nullable(),
+  failure_stage: z.enum(["snapshot", "configuration", "driver", "output", "freshness", "interrupted"]).optional(),
+  response_hash: z.string().length(64).optional(),
+  duration_ms: z.number().nonnegative(),
+  agent_session_id: z.string().nullable().optional(),
+  usage: AgentUsagePayloadSchema.nullable().optional(),
+}).refine((payload) => (payload.status === "ok") === (payload.proposal !== null), {
+  message: "只有成功协调轮次可以携带提议，成功轮次必须携带提议",
+});
+export const CoordinatorRoundCancelRequestedPayloadSchema = z.looseObject({
+  round_id: z.string().regex(ULID_RE),
+  reason: z.string().optional(),
+});
+
 /** 已知 payload 的 schema 表；未列出的类型（如 M3 才落地的 reconcile.requested）尚无固化形状。 */
 export const EVENT_PAYLOAD_SCHEMAS: Partial<Record<EventType, z.ZodType>> = {
   "cli.message.received": CliMessageReceivedPayloadSchema,
@@ -504,4 +566,8 @@ export const EVENT_PAYLOAD_SCHEMAS: Partial<Record<EventType, z.ZodType>> = {
   "workflow.run.cancelled": WorkflowRunCancelledPayloadSchema,
   "agent.task.started": AgentTaskStartedPayloadSchema,
   "agent.task.completed": AgentTaskCompletedPayloadSchema,
+  "coordinator.round.started": CoordinatorRoundStartedPayloadSchema,
+  "coordinator.round.requested": CoordinatorRoundRequestedPayloadSchema,
+  "coordinator.round.completed": CoordinatorRoundCompletedPayloadSchema,
+  "coordinator.round.cancel_requested": CoordinatorRoundCancelRequestedPayloadSchema,
 };

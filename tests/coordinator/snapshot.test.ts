@@ -75,7 +75,7 @@ describe("快照一致性", () => {
       ] },
     };
     const snapshot = await readSnapshot(session, { workflow_id: "current", files: ["design.md"] });
-    expect(snapshot.workflow).toEqual({ entered: ["plan"], exited: [] });
+    expect(snapshot.workflow).toEqual({ entered: ["plan"], exited: [], waiting: [] });
     const pack = buildContextPack(def, def.spec.nodes[1]!, snapshot);
     expect(pack).not.toContain("OLD_WORKFLOW_CONTENT");
     expect(pack).toContain("design.md");
@@ -99,5 +99,13 @@ describe("快照一致性", () => {
     expect(missing.docs.find((doc) => doc.file === "missing.md")?.exists).toBe(false);
     await mkdir(join(session.dir, "directory.md"));
     await expect(readSnapshot(session, { files: ["directory.md"] })).rejects.toThrow(/普通文件/);
+  });
+
+  it("不指定 workflow 过滤时，取消只移除该 workflow 的等待，不抹掉其他人工 gate", async () => {
+    await append("gate.waiting", { workflow_id: "first", node_id: "review", gate_id: "human" });
+    const second = await session.events.append({ event_id: ulid(), session_id: session.req_id, type: "gate.waiting", schema_version: "1", actor: { kind: "system", id: "test" }, correlation_id: null,
+      payload: { workflow_id: "second", node_id: "review", gate_id: "human" }, source: { adapter: "test" } });
+    await append("workflow.run.cancelled", { workflow_id: "first", run_id: "run-first" });
+    expect((await readSnapshot(session)).workflow.waiting).toEqual([{ node_id: "review", gate_id: "human", waiting_event_id: second.event_id }]);
   });
 });

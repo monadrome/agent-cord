@@ -7,6 +7,7 @@
 //   --pid-file <path>   写自己的 pid（验证进程清理）
 //   --record <path>     把观测到的客户端→agent 消息追加成 JSONL（验证 session/load 走位、
 //                       cwd 透传、permission 应答、session/cancel 等）
+//   --result-text <text> 输出指定最终文本（结构化协调协议测试）
 import { writeFileSync, appendFileSync } from "node:fs";
 
 const argv = process.argv.slice(2);
@@ -18,6 +19,7 @@ const flagValue = (name) => {
 const mode = flagValue("--mode") ?? "default";
 const pidFile = flagValue("--pid-file");
 const recordFile = flagValue("--record");
+const resultText = flagValue("--result-text");
 
 if (pidFile !== undefined) writeFileSync(pidFile, String(process.pid));
 const record = (entry) => {
@@ -42,7 +44,7 @@ function handlePrompt(params) {
   record({ event: "prompt", sessionId: params.sessionId, text: params.prompt?.[0]?.text ?? null });
   promptText = params.prompt?.[0]?.text ?? "";
 
-  textChunk("hello ");
+  if (resultText === undefined) textChunk("hello ");
   update({
     sessionUpdate: "tool_call",
     toolCallId: "call-1",
@@ -80,7 +82,7 @@ function handlePrompt(params) {
 }
 
 function finishPrompt() {
-  textChunk("done");
+  textChunk(resultText ?? "done");
   if (pendingPromptId === undefined) return;
   const id = pendingPromptId;
   pendingPromptId = undefined;

@@ -4,6 +4,7 @@
  * 不修改 `src/core/schema.ts`（核心契约冻结边界不变），这里的类型是核心类型的 API 投影。
  */
 import { z } from "zod";
+import type { CoordinationProposal, CoordinationStatus } from "agent-cord";
 
 // ---------------------------------------------------------------------------
 // 通用
@@ -154,6 +155,33 @@ export const StartRunInputSchema = z.object({
   sdlc_version: z.number().int().positive().optional(),
 });
 export type StartRunInput = z.infer<typeof StartRunInputSchema>;
+
+/** ADR-0032：独立协调轮次，输出只有经宿主验证的 Draft 提议。 */
+export const StartCoordinationInputSchema = z.strictObject({
+  agent: z.string().trim().min(1).max(200),
+  sdlc_id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/).optional(),
+  sdlc_version: z.number().int().positive().optional(),
+  timeout_ms: z.number().int().min(1).max(600_000).optional(),
+});
+export type StartCoordinationInput = z.infer<typeof StartCoordinationInputSchema>;
+export interface CoordinationRoundView {
+  round_id: string;
+  req_id: string;
+  sdlc_id: string;
+  sdlc_version: number;
+  workflow_id: string;
+  driver: string;
+  status: "pending" | "running" | CoordinationStatus;
+  requested_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  snapshot_id: string | null;
+  input_hash: string | null;
+  agent_configuration_hash: string | null;
+  proposal: CoordinationProposal | null;
+  error: string | null;
+  failure_stage: string | null;
+}
 
 // ---------------------------------------------------------------------------
 // 审批（人工 gate）

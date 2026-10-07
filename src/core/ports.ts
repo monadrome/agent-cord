@@ -5,6 +5,8 @@
 import type {
   Actor,
   Anchor,
+  CoordinationProposal,
+  CoordinationStatus,
   EventDraft,
   EventEnvelope,
   EventType,
@@ -170,6 +172,24 @@ export interface NodeRunner {
     session: SessionHandle,
     ctx: NodeRunContext,
   ): Promise<{ status: NodeRunStatus }>;
+}
+
+/** ADR-0032：独立协调轮次，只产结构化 Draft 提议，不推进节点或放行 gate。 */
+export interface CoordinationInput {
+  round_id: string;
+  agent: string;
+  timeout_ms?: number;
+  signal?: AbortSignal;
+}
+export interface CoordinationResult {
+  round_id: string;
+  status: CoordinationStatus;
+  proposal: CoordinationProposal | null;
+  error: string | null;
+  completed_event_id: string;
+}
+export interface ContextSessionAgent {
+  coordinate(def: WorkflowDef, session: SessionHandle, input: CoordinationInput): Promise<CoordinationResult>;
 }
 
 // ---------------------------------------------------------------------------

@@ -68,14 +68,14 @@
 - 继续核验普通文件 checker 的物理路径边界、同 workflow ID 不同发布版本的已退出进度是否隔离，以及 agent 配置变化的任务输入标识。
 - 全局 REST 幂等缓存仍需审查其他写入口的并发同键与跨路由复用；本轮仅为 agent 重载入口合并同键在途请求。
 
-## 阶段 12：Agent 配置身份与控制台工作台（进行中）
+## 阶段 12：Agent 配置身份与控制台工作台（已实现并验证）
 
 - [x] 复核阶段 11 的本地进展与现状：配置参数不在 checkpoint 中，console 缺 Agent 页面
 - [x] ADR-0031：有效启动配置 hash，排除 env/凭据，纳入任务与审批语义输入
 - [x] 内置 driver 固定配置身份，run 固定 resolver 与身份，重启配置变化使旧任务/审批失效
 - [x] Console Agent 清单、搜索/来源/协议筛选、诊断、刷新/显式重载与失败保留状态
 - [x] 离线契约/恢复测试、全量验证、desktop/mobile 浏览器验收
-- [ ] 提交与推送
+- [x] 本地功能提交 `6662ec0`；远端同步在后续实现结束时一并核验
 
 ### 验证记录（阶段 12）
 
@@ -90,6 +90,40 @@
 ### 视觉方向
 
 沿用现有控制台的浅灰白背景、蓝色操作、绿色可用与红色诊断，系统字体和等宽名称；使用紧凑列表与细分隔线。配置版本与生效记录在页头，按来源和协议扫读；页面不引入营销区块或嵌套卡片。
+
+## 阶段 13：Context Session Agent（已实现并验证）
+
+持续目标：把协调 agent 从仅附着于 `node.run` 的隐式执行体，提升为可独立调用、按最新需求快照重建、带结构化提议和 provenance 的 session-level 协调入口。
+
+- [x] 盘点现有 coordinator、driver、workflow executor 与 server run 生命周期，确认缺口是独立 session 协调 API，而非新增 worker driver
+- [x] ADR-0032 与 session agent 契约：快照输入、结构化协调提议、事件 provenance、fail-closed 解析
+- [x] 实现 `ContextSessionAgent`：每轮重建快照、调用 resolver 固定的协调 driver、解析/校验提议、记录可审计结果
+- [x] 将 session agent 接入 server 的显式协调/preview 入口，并保证在途 run 仍固定 agent resolver
+- [x] 覆盖成功、结构化输出错误、快照变化、取消/超时、驱动失败和恢复路径
+- [x] 全量 test/typecheck/build/diff 审查，更新协议与当前架构文档
+
+### 阶段 13 关键发现
+
+- 当前 NodeRunner 已具备最新快照、上下文包、输入 hash 和任务事件，但只返回 `NodeRunStatus`；没有外部协调提议的类型、解析边界或 session-level 调用点。
+- 新入口必须复用 `readSnapshot` / `buildContextPack` 和既有 `AgentDriver`，不能把事件流正文注入 prompt，也不能让模型直接改变 workflow 或事实文件。
+
+### 阶段 13 验证记录
+
+- 首轮既有 27/28 个快照/checkpoint/doctor 测试通过；旧快照等值断言需要纳入新的 waiting 投影。
+- 首轮新增 26/27 测试通过；doctor 按设计发现未重建的 ledger 投影，测试重建后全绿。
+- 审查补充 driver 事件 schema 校验、用量字段过滤、输出上限前置、成功提议 invariant 与跨路由幂等键 409。
+- 定向 47 测试 / 3 文件通过：24 个库用例、9 个真实 headless/ACP REST 用例、14 个既有 ACP 用例。ACP 两轮均 session/new，未调用 session/load。
+- 一次多文件补丁因 ADR 索引长行匹配失败，未发生部分修改；拆分为精确补丁后完成。
+- 首轮全量 469 测试 / 40 文件、typecheck/build:all/diff 通过；实际 HTTP 成功/stale/取消/超时与 health/doctor 通过，无 workflow.node 事件。
+- 最后审查补充无 workflow 过滤快照的跨流程取消边界，只清除被取消流程的等待；新增真实事件回归，准备最终验证。
+- 最终 470 测试 / 40 文件、typecheck/build:all/diff 通过；预览 `http://127.0.0.1:7296`，工作区 `/tmp/cord-stage13-preview`，实际 HTTP 结果存于 smoke-result.json。
+- GitHub 远端查询低于 1 bytes/sec 持续 10 秒后失败；准备本地提交与有界推送，网络结果不影响已验证实现。
+
+### 持续目标的后续工作
+
+- 独立协调轮次的 console 操作与结构化提议展示，当前只能经库/REST 使用。
+- 人工选择 Draft 提议后经既有 workflow 路由受控执行，消费前再次验证输入版本，保持关键 gate 人工。
+- 继续补 SDLC 版本进度隔离、共享 REST 幂等并发边界和真实需求 dogfooding；不以当前离线原型声称持续目标已全部完成。
 
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 

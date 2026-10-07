@@ -17,6 +17,7 @@ import {
   SaveDraftInputSchema,
   SNAPSHOT_DOC_NAMES,
   StartRunInputSchema,
+  StartCoordinationInputSchema,
   UpdateDocInputSchema,
   ValidateSdlcInputSchema,
   type AgentCatalogView,
@@ -24,13 +25,14 @@ import {
   type RequirementStatus,
   type SnapshotDocName,
 } from "./contracts.js";
-import { ApiError, badRequest, notFound, parseOrThrow } from "./errors.js";
+import { ApiError, badRequest, conflict, notFound, parseOrThrow } from "./errors.js";
 import { IndexStore } from "./services/index-store.js";
 import { DEFAULT_SDLC_ID, SdlcService } from "./services/sdlc-service.js";
 import { listSdlcTemplates } from "./services/sdlc-templates.js";
 import { RunService } from "./services/run-service.js";
 import { SessionService, toLedgerView } from "./services/session-service.js";
 import { AgentService } from "./services/agent-service.js";
+import { CoordinationService } from "./services/coordination-service.js";
 
 export interface ServerOptions {
   /** 工作区根（内含 cord/；缺省自动初始化 cord/） */
@@ -47,6 +49,7 @@ export interface BuiltServer {
   runs: RunService;
   index: IndexStore;
   agents: AgentService;
+  coordination: CoordinationService;
 }
 
 const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -75,6 +78,7 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
   for (const warning of catalog.warnings) app.log.warn(`agents.yaml：${warning}`);
   const index = await IndexStore.open(sessions.cordRoot);
   const sdlcs = new SdlcService(sessions.cordRoot, index);
+  const coordination = new CoordinationService(sessions, sdlcs, { workspaceRoot: root, resolver: () => agents.resolver(), onError: (error) => app.log.error(error) });
 
   const runs = new RunService(sessions, sdlcs, index, {
     driverResolverForRun: () => agents.resolver(),
@@ -83,6 +87,8 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
 
   await runInit(root);
   await sdlcs.ensureDefaults();
+  await coordination.recover();
+  app.addHook("onClose", () => coordination.close());
   const resumed = await runs.recover();
   if (resumed.length > 0) app.log.info(`恢复未完成的 run：${resumed.join(", ")}`);
 
@@ -117,6 +123,7 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
     }
     const hit = index.getIdempotency(key.trim());
     if (hit !== null) {
+      if (hit.method !== req.method || hit.path !== req.url) throw conflict("同一 Idempotency-Key 不能用于不同的写命令");
       await reply.code(hit.status).header("content-type", "application/json; charset=utf-8").send(hit.response);
     }
   });
@@ -280,6 +287,42 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
   app.get("/api/v1/requirements/:req_id/runs", async (req) => {
     const { req_id: reqId } = req.params as { req_id: string };
     return { request_id: requestId(req), runs: runs.listRuns(reqId) };
+  });
+
+  // ---- 独立 Context Session Agent 协调轮次（ADR-0032） ----------------------
+  app.get("/api/v1/requirements/:req_id/coordination", async (req) => {
+    const { req_id } = req.params as { req_id: string };
+    return { request_id: requestId(req), rounds: await coordination.list(req_id) };
+  });
+  app.get("/api/v1/requirements/:req_id/coordination/:round_id", async (req) => {
+    const { req_id, round_id } = req.params as { req_id: string; round_id: string };
+    return { request_id: requestId(req), round: await coordination.get(req_id, round_id) };
+  });
+  const pending_coordination_requests = new Map<string, { signature: string; promise: Promise<unknown> }>();
+  const coordination_request_entries = new WeakMap<FastifyRequest, { signature: string; promise: Promise<unknown> }>();
+  app.addHook("onResponse", async (req) => {
+    const entry = coordination_request_entries.get(req);
+    const key = String(req.headers["idempotency-key"]).trim();
+    if (entry !== undefined && pending_coordination_requests.get(key) === entry) pending_coordination_requests.delete(key);
+  });
+  app.post("/api/v1/requirements/:req_id/coordination", { config: { idempotency: true } }, async (req, reply) => {
+    const { req_id } = req.params as { req_id: string };
+    const input = parseOrThrow(StartCoordinationInputSchema, req.body);
+    const key = String(req.headers["idempotency-key"]).trim();
+    const signature = JSON.stringify([req_id, input]);
+    let pending = pending_coordination_requests.get(key);
+    if (pending !== undefined && pending.signature !== signature) throw conflict("同一 Idempotency-Key 不能用于不同的协调请求");
+    if (pending === undefined) {
+      pending = { signature, promise: coordination.start(req_id, input).then((round) => ({ request_id: requestId(req), round })) };
+      pending_coordination_requests.set(key, pending);
+    }
+    coordination_request_entries.set(req, pending);
+    reply.code(202);
+    return pending.promise;
+  });
+  app.post("/api/v1/requirements/:req_id/coordination/:round_id/cancel", { config: { idempotency: true } }, async (req) => {
+    const { req_id, round_id } = req.params as { req_id: string; round_id: string };
+    return { request_id: requestId(req), round: await coordination.cancel(req_id, round_id) };
   });
 
   app.get("/api/v1/runs/:run_id", async (req) => {
@@ -486,5 +529,5 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
     });
   }
 
-  return { app, sessions, sdlcs, runs, index, agents };
+  return { app, sessions, sdlcs, runs, index, agents, coordination };
 }

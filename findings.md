@@ -72,3 +72,11 @@
 - `AgentService` 已提供公开清单和重载 API，console 没有入口，也未在 typed client 暴露这两个命令。
 - 有效配置指纹应从 driver 实际启动参数派生，而非 YAML 原文或进程 revision；忽略的旋钮、空格/字段顺序不应改变身份，凭据值与 env 不参与指纹。
 - 控制台沿用现有设计，用来源/协议筛选和紧凑列表呈现公开配置；失败重载保持当前清单，成功后显示 server 返回的配置版本。
+
+## 实现校准（2026-10-07，Context Session Agent 缺口）
+
+- `createNodeRunner` 已实现“单节点任务”协调：最新快照 → 两层上下文包 → driver → artifact 写回；但它被 workflow executor 私有调用，不能为人工复核、重规划或 API preview 提供独立的 session 协调轮次。
+- 现有事件类型只有 `agent.task.started/completed`，直接复用会把“协调提议”误记成 worker 任务；新增 session-level 事实需要独立事件类型和 ADR，且 payload 必须只保存摘要/hash，不保存完整上下文包。
+- Context Session Agent 应使用固定的 `AgentDriver` resolver 快照，输入只来自同一批 `readSnapshot` 结果；结构化输出解析失败必须 fail-closed 并落 completed/failed 事实，不能把模型自由文本当作可执行路由。
+- 独立协调包与 worker 包的消费不同：前者必须保留完整 workflow/输出 schema 并硬限制总字符数，文档只作为片段；复用 readSnapshot，使用独立 buildCoordinationPrompt，避免继承 worker 的 artifact 写入指令。
+- 已验证输出期间 PRD、账本、进度或人工等待变化会 stale；自身控制事件不改变语义输入 hash。轮次只能给 Draft 建议，来源验证不能证明推理正确性。

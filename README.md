@@ -1,6 +1,6 @@
 # agent-cord
 
-> **状态：M2 最小闭环 + 控制台 MVP + 协调 agent 已实现（2026-10-06）。**
+> **状态：M2 最小闭环 + 控制台 MVP + 独立 Context Session Agent 原型已实现（2026-10-07）。**
 
 agent-cord 是一个多 agent 共识协作基座：把需求、决策、证据和人工审核放进同一条可追溯的工作流。workflow 节点可声明执行体，由协调 agent 以最新需求快照驱动 worker agent（claude / codex / kimi / 自定义注册）产出草稿；最终合入和高风险决策保留人工参与。
 
@@ -145,6 +145,10 @@ GET  /dashboard
 GET  /requirements
 POST /requirements
 POST /requirements/:req_id/runs
+POST /requirements/:req_id/coordination       # 独立协调轮次，202
+GET  /requirements/:req_id/coordination
+GET  /requirements/:req_id/coordination/:round_id
+POST /requirements/:req_id/coordination/:round_id/cancel
 POST /runs/:run_id/cancel                     # 幂等；已终态返回现状
 GET  /requirements/:req_id/timeline
 GET  /requirements/:req_id/ledger
@@ -168,9 +172,23 @@ POST /doctor
 
 审批 `approval_id` 是当前 `gate.waiting` 的事件 ULID。依据变化后旧审批返回 409，重新获取审批列表后确认新版本；未变化的审批重启后保持 ID。已落盘选择会按等待事件与检查指纹恢复消费，不要求重复选择。
 
+## 独立 Context Session Agent
+
+节点级 coordinator 负责派发 worker；独立 Context Session Agent 则分析当前需求并提出下一步，支持任何内置或 `agents.yaml` 注册的 ACP/headless agent：
+
+```bash
+curl -X POST http://127.0.0.1:7250/api/v1/requirements/REQ-001/coordination \
+  -H 'Content-Type: application/json' -H 'Idempotency-Key: coordinate-req001-1' \
+  -d '{"agent":"architect","sdlc_id":"simple-sdlc","sdlc_version":1,"timeout_ms":120000}'
+```
+
+创建返回 `round_id`，随后读取轮次或订阅需求 SSE。每轮 `driver.run` 新会话，重新读取 PRD、artifact、当前事件派生的账本/进度/人工等待；不继承旧会话。模型必须返回严格 JSON 提议，行动类型为 `advance`、`ask_human`、`wait` 或 `complete`。宿主验证节点依赖、待人工 gate 和来源引用；输入在调用期间变化则记 `stale` 并隐藏提议。
+
+`ok` 表示提议在该轮完成时通过验证，不代表节点完成或 gate 放行，也不保证模型推理正确。后续输入变化应新建轮次。提议保持 Draft，实际推进仍经 run 与人工 gate；当前提供库 API 和 REST，console 尚无独立操作面板。只读参数不替代 OS 沙箱。server 重启把未完成轮次记为 `failed/interrupted`，不重放模型调用；已持久化取消请求恢复为 `cancelled`。详见 [ADR-0032](./docs/adr/ADR-0032-context-session-agent.md)。
+
 ## 当前边界
 
-已实现：事件协议与 reducer、工作流执行器（pre gates → node.run → post gates）、参数化内置 checker、协调 agent（动态快照 + provenance 上下文包 + artifact 双通道写回 + 节点内重试）、run 取消（事件 + AbortSignal 贯穿到 driver）、盲评投票底座、ACP/headless agent driver 与 `agents.yaml` 自定义注册、CLI、REST/SSE server、人工 gate、SDLC 草稿/版本/归档/模板库、React 控制台。
+已实现：事件协议与 reducer、工作流执行器（pre gates → node.run → post gates）、参数化内置 checker、节点协调 agent（动态快照 + provenance 上下文包 + artifact 双通道写回 + 节点内重试）、独立 Context Session Agent（结构化 Draft 提议 + 来源校验 + 在途输入重检 + 协调轮次 API/恢复）、run 取消（事件 + AbortSignal 贯穿到 driver）、盲评投票底座、ACP/headless agent driver 与 `agents.yaml` 自定义注册、CLI、REST/SSE server、人工 gate、SDLC 草稿/版本/归档/模板库、React 控制台。
 
 尚未实现：飞书等 IM 适配、多用户鉴权、持久化任务队列与跨进程 lease、CEL 和外部 checker 插件（MCP）、知识库检索、文档防腐钩子，以及默认 SDLC 中的真实投票产出。详细计划见 [docs/10-roadmap.md](./docs/10-roadmap.md)。
 
@@ -187,7 +205,7 @@ POST /doctor
 - [文档入口](./docs/INDEX.md)：当前实现、协议、ADR 和设计归档的阅读路径。
 - [当前实现架构](./docs/current-architecture.md)：server、console、数据布局和运行路径。
 - [核心协议速查](./docs/protocol.md)：事件、账本、workflow、gate 和 voting 的实现契约。
-- [ADR 目录](./docs/adr/)：架构决策记录，当前包含 ADR-0001 ~ ADR-0031。
+- [ADR 目录](./docs/adr/)：架构决策记录，当前包含 ADR-0001 ~ ADR-0032。
 - [安全与权限模型](./docs/09-security.md)
 - [路线图](./docs/10-roadmap.md)
 - [风险与开放问题](./docs/11-risks.md)

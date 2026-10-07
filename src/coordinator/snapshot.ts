@@ -36,6 +36,8 @@ export interface SnapshotLedgerEntry {
 export interface WorkflowProgress {
   entered: string[];
   exited: string[];
+  /** ADR-0032：同批事件中的待人工门禁，协调提议不能越过。 */
+  waiting?: Array<{ node_id: string; gate_id: string; waiting_event_id: string }>;
 }
 
 export interface RequirementSnapshot {
@@ -103,17 +105,28 @@ export async function readSnapshot(
   const titleValue = asRecord(created?.payload)?.["title"];
   const entered = new Set<string>();
   const exited = new Set<string>();
+  const waiting = new Map<string, { workflow_id: unknown; node_id: string; gate_id: string; waiting_event_id: string }>();
   for (const event of events) {
     const payload = asRecord(event.payload);
     if (options.workflow_id !== undefined && payload?.["workflow_id"] !== options.workflow_id) continue;
     const nodeId = payload?.["node_id"];
+    if (event.type === "workflow.run.cancelled") {
+      for (const [key, gate] of waiting) if (gate.workflow_id === payload?.["workflow_id"]) waiting.delete(key);
+    }
     if (typeof nodeId !== "string") continue;
     if (event.type === "workflow.node.entered") entered.add(nodeId);
     else if (event.type === "workflow.node.exited") exited.add(nodeId);
+    const gate_id = payload?.["gate_id"];
+    if (typeof gate_id !== "string") continue;
+    const key = JSON.stringify([payload?.["workflow_id"], nodeId, gate_id]);
+    if (event.type === "gate.waiting") waiting.set(key, { workflow_id: payload?.["workflow_id"], node_id: nodeId, gate_id, waiting_event_id: event.event_id });
+    else if (event.type === "gate.resolved") waiting.delete(key);
+    else if (event.type === "gate.invalidated" && waiting.get(key)?.waiting_event_id === payload?.["waiting_event_id"]) waiting.delete(key);
   }
 
   const eventSeq = events.reduce((max, event) => Math.max(max, event.seq), 0);
   const eventChainHash = hashChain(events);
+  const workflow = { entered: [...entered], exited: [...exited], waiting: [...waiting.values()].map(({ workflow_id: _workflow_id, ...gate }) => gate) };
   const fingerprint = {
     req_id: session.req_id,
     title: typeof titleValue === "string" ? titleValue : null,
@@ -124,7 +137,7 @@ export async function readSnapshot(
       content_length,
     })),
     ledger,
-    workflow: { entered: [...entered], exited: [...exited] },
+    workflow,
     workflow_id: options.workflow_id ?? null,
     event_seq: eventSeq,
     event_chain_hash: eventChainHash,
@@ -135,7 +148,7 @@ export async function readSnapshot(
     title: typeof titleValue === "string" ? titleValue : null,
     docs,
     ledger,
-    workflow: { entered: [...entered], exited: [...exited] },
+    workflow,
     snapshot_id: sha256Hex(canonicalJson(fingerprint)),
     event_seq: eventSeq,
     event_chain_hash: eventChainHash,

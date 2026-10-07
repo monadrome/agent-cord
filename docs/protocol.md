@@ -27,6 +27,7 @@
 | `workflow.node.*` | workflow 节点进入和退出 |
 | `workflow.run.*` | run 级控制：取消（cancelled，ADR-0025） |
 | `agent.task.*` | 节点执行体的 agent 任务（started / completed；中间流式输出不入流） |
+| `coordinator.round.*` | 独立协调轮次（requested / started / completed / cancel_requested；提议不推进状态机） |
 | `human.*` | 人工选择记录 |
 
 事件类型目录在 `EVENT_TYPES`；新增类型需要同步 schema 和 ADR。
@@ -123,3 +124,15 @@ REST 的 `approval_id` 是等待事件 ULID；旧静态编码可解析但不允�
 `cord/agents.yaml` 由独立 registry 编译（ADR-0027），ACP 和自定义 headless 参数不修改全局表。`registerAgentsYaml` 保留为配置检查入口，不再注册全局模板；使用 `resolveWithAgentsYaml` / `createAgentRegistry` 获取工作区 resolver。顶层结构或 IO 错误拒绝重载，单条定义错误按字段路径告警并阻断该别名。模板与 args 必须二选一；模板形态可省略 `bin`，自定义 args 形态必须提供。
 
 `GET /api/v1/agents` 返回 `revision`、`agents[{name, kind, source, template, configuration_hash}]`、`warnings`、`rejected`。configuration_hash 无身份时为 null，表示执行定义，不探测安装、环境变量或外部命名 agent 文件。`POST /api/v1/agents/reload` 需要 `Idempotency-Key`，成功后替换配置并递增 revision，失败保持原配置；删除可选文件后重载恢复内置清单。在途 run 固定 resolver 与身份，后续 run 使用新配置；重启后 resolver 从当前文件重建，revision 重新编号。响应不携带 env、完整 args、角色 prompt 或 `agents_json`。console Agent 页只展示此投影并发起明确命令。
+
+## 7. Context Session Agent
+
+`ContextSessionAgent.coordinate` 每轮重新采集当前 workflow 的需求文档、事件派生账本/进度/人工等待，调用 `driver.run` 新会话（readonly），不 resume 或注入历史事件/旧提议。上下文总字符预算与结果上限为 60000/32768，必需元信息超预算时拒绝派发。driver metadata 不作文本 fallback，明确空最终字符串不能回退。
+
+输出必须符合 `CoordinationProposalSchema`：summary、next_action、risks；next_action 是 advance / ask_human / wait / complete，每种都必须有 reason 和 evidence。evidence 仅引用存在的 snapshot document、无冲突 confirmed ledger entry 或当前 workflow node。advance 节点必须未退出且依赖已退出，无待人工 gate；complete 要求全部退出且无等待；人工选项不能重复。未知字段、自由文本、围栏 JSON、未知来源或非法节点均 failed/output。存在性验证不等价于语义正确性。
+
+轮次事件与 worker 恢复完全分离：server requested 绑定 SDLC 版本，started/completed 记录 round_id、workflow_id、driver、snapshot provenance、input_hash、prompt_hash 与可选配置身份。语义 input_hash 排除事件序号与轮次自身事件，覆盖完整文档 hash、账本、进度/等待、workflow 和配置身份。结果返回前重检；变化记 stale，读取失败记 failed/freshness，均没有提议。completed 只在 ok 时携带提议，其余状态 proposal 为 null；不保存原始输出/上下文或 driver raw。
+
+REST 创建 `POST /requirements/:req_id/coordination` 输入 `{agent, sdlc_id?, sdlc_version?, timeout_ms?}`，返回 202；列表/读取使用 GET，取消 `POST .../:round_id/cancel` 先落 cancel_requested 再 abort。写命令使用 Idempotency-Key；跨 method/path 复用键返回 409，创建并发同键合并为一轮。每需求只允许一轮在途协调，resolver 在创建时固定，归档版本拒绝新轮次。事件写入失败必须报告宿主，不能伪造 completed。server 重启将未完成轮次落 failed/interrupted；已有取消请求则落 cancelled，不重放模型调用。
+
+提议是该轮完成时的 Draft，之后的输入变更应发起新轮次。任何提议都不生成 node.exited、gate.resolved 或 artifact；实际推进仍经既有 workflow run 与人工 gate。当前是库/REST 原型，readonly 不提供 OS 沙箱（ADR-0032）。

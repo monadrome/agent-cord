@@ -7,6 +7,18 @@
 - 方案方向确定为：React/Vite 控制台 + TypeScript 后端服务 + 现有 core 作为领域内核 + SSE 实时事件 + 版本化 SDLC 配置。
 - 已写入正式方案文档 `docs/proposal-console-platform.md`，包含目标架构、默认 SDLC、API、数据边界、后端优化、人工参与和分阶段验收标准。
 
+## 2026-10-07
+
+- 复核阶段 12 已提交实现与当前工作树，确认自定义 ACP/headless agent、配置身份、最新快照和节点级协调均已存在。
+- 开始阶段 13：准备增加独立 Context Session Agent，目标是把 session-level 协调提议变成可验证、可恢复、可供 server 调用的协议能力。
+- ADR-0032 先行；新增 ContextSessionAgent、严格 JSON 提议/schema、轮次事件与独立上下文预算，不注入事件正文/旧提议，结果返回前重检输入。
+- server 增协调轮次创建/列表/读取/取消，固定 resolver、同需求在途互斥、同键并发合并；重启明确 interrupted，不重放模型调用。REST 幂等缓存拒绝跨 method/path 复用同键。
+- 定向 47 测试 / 3 文件通过，包括真实 headless/ACP 子进程、在途配置固定、在途输入变更、取消/超时和重启恢复；准备全量 workspace 验证。
+- 最终 470 测试 / 40 文件通过，`npm run typecheck`、`npm run build:all`、`git diff --check` 通过；补充未过滤 workflow 快照的取消隔离回归。
+- 实际 HTTP 验收：ok/stale/cancelled/timeout 终态准确，过期提议为 null，health/doctor 全绿，没有 workflow.node 事件。临时预览 `http://127.0.0.1:7296`，工作区 `/tmp/cord-stage13-preview`，smoke-result.json 保留结果。
+- 当前原型提供库与 REST，console 独立操作面板和 Draft 提议受控消费留作持续目标的下一阶段；不声称全部持续目标完成。
+- GitHub 远端查询报 10 秒低速超时，准备按仓库约定保留本地功能提交并尝试有界推送。
+
 ## 2026-09-25
 
 - 按交接文档 `/tmp/agent-cord-handoff.KcQZOB/KIMI_HANDOFF.md` 执行实现；保留工作区未提交改动（事件协议增强 + merge driver）。
