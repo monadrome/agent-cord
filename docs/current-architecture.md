@@ -16,7 +16,8 @@ Fastify server
     ├── SdlcService：YAML 校验、发布版本、草稿、归档、模板库
     ├── AgentService：工作区配置快照、清单与显式重载
     ├── CoordinationService：独立协调轮次、新鲜度、人工采用、取消与中断恢复
-    └── IndexStore：幂等键、运行登记（含执行版本与协调来源）、SDLC 归档登记
+    ├── 幂等 hook：请求身份、业务前持久化占位、并发响应与未知结果阻断
+    └── IndexStore：幂等操作、运行登记（含执行版本与协调来源）、SDLC 归档登记
     │
     ├── cord/<req-id>/events.jsonl  事实来源
     ├── cord/<req-id>/ledger.yaml   reducer 投影
@@ -117,6 +118,8 @@ server 默认监听 `127.0.0.1:7250`，工作区由 `CORD_ROOT` 指定。核心�
 - 维护：`POST /doctor`。
 
 写命令需要 `Idempotency-Key`。错误统一返回 `code`、`message`、`details` 和 `request_id`。
+
+所有写命令共享幂等 hook：key 绑定 method/URL/结构化输入 hash，业务前持久化 pending，相同请求在途等待同一响应，成功落库后 completed，跨重启重放首次结果；不同输入 409。4xx 拒绝可修复后重试，5xx/缓存故障/重启残留 pending 返回未确认错误，禁止盲目重做；旧无输入身份缓存 fail-closed。请求正文不存库，索引删除会丢失幂等保护；本原型没有业务文件与 SQLite 的跨存储事务（ADR-0035）。
 
 ## 6. Console
 

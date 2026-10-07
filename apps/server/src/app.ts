@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fastifyStatic from "@fastify/static";
-import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import { ulid } from "ulid";
 import { runDoctor, runInit, type WorkflowDef } from "agent-cord";
 import {
@@ -21,12 +21,11 @@ import {
   AdoptCoordinationInputSchema,
   UpdateDocInputSchema,
   ValidateSdlcInputSchema,
-  type AgentCatalogView,
   type DashboardView,
   type RequirementStatus,
   type SnapshotDocName,
 } from "./contracts.js";
-import { ApiError, badRequest, conflict, notFound, parseOrThrow } from "./errors.js";
+import { ApiError, badRequest, notFound, parseOrThrow } from "./errors.js";
 import { IndexStore } from "./services/index-store.js";
 import { DEFAULT_SDLC_ID, SdlcService } from "./services/sdlc-service.js";
 import { listSdlcTemplates } from "./services/sdlc-templates.js";
@@ -34,6 +33,7 @@ import { RunService } from "./services/run-service.js";
 import { SessionService, toLedgerView } from "./services/session-service.js";
 import { AgentService } from "./services/agent-service.js";
 import { CoordinationService } from "./services/coordination-service.js";
+import { installIdempotency } from "./services/idempotency.js";
 
 export interface ServerOptions {
   /** 工作区根（内含 cord/；缺省自动初始化 cord/） */
@@ -53,7 +53,6 @@ export interface BuiltServer {
   coordination: CoordinationService;
 }
 
-const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const SSE_HEARTBEAT_MS = 15_000;
 
 function isDocName(value: string): value is SnapshotDocName {
@@ -114,36 +113,7 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
     });
   });
 
-  // ---- 幂等键（ADR-0021 决策 4）：写命令必须带 Idempotency-Key，同键重放返回首次响应 ----
-  app.addHook("preHandler", async (req, reply) => {
-    if (!WRITE_METHODS.has(req.method) || !req.url.startsWith("/api/")) return;
-    if ((req.routeOptions.config as unknown as Record<string, unknown>)["idempotency"] !== true) return;
-    const key = req.headers["idempotency-key"];
-    if (typeof key !== "string" || key.trim().length === 0) {
-      throw badRequest("写命令必须携带 Idempotency-Key 头（重复提交不产生重复业务事件）");
-    }
-    const hit = index.getIdempotency(key.trim());
-    if (hit !== null) {
-      if (hit.method !== req.method || hit.path !== req.url) throw conflict("同一 Idempotency-Key 不能用于不同的写命令");
-      await reply.code(hit.status).header("content-type", "application/json; charset=utf-8").send(hit.response);
-    }
-  });
-  app.addHook("onSend", async (req, reply, payload) => {
-    if (!WRITE_METHODS.has(req.method) || !req.url.startsWith("/api/")) return payload;
-    if ((req.routeOptions.config as unknown as Record<string, unknown>)["idempotency"] !== true) return payload;
-    if (reply.statusCode < 200 || reply.statusCode >= 300) return payload;
-    const key = req.headers["idempotency-key"];
-    if (typeof key !== "string" || key.trim().length === 0) return payload;
-    index.putIdempotency({
-      key: key.trim(),
-      method: req.method,
-      path: req.url,
-      status: reply.statusCode,
-      response: typeof payload === "string" ? payload : JSON.stringify(payload),
-      created_at: new Date().toISOString(),
-    });
-    return payload;
-  });
+  installIdempotency(app, index);
 
   // ---- 辅助：需求绑定的工作流定义（用于完成态/时间线投影） -------------------
   const defFor = async (reqId: string): Promise<{ def: WorkflowDef; workflow_revision: string } | null> => {
@@ -177,29 +147,7 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
     request_id: requestId(req),
     ...agents.catalog(),
   }));
-  type AgentReloadResponse = AgentCatalogView & { request_id: string };
-  const pending_agent_reloads = new Map<string, Promise<AgentReloadResponse>>();
-  const request_agent_reloads = new WeakMap<FastifyRequest, Promise<AgentReloadResponse>>();
-  app.post("/api/v1/agents/reload", {
-    config: { idempotency: true },
-    // onSend 已持久化首次响应后才释放同键操作；失败也释放，允许修复后重试。
-    onResponse: async (req) => {
-      const key = String(req.headers["idempotency-key"]).trim();
-      const operation = request_agent_reloads.get(req);
-      if (operation !== undefined && pending_agent_reloads.get(key) === operation) {
-        pending_agent_reloads.delete(key);
-      }
-    },
-  }, async (req) => {
-    const key = String(req.headers["idempotency-key"]).trim();
-    let operation = pending_agent_reloads.get(key);
-    if (operation === undefined) {
-      operation = agents.reload().then((catalog) => ({ request_id: requestId(req), ...catalog }));
-      pending_agent_reloads.set(key, operation);
-    }
-    request_agent_reloads.set(req, operation);
-    return operation;
-  });
+  app.post("/api/v1/agents/reload", { config: { idempotency: true } }, async (req) => ({ request_id: requestId(req), ...await agents.reload() }));
 
   // ---- Dashboard -----------------------------------------------------------
   app.get("/api/v1/dashboard", async (req): Promise<DashboardView & { request_id: string }> => {
@@ -303,27 +251,12 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
     const { req_id, round_id } = req.params as { req_id: string; round_id: string };
     return { request_id: requestId(req), round: await coordination.get(req_id, round_id) };
   });
-  const pending_coordination_requests = new Map<string, { signature: string; promise: Promise<unknown> }>();
-  const coordination_request_entries = new WeakMap<FastifyRequest, { signature: string; promise: Promise<unknown> }>();
-  app.addHook("onResponse", async (req) => {
-    const entry = coordination_request_entries.get(req);
-    const key = String(req.headers["idempotency-key"]).trim();
-    if (entry !== undefined && pending_coordination_requests.get(key) === entry) pending_coordination_requests.delete(key);
-  });
   app.post("/api/v1/requirements/:req_id/coordination", { config: { idempotency: true } }, async (req, reply) => {
     const { req_id } = req.params as { req_id: string };
     const input = parseOrThrow(StartCoordinationInputSchema, req.body);
-    const key = String(req.headers["idempotency-key"]).trim();
-    const signature = JSON.stringify([req_id, input]);
-    let pending = pending_coordination_requests.get(key);
-    if (pending !== undefined && pending.signature !== signature) throw conflict("同一 Idempotency-Key 不能用于不同的协调请求");
-    if (pending === undefined) {
-      pending = { signature, promise: coordination.start(req_id, input).then((round) => ({ request_id: requestId(req), round })) };
-      pending_coordination_requests.set(key, pending);
-    }
-    coordination_request_entries.set(req, pending);
+    const round = await coordination.start(req_id, input);
     reply.code(202);
-    return pending.promise;
+    return { request_id: requestId(req), round };
   });
   app.post("/api/v1/requirements/:req_id/coordination/:round_id/cancel", { config: { idempotency: true } }, async (req) => {
     const { req_id, round_id } = req.params as { req_id: string; round_id: string };

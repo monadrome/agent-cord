@@ -38,6 +38,13 @@
 - Playwright 1440/390/320 无溢出、pageerror=0，选择 v2、协调采用、对应版本人工 gate、completed 闭环通过，doctor=true。browser-result.json 与 version-1440.png / version-390.png 保留证据。
 - 可采用的离线预览 `http://127.0.0.1:7302/#/requirements/REQ-VERSION-DEMO/coordination`，工作区 `/tmp/cord-stage15-preview-r2`；旧无版本数据保留审计但不自动猜测归属，重新 start 指定版本重新核验。阶段 15 进入提交与推送。
 - 功能提交 `7f2234d`，推送成功（origin/exp/impl：`c5a32e7` → `7f2234d`）；当前实现和验收文档已同步，持续目标下一步为幂等/文件边界与真实需求运行。
+- 开始阶段 16：核验 `49982d3` 与干净工作树，检查到全局响应后幂等缓存没有输入绑定/业务前占位，准备统一共享入口和未确认结果的恢复边界。
+- ADR-0035 先行，共享请求身份/并发响应/pending 占位/completed 缓存替代局部映射。7 个反例复现后通过，25 个幂等/迁移/故障/断连用例与 typecheck 通过，准备全量验证。
+- 最终 536 测试 / 45 文件、`npm run build:all`、`npm run typecheck`、`git diff --check` 全通过，既有 SDLC/worker/协调/审批恢复仍通过。
+- 实际 HTTP 五并发各入口各执行一次，输入变化 409、跨重启成功重放、缓存故障/残留 pending 阻止盲重做、4xx 修复重试与 doctor=true；证据 `/tmp/cord-stage16-preview/smoke-result.json`。
+- 离线协调预览 `http://127.0.0.1:7303/#/requirements/REQ-IDEMPOTENCY-DEMO/coordination`，未调用外部模型。阶段 16 准备提交推送，持续目标后续为文件边界、真实模型/需求与可复用配置示例。
+- 最后补齐流式写响应的失败收束，最终 537 测试 / 45 文件、build:all/typecheck/diff 全通过。最新代码的第二轮真实 HTTP 五并发闭环再次通过。
+- 最终离线预览 `http://127.0.0.1:7304/#/requirements/REQ-IDEMPOTENCY-DEMO/coordination`，工作区 `/tmp/cord-stage16-preview-final`，smoke-result.json / browser-result.json 与 desktop/mobile 截图保存证据；1440/390/320 无溢出，pageerror=0，doctor=true，协调提议可采用。
 
 ## 2026-09-25
 

@@ -1,7 +1,7 @@
 /**
  * 派生索引（ADR-0021 决策 3）：node:sqlite，只存「不可从事件流派生的操作事实」——
- * 幂等键（Idempotency-Key → 首次响应快照）与运行登记（runs）。
- * 索引可整体删除：幂等表丢失的代价是极端重启窗口内的重放保护失效，业务事实仍在事件流。
+ * 幂等操作（请求身份、执行占位与首次响应）与运行登记（runs）。
+ * 删除索引会丢失幂等操作保护；运行绑定可从事件重建，不能把删除索引当作 pending 的恢复方法。
  */
 import { DatabaseSync } from "node:sqlite";
 import { mkdir } from "node:fs/promises";
@@ -18,7 +18,11 @@ export interface StoredIdempotency {
   status: number;
   response: string;
   created_at: string;
+  input_hash: string | null;
+  state: "pending" | "completed";
+  content_type: string | null;
 }
+export type IdempotencyIdentity = Pick<StoredIdempotency, "key" | "method" | "path"> & { input_hash: string };
 
 export interface RunRow {
   run_id: string;
@@ -75,6 +79,10 @@ export class IndexStore {
     const columns = db.prepare("PRAGMA table_info(runs)").all();
     if (!columns.some((column) => column["name"] === "coordination_round_id")) db.exec("ALTER TABLE runs ADD COLUMN coordination_round_id TEXT");
     if (!columns.some((column) => column["name"] === "workflow_revision")) db.exec("ALTER TABLE runs ADD COLUMN workflow_revision TEXT");
+    const idempotency_columns = db.prepare("PRAGMA table_info(idempotency_keys)").all();
+    if (!idempotency_columns.some((column) => column["name"] === "input_hash")) db.exec("ALTER TABLE idempotency_keys ADD COLUMN input_hash TEXT");
+    if (!idempotency_columns.some((column) => column["name"] === "state")) db.exec("ALTER TABLE idempotency_keys ADD COLUMN state TEXT NOT NULL DEFAULT 'completed'");
+    if (!idempotency_columns.some((column) => column["name"] === "content_type")) db.exec("ALTER TABLE idempotency_keys ADD COLUMN content_type TEXT");
     return new IndexStore(db);
   }
 
@@ -118,17 +126,28 @@ export class IndexStore {
 
   getIdempotency(key: string): StoredIdempotency | null {
     const row = this.db
-      .prepare("SELECT key, method, path, status, response, created_at FROM idempotency_keys WHERE key = ?")
+      .prepare("SELECT key, method, path, status, response, created_at, input_hash, state, content_type FROM idempotency_keys WHERE key = ?")
       .get(key);
     return row === undefined ? null : (row as unknown as StoredIdempotency);
   }
 
-  putIdempotency(entry: StoredIdempotency): void {
-    this.db
-      .prepare(
-        "INSERT OR IGNORE INTO idempotency_keys (key, method, path, status, response, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-      )
-      .run(entry.key, entry.method, entry.path, entry.status, entry.response, entry.created_at);
+  /** 业务执行前的持久化占位；冲突返回 false，不忽略已有 owner。 */
+  reserveIdempotency(entry: IdempotencyIdentity): boolean {
+    const result = this.db.prepare("INSERT INTO idempotency_keys (key,method,path,status,response,created_at,input_hash,state) VALUES (?,?,?,0,'',?,?,'pending') ON CONFLICT(key) DO NOTHING")
+      .run(entry.key, entry.method, entry.path, new Date().toISOString(), entry.input_hash);
+    return result.changes === 1;
+  }
+
+  completeIdempotency(entry: IdempotencyIdentity & { status: number; response: string; content_type: string }): void {
+    const result = this.db.prepare("UPDATE idempotency_keys SET status=?,response=?,content_type=?,state='completed' WHERE key=? AND method=? AND path=? AND input_hash=? AND state='pending'")
+      .run(entry.status, entry.response, entry.content_type, entry.key, entry.method, entry.path, entry.input_hash);
+    if (result.changes !== 1) throw new Error("幂等请求占位不匹配，拒绝记录未确认响应");
+  }
+
+  releaseIdempotency(entry: IdempotencyIdentity): void {
+    const result = this.db.prepare("DELETE FROM idempotency_keys WHERE key=? AND method=? AND path=? AND input_hash=? AND state='pending'")
+      .run(entry.key, entry.method, entry.path, entry.input_hash);
+    if (result.changes !== 1) throw new Error("幂等请求占位不匹配，无法确认拒绝请求已释放");
   }
 
   insertRun(run: RunRow): void {

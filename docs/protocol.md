@@ -150,3 +150,13 @@ ADR-0033 增 `POST .../:round_id/adopt` 人工采用：查询投影保留原 age
 采用事实 `coordinator.round.adopted{round_id,workflow_id,node_id,input_hash,run_id}` 使用 human actor，登记 run 后、launch 前经 append 落盘。普通 run 与采用共享在途互斥，同轮并发/重启重放返回原 run，不重复派发。事件写入失败记 run failed；run 登记含可空 coordination_round_id，旧 SQLite 表自动增加该列。恢复时绑定协调轮次的 run 必须有匹配采用事实及 requested SDLC 版本，否则 failed 而不启动。投影消费采用事件时核验 workflow/node/input/run 一致性，不允许错误引用或双 run 绑定伪装成功。终态查询等待后台槽位释放后返回，下一轮不要求固定延迟。
 
 console 需求详情“协调”视图只展示这些投影，并通过 typed client 发起创建、取消和采用；来源导航沿用文档/账本/概览。新鲜度轮询在后台页面暂停，组件卸载释放定时器；请求失败保留已加载历史与提议。文档切换时同步进入 loading，加载中禁用编辑/保存，防止迟到读取覆盖输入。
+
+## 8. REST 幂等执行
+
+ADR-0035 的共享 hook 覆盖所有 idempotency=true 的写入口，替代 agents/reload 与协调创建的局部并发映射。key trim 后长度 1-200；请求身份为 method、精确 URL、input_hash。输入 hash 使用排序 JSON 对象字段，保留嵌套自有字段、数组顺序、字符串内容，区分 absent 与显式 null；不保存 body 正文，不改变历史事件 hash 协议。
+
+preHandler 同步获得 SQLite pending 占位后才进入业务，相同身份在途请求等待同一 owner 最终响应；不同命令/输入立即 409，不修改或释放原占位。成功 onSend 条件更新为 completed 后再发布 status/body/content-type；缓存重放保留首次 request_id。owner 终态清理内存，断连不等于业务取消，观察失败不能触发第二次派发。业务 service 原有同需求互斥和事件语义继续生效。
+
+4xx 已知拒绝释放 pending，允许修复后使用该键重试；5xx 可能发生在副作用之后，保留 pending。完成响应/拒绝释放的持久化失败返回 `500 idempotency_unconfirmed`，同键之后或重启返回 `409 idempotency_incomplete`，需核验实际状态再以新键发起新操作。无输入身份的旧缓存返回 `409 idempotency_legacy`，保留旧记录，不猜测匹配。SQLite 兼容新增 input_hash、state 与 content_type，条件写校验身份和 pending 状态。
+
+本实现不提供事件/文件/SQLite 之间的原子业务事务，也不自动重试未知请求；跨进程同键占位只保证不能同时获得执行权，不代替 worker lease。删除索引会丢失幂等保护，不能把删除当作 pending 恢复。validate/doctor 等只读检查保持现有无需 key 的规则。

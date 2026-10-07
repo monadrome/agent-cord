@@ -37,3 +37,54 @@ describe("协调运行登记", () => {
     expect(index.getRun("coordinated")?.workflow_revision).toBe("a".repeat(64));
   });
 });
+
+describe("幂等执行生命周期", () => {
+  it("旧缓存表迁移保留响应，输入身份为 null，重复打开不会覆盖", async () => {
+    await mkdir(join(root, ".index"));
+    const legacy = new DatabaseSync(join(root, ".index", "server-index.sqlite"));
+    legacy.exec("CREATE TABLE idempotency_keys (key TEXT PRIMARY KEY, method TEXT NOT NULL, path TEXT NOT NULL, status INTEGER NOT NULL, response TEXT NOT NULL, created_at TEXT NOT NULL)");
+    legacy.prepare("INSERT INTO idempotency_keys VALUES (?,?,?,?,?,?)").run("old-key", "POST", "/api/v1/requirements", 201, '{"created":true}', "2026-10-07T00:00:00.000Z");
+    legacy.close();
+    index = await IndexStore.open(root);
+    expect(index.getIdempotency("old-key")).toMatchObject({ input_hash: null, state: "completed", response: '{"created":true}', status: 201, content_type: null });
+    index.close(); index = null;
+    index = await IndexStore.open(root);
+    expect(index.getIdempotency("old-key")?.input_hash).toBeNull();
+  });
+
+  it("同键占位不能重复获得，错误身份不得完成/释放，成功响应跨重启保留", async () => {
+    index = await IndexStore.open(root);
+    const identity = { key: "operation", method: "PUT", path: "/api/v1/requirements/REQ-1/docs/prd", input_hash: "a".repeat(64) };
+    expect(index.reserveIdempotency(identity)).toBe(true);
+    expect(index.reserveIdempotency(identity)).toBe(false);
+    const mismatch = { ...identity, input_hash: "b".repeat(64) };
+    expect(() => index!.releaseIdempotency(mismatch)).toThrow(/不匹配/);
+    expect(() => index!.completeIdempotency({ ...mismatch, status: 200, response: '{"saved":true}', content_type: "application/json" })).toThrow(/不匹配/);
+    expect(index.getIdempotency(identity.key)?.state).toBe("pending");
+    index.completeIdempotency({ ...identity, status: 200, response: '{"saved":true}', content_type: "application/json" });
+    expect(() => index!.releaseIdempotency(identity)).toThrow(/不匹配/);
+    expect(() => index!.completeIdempotency({ ...identity, status: 201, response: "replacement", content_type: "text/plain" })).toThrow(/不匹配/);
+    index.close(); index = null; index = await IndexStore.open(root);
+    expect(index.getIdempotency(identity.key)).toMatchObject({ ...identity, state: "completed", status: 200, response: '{"saved":true}' });
+  });
+
+  it("已知拒绝只释放匹配的 pending，修复后可以再次占位", async () => {
+    index = await IndexStore.open(root);
+    const identity = { key: "rejected", method: "POST", path: "/api/v1/requirements", input_hash: "a".repeat(64) };
+    expect(index.reserveIdempotency(identity)).toBe(true);
+    index.releaseIdempotency(identity);
+    expect(index.getIdempotency(identity.key)).toBeNull();
+    expect(index.reserveIdempotency({ ...identity, input_hash: "b".repeat(64) })).toBe(true);
+  });
+
+  it("两个索引句柄不能同时获得同键执行权，不覆盖原请求身份", async () => {
+    index = await IndexStore.open(root);
+    const another = await IndexStore.open(root);
+    const identity = { key: "shared-owner", method: "POST", path: "/api/v1/requirements", input_hash: "a".repeat(64) };
+    try {
+      expect(index.reserveIdempotency(identity)).toBe(true);
+      expect(another.reserveIdempotency({ ...identity, path: "/api/v1/agents/reload" })).toBe(false);
+      expect(another.getIdempotency(identity.key)).toMatchObject({ ...identity, state: "pending" });
+    } finally { another.close(); }
+  });
+});
