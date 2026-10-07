@@ -72,3 +72,4 @@
 - 最终验证：339 测试 / 32 文件通过，`npm run typecheck`、`npm run build:all` 与 `git diff --check` 通过。
 - 实际 HTTP smoke：公开清单、显式重载、同键重放、临时 fake worker SDLC 到人工 gate 并完成；并发同键返回 revision [2,2] 且当前 revision 只递增一次。
 - 预览服务 `http://127.0.0.1:7291`，临时工作区 `/tmp/cord-stage8-preview`，日志 `/tmp/cord-stage8-preview.log`；不写入仓库运行时数据。
+- 本地功能提交 `f9dc09d`。GitHub 443 连接超时，首次推送未返回，停止后 20 秒有界重试仍失败；本地提交保留，远端尚未确认更新。
