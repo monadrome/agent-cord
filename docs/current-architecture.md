@@ -36,7 +36,7 @@ worker agent 子进程（ACP / 裸 headless CLI）
 |---|---|
 | `src/core` | EventEnvelope、JSONL store、哈希链、reducer、session、doctor |
 | `src/workflow` | YAML workflow、拓扑执行（pre gates → node.run → post gates）、内置 checker（含参数化）、人工 gate 端口 |
-| `src/coordinator` | 协调 agent：需求快照、两层上下文包、NodeRunner 生产实现、artifact 双通道写回 |
+| `src/coordinator` | 协调 agent：按 workflow artifact 动态采集需求快照、两层上下文包、provenance 指纹、NodeRunner 生产实现、artifact 双通道写回 |
 | `src/voting` | k=2~3 盲评、锚点校验、投票判定和留痕结构 |
 | `src/driver` | ACP 与 headless agent driver、agents.yaml 自定义注册 |
 | `apps/server` | Fastify REST/SSE、运行服务、SDLC 服务、派生 SQLite 索引 |
@@ -66,7 +66,7 @@ Workflow 定义是 `agent-cord.dev/v1alpha1 / Workflow` YAML。加载时检查 s
 1. 读取事件流，跳过已经有 `workflow.node.exited` 的节点；恢复扫点时跳过已有 `status=ok` 的 `agent.task.completed` 的节点执行体。
 2. 写入 `workflow.node.entered`。
 3. 顺序执行 pre gates；checker 抛错或返回非法结果时 fail-closed。
-4. 节点声明 `run` 时委托给 `NodeRunner`（协调 agent）：重建最新快照 → 构建上下文包（PRD + 上游产物 + 账本 + 定位符）→ 经 AgentDriver 派发 → 写 `agent.task.started` / `agent.task.completed`。artifact 写回双通道：worker 自写优先，非空文本回退为协调 agent 代写 draft。任务失败/超时则停在该节点，run 记 failed，重跑会重试；声明 `run.retry` 时由协调 agent 在节点内按退避重试，重试的上下文包附上次失败摘要。
+4. 节点声明 `run` 时委托给 `NodeRunner`（协调 agent）：按 workflow 声明动态采集 artifact，重建最新快照并生成 `snapshot_id` / 事件链 provenance → 构建上下文包（PRD + 上游产物 + 账本 + 定位符）→ 经 AgentDriver 派发 → 写带 provenance 的 `agent.task.started` / `agent.task.completed`。artifact 写回双通道：worker 自写优先，非空文本回退为协调 agent 代写 draft；路径必须位于 session 目录内。任务失败/超时则停在该节点，run 记 failed，重跑会重试；声明 `run.retry` 时由协调 agent 在节点内按退避重试，重试的上下文包附上次失败摘要。
 5. 顺序执行 post gates；人工 gate 写入 `gate.waiting`，由 server 的审批接口恢复。
 6. 写入 `workflow.node.exited`。
 

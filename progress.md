@@ -49,3 +49,12 @@
 - 新增 apps/server/tests/run-cancel.test.ts（3 用例）：取消等待人工的 run（事件落盘/终态/审批失效/重取消幂等）、取消在途 agent 任务（`fake-cli.mjs --sleep 60000` 被抢先终止，取消耗时 < 15s，completed{status:cancelled}）、取消后重新 start 断点续跑。fixture `--sleep` 复现了静默期死锁，driver 级 signal 契约修复后取消延迟从 60s+ 降至亚秒。
 - 修掉一处被新用例放大的既有测试竞态：api.test.ts 的 SSE 用例只等首个 `workflow.node.entered` 就收尾，在途 run 会继续追加事件，与 afterEach 的 `rm -rf` 竞态（ENOTEMPTY：删掉 events.jsonl 后又被写回；全量跑 2/3 失败）。改为等 run 停在 review 人工 gate（停住后不再写盘）。
 - 全量验证：322 测试 / 31 文件全绿（连跑 6 次无 flake）；`npm run typecheck` / `npm run build:all` 通过；docs/protocol.md、docs/current-architecture.md、README.md 同步。
+
+## 2026-10-06（阶段 7）
+
+- 基线复核：`npm test -- --run` 322 测试全绿，`npm run typecheck` 全绿。
+- 发现动态 SDLC artifact 未进入快照，以及 artifact 写回缺少 session 路径边界和上下文 provenance。
+- 新增 ADR-0026；`readSnapshot` 按 workflow artifact 动态采集，记录完整文档 hash、事件 seq、事件链 hash 和稳定 `snapshot_id`。
+- `agent.task.started/completed` 带快照 provenance；自定义 artifact 进入上游上下文与定位符层。
+- coordinator 写回限制在 session 目录内，支持嵌套路径、父目录创建和临时文件替换；越界路径落失败事件。
+- 新增嵌套写回、越界失败、动态 artifact 和 provenance 回归测试；全量验证现为 325 测试 / 31 文件全绿，`npm run typecheck`、`npm run build:all`、`git diff --check` 全绿。

@@ -5,6 +5,7 @@ export {
   type SnapshotLedgerEntry,
   type SnapshotOptions,
   type WorkflowProgress,
+  resolveSessionFile,
 } from "./snapshot.js";
 
 export {

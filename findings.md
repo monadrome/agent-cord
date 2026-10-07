@@ -31,3 +31,9 @@
 - node:sqlite（Node 25 内置）做派生索引零原生依赖；`forceCloseConnections: true` 让 app.close() 不被 keep-alive 拖住。
 - 人工 gate 桥接：执行器先落 `gate.waiting` 事件再调 `HumanGate.ask` —— ask 时扫事件流即得当前审批定位键；重启后无在途执行器时决策进暂存 Map，恢复执行时消费。
 - 审批幂等定位：`approval_id = base64url(node_id/gate_id)`，审批无独立事实存储，全部从事件流投影。
+
+## 实现校准（2026-10-06，快照与自定义 artifact）
+
+- `readSnapshot` 原先只读取 `prd.md`、`plan.md`、`adr.md`、`findings.md`；自定义 SDLC 的上游 artifact 会被上下文包遗漏。
+- `settleArtifact` 原先直接 `join(session.dir, node.artifact)`；workflow 定义可携带 `../` 或绝对路径，存在越出 session 目录的写入风险。
+- coordinator 派发事件只有 prompt 摘要，没有记录本次上下文基线；加入 snapshot 指纹和事件序号后，可审计 worker 使用的最新快照来源，恢复仍按事件流重新采集。

@@ -412,6 +412,10 @@ export const AgentTaskStartedPayloadSchema = z.looseObject({
   /** 重试编号（node.run.retry）；首次为 1 */
   attempt: z.number().int().positive().optional(),
   max_attempts: z.number().int().positive().optional(),
+  /** ADR-0026：worker 使用的最新快照 provenance */
+  snapshot_id: z.string().length(64).optional(),
+  snapshot_event_seq: z.number().int().nonnegative().optional(),
+  snapshot_event_chain_hash: z.string().length(64).optional(),
 });
 
 /** 规范化用量槽位（ADR-0023 决策 3 的 usage）：各厂商原始字段映射到统一口径，原始负载留 driver 层 raw */
@@ -445,6 +449,10 @@ export const AgentTaskCompletedPayloadSchema = z.looseObject({
   /** 重试编号（node.run.retry）；首次为 1 */
   attempt: z.number().int().positive().optional(),
   max_attempts: z.number().int().positive().optional(),
+  /** ADR-0026：worker 使用的最新快照 provenance */
+  snapshot_id: z.string().length(64).optional(),
+  snapshot_event_seq: z.number().int().nonnegative().optional(),
+  snapshot_event_chain_hash: z.string().length(64).optional(),
 });
 
 /** `workflow.run.cancelled`：run 取消（ADR-0025）。取消是事实：落盘后执行器在节点边界止步 */

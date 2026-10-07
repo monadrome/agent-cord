@@ -9,8 +9,8 @@
  *
  * 纪律：实现不抛错——一切失败归约为 agent.task.completed{status} 事件，由执行器决定停在节点。
  */
-import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { ulid } from "ulid";
 import type {
   AgentDriver,
@@ -25,7 +25,7 @@ import { delay } from "../driver/headless.js";
 import type { ErrorEventData, ResultEventData, TextEventData } from "../driver/headless.js";
 import type { WorkflowNode } from "../workflow/executor.js";
 import { buildContextPack } from "./context-pack.js";
-import { readSnapshot } from "./snapshot.js";
+import { readSnapshot, resolveSessionFile } from "./snapshot.js";
 
 const ADAPTER = "coordinator";
 const PROMPT_EXCERPT_CHARS = 4_096;
@@ -70,7 +70,10 @@ async function settleArtifact(
   if (node.artifact === undefined || node.run?.readonly === true) {
     return { artifact_written: false, written_by: "none" };
   }
-  const filePath = join(session.dir, node.artifact);
+  const filePath = resolveSessionFile(session.dir, node.artifact);
+  if (filePath === null) {
+    throw new Error(`artifact 路径必须位于 session 目录内：${JSON.stringify(node.artifact)}`);
+  }
   try {
     const existing = await readFile(filePath, "utf8");
     if (existing.trim().length > 0 && !isPlaceholderDoc(existing)) {
@@ -81,7 +84,10 @@ async function settleArtifact(
   }
   if (text.trim().length > 0) {
     const header = `<!-- 由协调 agent 代写（${driverName}，${new Date().toISOString()}）；经后续门禁与人审生效 -->\n\n`;
-    await writeFile(filePath, header + text.trim() + "\n", "utf8");
+    await mkdir(dirname(filePath), { recursive: true });
+    const temporary = `${filePath}.tmp`;
+    await writeFile(temporary, header + text.trim() + "\n", "utf8");
+    await rename(temporary, filePath);
     return { artifact_written: true, written_by: "coordinator" };
   }
   return { artifact_written: false, written_by: "none" };
@@ -157,12 +163,29 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
       ...(maxAttempts > 1 ? { max_attempts: maxAttempts } : {}),
     };
 
+    // 1. 最新快照 + 上下文包（worker 永远不看事件流）
+    const snapshot = await readSnapshot(session, {
+      files: def.spec.nodes.flatMap((item) => item.artifact === undefined ? [] : [item.artifact]),
+    });
+    let prompt = buildContextPack(def, node, snapshot, {
+      ...(options.maxPackChars !== undefined ? { maxPackChars: options.maxPackChars } : {}),
+    });
+    if (previousError !== null) {
+      prompt += `\n\n## 上次尝试失败（第 ${attempt - 1} 次）\n${truncate(previousError, 2_000)}\n请避开同一失败模式。`;
+    }
+
+    const snapshotFields = {
+      snapshot_id: snapshot.snapshot_id,
+      snapshot_event_seq: snapshot.event_seq,
+      snapshot_event_chain_hash: snapshot.event_chain_hash,
+    };
     const complete = async (
       status: NodeRunStatus,
       fields: Record<string, unknown>,
     ): Promise<{ status: NodeRunStatus; error: string | null }> => {
       await append(session, "agent.task.completed", {
         ...base,
+        ...snapshotFields,
         driver: agentName,
         status,
         duration_ms: Date.now() - startedAt,
@@ -174,16 +197,23 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
       };
     };
 
-    // 1. 最新快照 + 上下文包（worker 永远不看事件流）
-    const snapshot = await readSnapshot(session);
-    let prompt = buildContextPack(def, node, snapshot, {
-      ...(options.maxPackChars !== undefined ? { maxPackChars: options.maxPackChars } : {}),
-    });
-    if (previousError !== null) {
-      prompt += `\n\n## 上次尝试失败（第 ${attempt - 1} 次）\n${truncate(previousError, 2_000)}\n请避开同一失败模式。`;
-    }
-
     // 2. 驱动解析（定义性错误，重试不会自愈 → 直接 failed 不消耗尝试次数语义外的机会）
+    if (
+      node.artifact !== undefined &&
+      node.run?.readonly !== true &&
+      resolveSessionFile(session.dir, node.artifact) === null
+    ) {
+      await append(session, "agent.task.started", {
+        ...base,
+        ...snapshotFields,
+        driver: agentName,
+        prompt_excerpt: truncate(prompt, PROMPT_EXCERPT_CHARS),
+      }, node.id);
+      return complete("failed", {
+        error: `artifact 路径必须位于 session 目录内：${JSON.stringify(node.artifact)}`,
+        text: "",
+      });
+    }
     let driver: AgentDriver;
     try {
       driver = options.resolveDriver(agentName);
@@ -191,6 +221,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
       const reason = error instanceof Error ? error.message : String(error);
       await append(session, "agent.task.started", {
         ...base,
+        ...snapshotFields,
         driver: agentName,
         prompt_excerpt: truncate(prompt, PROMPT_EXCERPT_CHARS),
       }, node.id);
@@ -199,6 +230,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
 
     await append(session, "agent.task.started", {
       ...base,
+      ...snapshotFields,
       driver: driver.name,
       prompt_excerpt: truncate(prompt, PROMPT_EXCERPT_CHARS),
     }, node.id);

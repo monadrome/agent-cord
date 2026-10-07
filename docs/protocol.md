@@ -31,7 +31,7 @@
 
 事件类型目录在 `EVENT_TYPES`；新增类型需要同步 schema 和 ADR。
 
-`agent.task.completed` 的关键字段：`status`（ok / failed / timeout / cancelled）、`text`（截断 32KB）、`artifact_written` 与 `written_by`（agent / coordinator / none）、`attempt` 与 `max_attempts`（重试时）、`agent_session_id`（仅供人工调试 resume，执行器恢复总是新会话）。`cancelled` 不算失败：不计入 failed 终态，也不触发重试。
+`agent.task.started/completed` 会记录 `snapshot_id`、`snapshot_event_seq` 与 `snapshot_event_chain_hash`（ADR-0026），标识本次派发使用的最新需求快照。`agent.task.completed` 的其他关键字段：`status`（ok / failed / timeout / cancelled）、`text`（截断 32KB）、`artifact_written` 与 `written_by`（agent / coordinator / none）、`attempt` 与 `max_attempts`（重试时）、`agent_session_id`（仅供人工调试 resume，执行器恢复总是新会话）。`cancelled` 不算失败：不计入 failed 终态，也不触发重试。
 
 ## 2. Ledger 投影
 
@@ -70,6 +70,8 @@ checker 结果是 `pass`、`block` 或 `warn`。未知 checker、抛错和非法
 
 `run.retry`（ADR-0025）：`{ max_attempts(1-10, 默认 1), backoff_ms(默认 0) }`。协调 agent 按尝试循环，退避为 `backoff_ms × 第 n 次失败`，每次尝试落独立的 agent.task.started/completed（带 `attempt`/`max_attempts`），重试的上下文包附上次失败摘要。驱动解析失败属定义性错误，不重试。
 
+上下文快照（ADR-0026）除固定的 `prd.md` / `plan.md` / `adr.md` / `findings.md` 外，还会采集 workflow 节点声明的 artifact；上游产物按依赖闭包进入上下文包。artifact 必须是 `cord/<req-id>/` 内的相对路径，越界路径以 `agent.task.completed{status: failed}` 记录。快照只把截断内容放入 prompt，完整文档通过 `content_hash` 参与 `snapshot_id`，不会复制进事件流。
+
 run 取消（ADR-0025）：`POST /api/v1/runs/:run_id/cancel` 先落 `workflow.run.cancelled` 事件（事实），再 abort 在途执行器——`AbortSignal` 经执行器 → NodeRunContext → AgentTask 透传到 driver，driver 杀进程树并关闭事件流。人工 gate 挂起处 ask 与 abort 竞速，取消**不落 gate.resolved 假判定**；取消使该流程未决 gate 从审批投影移除，重新 start 即断点续跑。终态判定按 `run_id` 匹配取消事件，历史 run 的取消不污染新 run。
 
 人工 gate 的事实顺序是：
@@ -97,4 +99,3 @@ gate.waiting → human.decision.recorded → gate.resolved
 - reducer 当前为 `REDUCER_VERSION = "1"`。
 - Workflow 当前为 `agent-cord.dev/v1alpha1`。
 - 修改跨模块契约前先更新对应 ADR，并补成功、失败和恢复路径测试。
-

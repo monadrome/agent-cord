@@ -156,6 +156,9 @@ describe("coordinator（NodeRunner）", () => {
     const started = events.find((event) => event.type === "agent.task.started");
     const completed = events.find((event) => event.type === "agent.task.completed");
     expect(started).toBeDefined();
+    expect(asPayload(started!)["snapshot_id"]).toMatch(/^[0-9a-f]{64}$/);
+    expect(asPayload(started!)["snapshot_event_seq"]).toBe(asPayload(completed!)["snapshot_event_seq"]);
+    expect(asPayload(started!)["snapshot_id"]).toBe(asPayload(completed!)["snapshot_id"]);
     expect(asPayload(completed!)["written_by"]).toBe("coordinator");
     expect(asPayload(completed!)["artifact_written"]).toBe(true);
     expect(asPayload(completed!)["agent_session_id"]).toBe("agent-sess-1");
@@ -254,6 +257,34 @@ describe("coordinator（NodeRunner）", () => {
     expect(asPayload(completed!)["written_by"]).toBe("agent");
   });
 
+  it("合法的嵌套 artifact → coordinator 创建父目录后原子写回", async () => {
+    const def: WorkflowDef = {
+      ...DEF,
+      spec: {
+        nodes: [
+          {
+            id: "nested",
+            artifact: "reports/plan.md",
+            depends_on: [],
+            run: { agent: "fake-agent", readonly: false },
+            gates: [],
+          },
+        ],
+      },
+    };
+    const runner = createNodeRunner(def, {
+      resolveDriver: () => okDriver("# 嵌套计划\n"),
+      workspaceRoot: root,
+    });
+    const outcome = await runner.runNode(def.spec.nodes[0]!, session, {
+      workflow_id: "wf-agent",
+      node_id: "nested",
+    });
+
+    expect(outcome.status).toBe("ok");
+    expect(await readFile(join(session.dir, "reports", "plan.md"), "utf8")).toContain("嵌套计划");
+  });
+
   it("驱动解析失败 → completed{status:failed}，不抛错", async () => {
     const runner = createNodeRunner(DEF, {
       resolveDriver: () => {
@@ -314,6 +345,35 @@ describe("coordinator（NodeRunner）", () => {
     const completed = events.find((event) => event.type === "agent.task.completed");
     expect(asPayload(completed!)["written_by"]).toBe("none");
   });
+
+  it("越界 artifact → 任务失败事件，不写出 session 目录", async () => {
+    const def: WorkflowDef = {
+      ...DEF,
+      spec: {
+        nodes: [
+          {
+            id: "unsafe",
+            artifact: "../outside.md",
+            depends_on: [],
+            run: { agent: "fake-agent", readonly: false },
+            gates: [],
+          },
+        ],
+      },
+    };
+    const driver = okDriver("不应派发");
+    const runner = createNodeRunner(def, { resolveDriver: () => driver, workspaceRoot: root });
+    const outcome = await runner.runNode(def.spec.nodes[0]!, session, {
+      workflow_id: "wf-agent",
+      node_id: "unsafe",
+    });
+
+    expect(outcome.status).toBe("failed");
+    expect(driver.prompts).toHaveLength(0);
+    await expect(readFile(join(root, "outside.md"), "utf8")).rejects.toThrow();
+    const completed = (await session.events.readOrdered()).find((event) => event.type === "agent.task.completed");
+    expect(String(asPayload(completed!)["error"])).toContain("必须位于 session 目录内");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -366,6 +426,33 @@ describe("上下文包（buildContextPack）", () => {
     const snapshot = await readSnapshot(session);
     const pack = buildContextPack(def, def.spec.nodes[0]!, snapshot);
     expect(pack).toContain("请验证 REQ-1 的 findings.md，节点 custom");
+  });
+
+  it("动态采集 workflow artifact，并随文件变化更新 snapshot provenance", async () => {
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(join(session.dir, "design.md"), "# 自定义设计\n\n第一版。\n", "utf8");
+    const def: WorkflowDef = {
+      ...DEF,
+      spec: {
+        nodes: [
+          { id: "design", artifact: "design.md", depends_on: [], gates: [] },
+          { id: "plan", artifact: "plan.md", depends_on: ["design"], gates: [] },
+        ],
+      },
+    };
+    const files = def.spec.nodes.flatMap((node) => node.artifact === undefined ? [] : [node.artifact]);
+    const snapshot = await readSnapshot(session, { files });
+    snapshot.workflow.exited.push("design");
+    const pack = buildContextPack(def, def.spec.nodes[1]!, snapshot);
+
+    expect(pack).toContain("自定义设计");
+    expect(pack).toContain("cord/REQ-1/design.md");
+    expect(snapshot.docs.find((doc) => doc.file === "design.md")?.content_hash).toMatch(/^[0-9a-f]{64}$/);
+
+    await writeFile(join(session.dir, "design.md"), "# 自定义设计\n\n第二版。\n", "utf8");
+    const changed = await readSnapshot(session, { files });
+    expect(changed.snapshot_id).not.toBe(snapshot.snapshot_id);
+    expect(changed.docs.find((doc) => doc.file === "design.md")?.content).toContain("第二版");
   });
 });
 

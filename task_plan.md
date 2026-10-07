@@ -26,3 +26,15 @@
 ## 错误记录
 
 - Fastify 的 `reply` 是 thenable：handler 里 `await reply.code(201)` 会死锁（等响应发出，而响应要等 handler 返回）。一律 `reply.code(...)` 不 await。
+
+## 阶段 7：动态快照 provenance 与自定义 artifact 边界（进行中）
+
+- [x] 为快照采集 workflow 声明的自定义 artifact，并生成可审计指纹
+- [x] 为 coordinator 写回路径增加 session 目录边界校验与父目录创建
+- [x] 在 agent.task 事件中记录 snapshot_id / event_seq，补成功、失败、恢复测试
+- [x] 同步 ADR、协议文档、进度与调研记录
+- [x] 运行全量 test、typecheck、build 和 diff 检查
+
+## 错误记录（阶段 7）
+
+暂无。
