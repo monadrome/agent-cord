@@ -205,7 +205,7 @@
 - [x] ADR-0035：结构化输入指纹、统一并发占位、业务执行前持久化 pending、未知结果 fail-closed
 - [x] 实现共享幂等入口与 SQLite 兼容迁移，移除路由重复映射
 - [x] 全量 test/typecheck/build/diff、实际 HTTP 验收、文档
-- [ ] 提交推送
+- [x] 功能提交 `1056ed1`，推送成功（exp/impl：`49982d3` → `1056ed1`）
 
 ### 阶段 16 设计边界
 
@@ -226,6 +226,7 @@
 - 最后审查把响应快照转换移入故障处理；不支持的流式写响应必须明确未确认并唤醒等待者，不能因序列化抛错留悬挂 Promise。补独立 Fastify 回归，准备最终验证。
 - 最终 537 测试 / 45 文件、build:all/typecheck/diff 全通过；23 个共享入口用例与 6 个索引用例覆盖输入、并发、失败/恢复、断连、流式响应及旧表兼容。
 - 最新代码的第二轮实际 HTTP 五并发全通过，证据 `/tmp/cord-stage16-preview-final/smoke-result.json`；Playwright 1440/390/320 无溢出、pageerror=0，可采用提议保持。预览 `http://127.0.0.1:7304/#/requirements/REQ-IDEMPOTENCY-DEMO/coordination`，browser-result.json 与 preview-1440.png / preview-390.png 保留证据。
+- 功能提交 `1056ed1` 已成功推送当前 exp/impl；代码和验收文档同步，预览 health 正常。
 
 ### 待继续
 

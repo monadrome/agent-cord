@@ -45,6 +45,7 @@
 - 离线协调预览 `http://127.0.0.1:7303/#/requirements/REQ-IDEMPOTENCY-DEMO/coordination`，未调用外部模型。阶段 16 准备提交推送，持续目标后续为文件边界、真实模型/需求与可复用配置示例。
 - 最后补齐流式写响应的失败收束，最终 537 测试 / 45 文件、build:all/typecheck/diff 全通过。最新代码的第二轮真实 HTTP 五并发闭环再次通过。
 - 最终离线预览 `http://127.0.0.1:7304/#/requirements/REQ-IDEMPOTENCY-DEMO/coordination`，工作区 `/tmp/cord-stage16-preview-final`，smoke-result.json / browser-result.json 与 desktop/mobile 截图保存证据；1440/390/320 无溢出，pageerror=0，doctor=true，协调提议可采用。
+- 功能提交 `1056ed1`，推送成功（origin/exp/impl：`49982d3` → `1056ed1`），预览 health 正常；持续目标下一轮继续文件 checker/REST 文档访问边界与真实模型运行。
 
 ## 2026-09-25
 
