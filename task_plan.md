@@ -243,7 +243,7 @@
 - [x] 添加可复用 ACP/Claude 角色/Codex agent 配置和 SDLC 示例，结构化解析验证
 - [x] 临时工作区的真实 CLI 协调调用，核验最新快照/严格提议与来源；失败如实记录
 - [x] 全量 test/typecheck/build/diff、HTTP 验收、文档
-- [ ] 提交推送
+- [x] 功能提交 `325f8c4`，推送成功（exp/impl：`0231ab2` → `325f8c4`）
 
 ### 阶段 17 边界
 
@@ -267,6 +267,7 @@
 - 最终 558 测试 / 49 文件、build:all/typecheck/diff 通过，最新 HTTP 和浏览器验收通过；558 测试保持离线，真实 LLM 验收独立进行。
 - 第二轮 HTTP 证明符号/硬链接 409、缺失 404、外部原文不变、门禁 blocked → 修复 → completed，workspace doctor=true。浏览器 1440/390/320 无溢出/pageerror，读错误禁用编辑/保存、缺失可创建、修复可读。
 - 保留真实提议预览 `http://127.0.0.1:7305/#/requirements/REQ-REAL-CONTEXT/coordination`；证据 `/tmp/cord-stage17-real-result.json`、`/tmp/cord-stage17-http-result.json`、`/tmp/cord-stage17-browser-result.json` 与临时真实工作区截图。公开总结写入 docs/research/2026-10-07-real-context-agent.md。
+- 功能提交 `325f8c4` 已成功推送当前 exp/impl，运行数据/凭据未提交，预览 health 正常。
 
 ### 持续目标后续
 

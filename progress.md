@@ -54,6 +54,7 @@
 - 临时 git 仓库补本地 merge driver 注册后 HTTP 边界/门禁恢复与 workspace doctor 全通过；读错误控制台保持编辑/保存禁用，404 新文档仍可创建。Playwright 1440/390/320 无溢出/pageerror，真实 VERSION_B 提议正确呈现。
 - 最终 558 离线测试 / 49 文件、build:all/typecheck/diff 全通过。真实提议预览 `http://127.0.0.1:7305/#/requirements/REQ-REAL-CONTEXT/coordination`；real/http/browser-result.json 与截图保留在临时工作区，公开研究记录不提交运行数据或凭据。
 - 阶段 17 进入提交推送；后续真实开发需求全链路、Claude/ACP 实际调用仍待验证，持续目标不以两轮 Codex 协调测试代替全部需求。
+- 功能提交 `325f8c4`，推送成功（origin/exp/impl：`0231ab2` → `325f8c4`）；当前代码、示例与公开验收记录同步，预览 health 正常。
 
 ## 2026-09-25
 
