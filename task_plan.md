@@ -74,7 +74,7 @@
 - [x] 快照准备/写回错误记 started/completed；不可重试错误止步，事件写入失败上抛
 - [x] 覆盖最新账本、跨流程进度、失败恢复、文件边界与事件存储故障
 - [x] 全量验证和实际服务验收
-- [ ] 本地提交并尝试推送
+- [x] 本地提交 `2af6de5` 并尝试推送；HTTP 408 断连，远端核验超时，保留本地提交
 
 ### 验证记录（阶段 9）
 
@@ -82,3 +82,4 @@
 - 新增回归先复现 14 个失败点，原先 19 个行为通过；实现后首轮 33 个定向测试通过。
 - build 暴露 AbortSignal 的 TypeScript 跨 await 窄化问题；取消复查改为显式 Boolean 读取最新状态。
 - 最终验证 366 测试 / 34 文件通过，typecheck/build:all/diff 检查通过；实际 HTTP 最新上下文与失败恢复闭环、health/doctor 均通过。
+- 推送报 RPC/HTTP 408 与 sideband 断连，`ls-remote` 15 秒超时；不能把伴随的 Everything up-to-date 当作成功，远端更新仍未确认。

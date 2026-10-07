@@ -85,3 +85,4 @@
 - 最终全量 366 测试 / 34 文件通过，`npm run typecheck`、`npm run build:all`、`git diff --check` 通过。
 - 实际 HTTP smoke：人工 gate 期间更新 PRD 并追加账本事件，磁盘账本尚未更新时下一 worker 的 prompt 仍收到最新输入；快照目录错误落失败阶段，修复后重新 start 断点完成；health/doctor 全通过。
 - 预览 `http://127.0.0.1:7292`，临时工作区 `/tmp/cord-stage9-preview`，结果 `/tmp/cord-stage9-preview/smoke-result.json`，日志 `/tmp/cord-stage9-preview.log`。
+- 本地功能提交 `2af6de5`；推送返回 RPC/HTTP 408、sideband 断连，远端 `ls-remote` 核验在 15 秒内超时。提交保留，远端是否更新未确认；后续网络恢复时核验并推送全部待同步提交。
