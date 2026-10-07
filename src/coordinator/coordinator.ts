@@ -26,6 +26,7 @@ import type { WorkflowNode } from "../workflow/executor.js";
 import { buildContextPack } from "./context-pack.js";
 import { readSnapshot, resolveSessionFile } from "./snapshot.js";
 import { readSessionDocument, SessionFileConflictError, SessionFileError, writeSessionDocument } from "./session-files.js";
+import { executionInputHash } from "./checkpoint.js";
 
 const ADAPTER = "coordinator";
 const PROMPT_EXCERPT_CHARS = 4_096;
@@ -136,6 +137,21 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
   };
 
   return {
+    async isCompletionReusable(node, session, ctx, completion) {
+      const payload = completion.payload as Record<string, unknown> | null;
+      if (payload?.["status"] !== "ok" || typeof payload["execution_input_hash"] !== "string") return false;
+      const snapshot = await readSnapshot(session, {
+        workflow_id: ctx.workflow_id,
+        files: [...def.spec.nodes, node].flatMap((item) => item.artifact === undefined ? [] : [item.artifact]),
+      });
+      if (executionInputHash(def, node, snapshot, options.maxPackChars) !== payload["execution_input_hash"]) return false;
+      if (node.artifact !== undefined) {
+        const current = snapshot.docs.find((doc) => doc.file === node.artifact);
+        if (payload["artifact_after_hash"] !== current?.content_hash) return false;
+        if (node.run?.readonly !== true && payload["artifact_written"] !== true) return false;
+      }
+      return true;
+    },
     async runNode(node: WorkflowNode, session: SessionHandle, ctx: NodeRunContext) {
       const maxAttempts = node.run?.retry?.max_attempts ?? 1;
       const backoffMs = node.run?.retry?.backoff_ms ?? 0;
@@ -233,6 +249,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
         snapshot_id: snapshot.snapshot_id,
         snapshot_event_seq: snapshot.event_seq,
         snapshot_event_chain_hash: snapshot.event_chain_hash,
+        execution_input_hash: executionInputHash(def, node, snapshot, options.maxPackChars),
       };
       if (node.artifact !== undefined) {
         artifact_before_hash = snapshot.docs.find((doc) => doc.file === node.artifact)?.content_hash ?? null;

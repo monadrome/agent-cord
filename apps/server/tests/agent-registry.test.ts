@@ -114,7 +114,7 @@ async function approve(server: BuiltServer, req_id: string): Promise<void> {
   const [approval] = await server.sessions.listApprovals(req_id);
   expect(approval).toBeDefined();
   const response = await request(server, "POST", `/api/v1/requirements/${req_id}/approvals/${approval!.approval_id}/decide`, { choice: "确认放行" }, `approve-${req_id}`);
-  expect(response.status).toBe(200);
+  expect(response.status, JSON.stringify(response.body)).toBe(200);
 }
 
 describe("工作区 agent registry", () => {

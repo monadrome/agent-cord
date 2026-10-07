@@ -100,3 +100,15 @@
 - 预览 `http://127.0.0.1:7293`，工作区 `/tmp/cord-stage10-preview`，结果 `/tmp/cord-stage10-preview/smoke-result.json`，日志 `/tmp/cord-stage10-preview.log`。
 - 改用 HTTP/1.1 查询远端成功，exp/impl 当前仍为 b06b96b；准备同步本轮与此前全部本地提交。
 - 本轮实现提交 `16090c6`；HTTP/1.1 推送成功（b06b96b → 16090c6），阶段 8/9 的积压本地提交已一并同步，无需改全局 Git 配置。
+
+## 2026-10-06（阶段 11）
+
+- 开始时工作区干净，HEAD 与 origin/exp/impl 均为 `2559083`；上一轮已完成并推送。
+- 确认历史 ok 的盲目复用、pending gate 绕过检查、审批暂存未绑定版本；开始实现输入校验与版本化审批。
+- 新增 ADR-0030：稳定 execution_input_hash 与 NodeRunner.isCompletionReusable，未退出节点输入或产物变化时重跑，控制事件不使 checkpoint 自失效。
+- gate 使用统一 evaluateGate 与 evaluation_hash，等待前后重检、gate.invalidated 版本失效；过期 worker 先重跑再审批。
+- 审批 ID 为 gate.waiting ULID，暂存/已落盘选择按版本消费，旧审批 409，同版本并发选择只记录一次；已决策审批不重复展示，重启自动消费匹配的持久化选择。
+- 首轮全量 422 测试 / 37 文件通过，build:all 通过，开始最终类型检查与实际 HTTP 验收。
+- 最终 424 测试 / 37 文件通过，`npm run typecheck`、`npm run build:all`、`git diff --check` 通过。
+- 实际 HTTP smoke：输入不变重启只执行 worker 1 次且审批 ID 不变；人工等待时 PRD 更新使旧审批返回 409、先重新派发最新输入再生成新审批（worker 共 2 次）；账本推翻使旧审批失效并机器阻断，没有伪造人工决策。health/doctor 通过。
+- 预览 `http://127.0.0.1:7294`，临时工作区 `/tmp/cord-stage11-preview`，结果 `/tmp/cord-stage11-preview/smoke-result.json`，日志 `/tmp/cord-stage11-preview.log`。

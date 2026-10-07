@@ -259,6 +259,7 @@ export const EVENT_TYPES = [
   "vote.started",
   "vote.completed",
   "gate.waiting",
+  "gate.invalidated",
   "gate.resolved",
   "workflow.node.entered",
   "workflow.node.exited",
@@ -289,6 +290,8 @@ export const CliMessageReceivedPayloadSchema = z.looseObject({
 
 /** `human.decision.recorded`：门禁选择题的一次结构化记录（含超时/EOF 兜底） */
 export const HumanDecisionRecordedPayloadSchema = z.looseObject({
+  waiting_event_id: z.string().regex(ULID_RE).optional(),
+  evaluation_hash: z.string().length(64).optional(),
   question: z.string(),
   options: z.array(z.string()).min(1),
   chosen: z.string(),
@@ -360,10 +363,19 @@ export const GateWaitingPayloadSchema = z.looseObject({
   reason: z.string().optional(),
   result: z.enum(["pass", "warn"]).nullable().optional(),
   timed_out: z.boolean().optional(),
+  /** ADR-0030：审批的证据版本，与控制事件序号独立 */
+  evaluation_hash: z.string().length(64).optional(),
+});
+
+export const GateInvalidatedPayloadSchema = z.looseObject({
+  workflow_id: z.string().min(1), node_id: z.string().min(1), gate_id: z.string().min(1),
+  waiting_event_id: z.string().regex(ULID_RE), reason: z.string(),
 });
 
 /** `gate.resolved`：执行器写（含 checks/人工分支）与 CLI 直达写（含 entry_ids）两种形态共用 */
 export const GateResolvedPayloadSchema = z.looseObject({
+  waiting_event_id: z.string().regex(ULID_RE).optional(),
+  evaluation_hash: z.string().length(64).optional(),
   gate_id: z.string().min(1),
   result: z.enum(["pass", "block", "warn"]),
   action: GateActionSchema,
@@ -408,6 +420,7 @@ export const AgentTaskStartedPayloadSchema = z.looseObject({
   workflow_id: z.string().min(1),
   node_id: z.string().min(1),
   driver: z.string().min(1),
+  execution_input_hash: z.string().length(64).optional(),
   /** ADR-0029：派发时 artifact 的完整内容 hash，不存在为 null */
   artifact_before_hash: z.string().length(64).nullable().optional(),
   prompt_excerpt: z.string().optional(),
@@ -437,6 +450,7 @@ export const AgentTaskCompletedPayloadSchema = z.looseObject({
   workflow_id: z.string().min(1),
   node_id: z.string().min(1),
   driver: z.string().min(1),
+  execution_input_hash: z.string().length(64).optional(),
   status: z.enum(["ok", "failed", "timeout", "cancelled"]),
   /** ADR-0028：失败阶段与本次失败是否允许节点内重试 */
   failure_stage: z.enum(["snapshot", "configuration", "driver", "artifact"]).optional(),
@@ -481,6 +495,7 @@ export const EVENT_PAYLOAD_SCHEMAS: Partial<Record<EventType, z.ZodType>> = {
   "ledger.entry.anchor_drifted": LedgerEntryAnchorDriftedPayloadSchema,
   "vote.completed": VoteCompletedPayloadSchema,
   "gate.waiting": GateWaitingPayloadSchema,
+  "gate.invalidated": GateInvalidatedPayloadSchema,
   "gate.resolved": GateResolvedPayloadSchema,
   "workflow.node.entered": WorkflowNodeEnteredPayloadSchema,
   "workflow.node.exited": WorkflowNodeExitedPayloadSchema,

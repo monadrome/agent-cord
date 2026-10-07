@@ -10,6 +10,7 @@ import { ulid as newEventUlid } from "ulid";
 import {
   initSession,
   openSession,
+  ULID_RE,
   type EventEnvelope,
   type Ledger,
   type SessionHandle,
@@ -47,15 +48,21 @@ function str(value: unknown): string | null {
 }
 
 function gateKey(nodeId: string, gateId: string): string {
-  return `${nodeId}/${gateId}`;
+  return JSON.stringify([nodeId, gateId]);
 }
 
-/** base64url 编码/解码审批定位键（ADR-0021 注意点 2） */
-export function encodeApprovalId(nodeId: string, gateId: string): string {
-  return Buffer.from(gateKey(nodeId, gateId), "utf8").toString("base64url");
+export function approvalKey(workflow_id: string, node_id: string, gate_id: string): string {
+  return JSON.stringify([workflow_id, node_id, gate_id]);
 }
 
-export function decodeApprovalId(approvalId: string): { node_id: string; gate_id: string } | null {
+/** 当前审批 ID 为等待事件 ULID；旧静态编码仅供解析（ADR-0030）。 */
+export function encodeApprovalId(nodeId: string, gateId: string, version?: { workflow_id: string; waiting_event_id: string }): string {
+  if (version !== undefined) return version.waiting_event_id;
+  return Buffer.from(`${nodeId}/${gateId}`, "utf8").toString("base64url");
+}
+
+export function decodeApprovalId(approvalId: string): { node_id?: string; gate_id?: string; waiting_event_id?: string } | null {
+  if (ULID_RE.test(approvalId)) return { waiting_event_id: approvalId };
   const raw = Buffer.from(approvalId, "base64url").toString("utf8");
   const slash = raw.indexOf("/");
   if (slash <= 0 || slash === raw.length - 1) return null;
@@ -63,6 +70,8 @@ export function decodeApprovalId(approvalId: string): { node_id: string; gate_id
 }
 
 interface WaitingGateInfo {
+  waiting_event_id: string;
+  evaluation_hash: string | null;
   workflow_id: string;
   node_id: string;
   gate_id: string;
@@ -99,10 +108,12 @@ export function scanPendingApprovals(events: readonly EventEnvelope[]): Map<stri
     const nodeId = str(payload["node_id"]);
     const gateId = str(payload["gate_id"]);
     if (nodeId === null || gateId === null) continue;
-    const key = gateKey(nodeId, gateId);
+    const key = approvalKey(str(payload["workflow_id"]) ?? "", nodeId, gateId);
     if (event.type === "gate.waiting") {
       const rawOptions = Array.isArray(payload["options"]) ? payload["options"] : [];
       waiting.set(key, {
+        waiting_event_id: event.event_id,
+        evaluation_hash: str(payload["evaluation_hash"]),
         workflow_id: str(payload["workflow_id"]) ?? "",
         node_id: nodeId,
         gate_id: gateId,
@@ -112,6 +123,8 @@ export function scanPendingApprovals(events: readonly EventEnvelope[]): Map<stri
         reason: str(payload["reason"]) ?? "",
         since: event.timestamp,
       });
+    } else if (event.type === "gate.invalidated") {
+      if (waiting.get(key)?.waiting_event_id === payload["waiting_event_id"]) waiting.delete(key);
     } else if (event.type === "gate.resolved") {
       waiting.delete(key);
     }
@@ -253,9 +266,11 @@ export class SessionService {
   /** 审批列表：事件流投影 + approval_id 编码 */
   async listApprovals(reqId: string): Promise<ApprovalItem[]> {
     const handle = await this.open(reqId);
-    const pending = scanPendingApprovals(await handle.events.readOrdered());
-    return [...pending.values()].map((info) => ({
-      approval_id: encodeApprovalId(info.node_id, info.gate_id),
+    const events = await handle.events.readOrdered();
+    const pending = scanPendingApprovals(events);
+    const decided = new Set(events.filter((event) => event.type === "human.decision.recorded").map((event) => str(asRecord(event.payload)?.["waiting_event_id"])));
+    return [...pending.values()].filter((info) => !decided.has(info.waiting_event_id)).map((info) => ({
+      approval_id: encodeApprovalId(info.node_id, info.gate_id, { workflow_id: info.workflow_id, waiting_event_id: info.waiting_event_id }),
       req_id: reqId,
       workflow_id: info.workflow_id,
       node_id: info.node_id,
@@ -328,7 +343,7 @@ export class SessionService {
         return {
           gate_id: gate.id,
           phase: gate.attach.when,
-          waiting: pending.has(key),
+          waiting: pending.has(approvalKey(workflowId, node.id, gate.id)),
           result: done?.result ?? null,
           action: done?.action ?? null,
           reason: done?.reason ?? null,

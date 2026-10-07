@@ -24,6 +24,7 @@ import {
   type Actor,
   type Anchor,
   type EventDraft,
+  type EventEnvelope,
   type EventType,
   type GateAction,
   type GateDef,
@@ -34,11 +35,14 @@ import type {
   CheckerContext,
   CheckerRegistry,
   HumanGate,
+  HumanGateAnswer,
+  HumanGateContext,
   NodeRunner,
   SessionHandle,
   WorkflowExecutor,
 } from "../core/ports.js";
 import { createBuiltinRegistry } from "./checkers.js";
+import { canonicalJson, sha256Hex } from "../core/hash.js";
 
 export type WorkflowNode = WorkflowDef["spec"]["nodes"][number];
 
@@ -76,9 +80,11 @@ export interface ExecutorOptions {
   payloadFor?: (node: WorkflowNode) => Record<string, unknown>;
   /**
    * 节点执行体（ADR-0023）：节点声明 run 时调用；未注入则跳过执行并在 node.exited 记 warn（fail-visible）。
-   * 恢复扫点：节点已有 status=ok 的 agent.task.completed 时不重复执行。
+   * 恢复扫点：通过 NodeRunner 校验输入指纹与产物后，才复用历史 ok（ADR-0030）。
    */
   nodeRunner?: NodeRunner;
+  /** ADR-0030：宿主提供稳定的审批输入指纹（不含控制事件），server 使用需求快照 */
+  gateInputHash?: (node: WorkflowNode, gate: GateDef, session: SessionHandle) => Promise<string>;
   /** run 取消信号（ADR-0025）：节点边界与人工挂起点检查；abort 后执行器止步（不落假判定） */
   signal?: AbortSignal;
   actor?: Actor;
@@ -92,7 +98,7 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
   return {
     /**
      * 从头执行或扫点恢复。被 block / 等待人工 / 超时挂起时正常返回（状态已落盘，可从事件恢复），
-     * 只有图定义错误才抛错。
+     * 定义错误、存储失败与无法读取宿主审批输入时上抛，不伪造终态。
      *
      * 停在节点上的流程修好输入后再次 run 即可续跑：该节点被重新求值，故会看到重复的
      * `gate.resolved`——那是重试痕迹（同节点同类事件取最后一条即最新判定），不是新判定。
@@ -108,91 +114,127 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
 
       for (const nodeId of order) {
         if (state.completed.has(nodeId)) continue;
-        // ADR-0025：run 取消在节点边界生效（不中断已退出节点的事实，停止推进后续节点）
-        if (options.signal?.aborted === true) return;
-        const node = nodes.get(nodeId);
-        if (!node) throw new WorkflowDefinitionError(`拓扑序中的节点缺少定义：${nodeId}`);
+        node_attempt: for (;;) {
+          // ADR-0025：run 取消在节点边界生效（不中断已退出节点的事实，停止推进后续节点）
+          if (options.signal?.aborted === true) return;
+          const node = nodes.get(nodeId);
+          if (!node) throw new WorkflowDefinitionError(`拓扑序中的节点缺少定义：${nodeId}`);
 
-        const payload = options.payloadFor?.(node) ?? options.payload ?? {};
-        const ctx: CheckerContext = {
-          session_dir: session.dir,
-          anchors: extractAnchors(payload),
-          payload,
-          node_id: nodeId,
-          session,
-        };
-
-        await appendEvent(
-          session,
-          actor,
-          "workflow.node.entered",
-          {
-            workflow_id,
+          const payload = options.payloadFor?.(node) ?? options.payload ?? {};
+          const ctx: CheckerContext = {
+            session_dir: session.dir,
+            anchors: extractAnchors(payload),
+            payload,
             node_id: nodeId,
-            artifact: node.artifact ?? null,
-            resumed: state.entered.has(nodeId),
-          },
-          nodeId,
-        );
+            session,
+          };
 
-        const summaries: GateSummary[] = [];
-        const notes: string[] = [];
-        const runGates = async (gates: GateDef[]): Promise<boolean> => {
-          for (const gate of gates) {
-            if (options.signal?.aborted === true) return true;
-            const outcome = await runGate({
+          await appendEvent(
+            session,
+            actor,
+            "workflow.node.entered",
+            {
               workflow_id,
               node_id: nodeId,
-              gate,
-              session,
-              registry,
-              humanGate: options.humanGate,
-              ctx,
-              actor,
-              pending: state.waiting.get(gateKey(nodeId, gate.id)),
-              signal: options.signal,
-            });
-            if (outcome.summary) summaries.push(outcome.summary);
-            if (outcome.stop) return true;
+              artifact: node.artifact ?? null,
+              resumed: state.entered.has(nodeId),
+            },
+            nodeId,
+          );
+
+          const summaries: GateSummary[] = [];
+          const notes: string[] = [];
+          const runGates = async (gates: GateDef[]): Promise<"continue" | "stop" | "restart"> => {
+            for (const gate of gates) {
+              if (options.signal?.aborted === true) return "stop";
+              const outcome = await runGate({
+                workflow_id,
+                node_id: nodeId,
+                gate,
+                session,
+                registry,
+                humanGate: options.humanGate,
+                ctx,
+                actor,
+                pending: state.waiting.get(gateKey(nodeId, gate.id)),
+                ...(options.gateInputHash !== undefined ? { inputHash: () => options.gateInputHash!(node, gate, session) } : {}),
+                ...(gate.attach.when === "post" && options.nodeRunner?.isCompletionReusable !== undefined && state.agentDone.has(nodeId)
+                  ? { checkpointCurrent: () => options.nodeRunner!.isCompletionReusable!(node, session, { workflow_id, node_id: nodeId }, state.agentDone.get(nodeId)!) }
+                  : {}),
+                signal: options.signal,
+              });
+              if (outcome.summary) summaries.push(outcome.summary);
+              if (outcome.restart_node) return "restart";
+              if (outcome.stop) return "stop";
+            }
+            return "continue";
+          };
+
+          const nodeGates = gatesByNode.get(nodeId) ?? [];
+          // pre gate → node.run → post gate（ADR-0014：pre = 节点前；ADR-0023：执行体在两段 gate 之间）
+          if (await runGates(nodeGates.filter((gate) => gate.attach.when === "pre")) === "stop") return;
+
+          if (node.run !== undefined) {
+            if (options.nodeRunner === undefined) {
+              notes.push("节点声明了 run 执行体但未注入 NodeRunner，执行被跳过（fail-visible）");
+            } else {
+              const completion = state.agentDone.get(nodeId);
+              let reusable = false;
+              if (completion !== undefined && options.nodeRunner.isCompletionReusable !== undefined) {
+                try {
+                  reusable = await options.nodeRunner.isCompletionReusable(node, session, { workflow_id, node_id: nodeId }, completion) === true;
+                } catch {
+                  notes.push("无法验证历史任务输入，按最新快照重新执行");
+                }
+              }
+              if (reusable) {
+                notes.push("历史任务输入与产物仍有效，跳过重复执行");
+              } else {
+                for (const gate of nodeGates.filter((item) => item.attach.when === "post")) {
+                  const pending = state.waiting.get(gateKey(nodeId, gate.id));
+                  if (pending !== undefined) {
+                    await invalidateWaiting(session, actor, { workflow_id, node_id: nodeId, gate_id: gate.id, phase: "post" }, pending.waiting_event_id, "worker 输入或产物已变化，旧审批不能用于重跑后的产物");
+                    state.waiting.delete(gateKey(nodeId, gate.id));
+                  }
+                }
+                const outcome = await options.nodeRunner.runNode(node, session, {
+                  workflow_id,
+                  node_id: nodeId,
+                  ...(options.signal !== undefined ? { signal: options.signal } : {}),
+                });
+                // 失败/超时/取消：停在该节点，修复后按新输入重跑。
+                if (outcome.status !== "ok") return;
+                const latest = [...await session.events.readOrdered()].reverse().find((event) =>
+                  event.type === "agent.task.completed" && asRecord(event.payload)?.["workflow_id"] === workflow_id && asRecord(event.payload)?.["node_id"] === nodeId,
+                );
+                if (latest !== undefined) state.agentDone.set(nodeId, latest);
+              }
+            }
           }
-          return false;
-        };
 
-        const nodeGates = gatesByNode.get(nodeId) ?? [];
-        // pre gate → node.run → post gate（ADR-0014：pre = 节点前；ADR-0023：执行体在两段 gate 之间）
-        if (await runGates(nodeGates.filter((gate) => gate.attach.when === "pre"))) return;
+          const post = await runGates(nodeGates.filter((gate) => gate.attach.when === "post"));
+          if (post === "stop") return;
+          if (post === "restart") {
+            state.entered.add(nodeId);
+            for (const [key, waiting] of state.waiting) if (waiting.node_id === nodeId) state.waiting.delete(key);
+            continue node_attempt;
+          }
 
-        if (node.run !== undefined) {
-          if (options.nodeRunner === undefined) {
-            notes.push("节点声明了 run 执行体但未注入 NodeRunner，执行被跳过（fail-visible）");
-          } else if (state.agentDone.has(nodeId)) {
-            notes.push("agent 任务已 ok 完成（恢复扫点），跳过重复执行");
-          } else {
-            const outcome = await options.nodeRunner.runNode(node, session, {
+          await appendEvent(
+            session,
+            actor,
+            "workflow.node.exited",
+            {
               workflow_id,
               node_id: nodeId,
-              ...(options.signal !== undefined ? { signal: options.signal } : {}),
-            });
-            // 失败/超时/取消：completed 事件已落盘，停在该节点；修好输入后重跑会重试执行体
-            if (outcome.status !== "ok") return;
-          }
+              artifact: node.artifact ?? null,
+              gates: summaries,
+              ...(notes.length > 0 ? { notes } : {}),
+            },
+            nodeId,
+          );
+          break;
         }
-
-        if (await runGates(nodeGates.filter((gate) => gate.attach.when === "post"))) return;
-
-        await appendEvent(
-          session,
-          actor,
-          "workflow.node.exited",
-          {
-            workflow_id,
-            node_id: nodeId,
-            artifact: node.artifact ?? null,
-            gates: summaries,
-            ...(notes.length > 0 ? { notes } : {}),
-          },
-          nodeId,
-        );
       }
     },
   };
@@ -297,6 +339,8 @@ function indexGates(def: WorkflowDef): Map<string, GateDef[]> {
 // ---------------------------------------------------------------------------
 
 interface WaitingGate {
+  waiting_event_id: string;
+  evaluation_hash?: string;
   node_id: string;
   gate_id: string;
   kind: "human_confirm" | "escalation";
@@ -312,35 +356,42 @@ interface ScannedState {
   entered: Set<string>;
   /** 有 gate.waiting 且尚未 gate.resolved 的 gate（key = node/gate） */
   waiting: Map<string, WaitingGate>;
-  /** 最近一次 entered 之后已有 status=ok 的 agent.task.completed 的节点（ADR-0023：恢复不重复执行） */
-  agentDone: Set<string>;
+  /** 最近有效 ok 的候选 checkpoint；恢复仍需 NodeRunner 验证当前输入与产物 */
+  agentDone: Map<string, EventEnvelope>;
 }
 
 async function scan(session: SessionHandle, workflowId: string): Promise<ScannedState> {
   const completed = new Set<string>();
   const entered = new Set<string>();
   const waiting = new Map<string, WaitingGate>();
-  const agentDone = new Set<string>();
+  const agentDone = new Map<string, EventEnvelope>();
 
   for (const event of await session.events.readOrdered()) {
     const payload = asRecord(event.payload);
     if (!payload || payload["workflow_id"] !== workflowId) continue;
     const nodeId = payload["node_id"];
     const gateId = payload["gate_id"];
+    if (event.type === "workflow.run.cancelled") { waiting.clear(); continue; }
     if (event.type === "workflow.node.entered" && typeof nodeId === "string") {
       entered.add(nodeId);
-      // 重新进入 = 之前的执行体完成记录作废（节点重跑语义）
-      agentDone.delete(nodeId);
+      // resumed entered 保留 checkpoint，明确的新任务 started 才使旧任务失效。
+      if (payload["resumed"] !== true) agentDone.delete(nodeId);
     } else if (event.type === "workflow.node.exited" && typeof nodeId === "string") {
       completed.add(nodeId);
+    } else if (event.type === "agent.task.started" && typeof nodeId === "string") {
+      agentDone.delete(nodeId);
     } else if (event.type === "agent.task.completed" && typeof nodeId === "string") {
-      if (payload["status"] === "ok") agentDone.add(nodeId);
+      if (payload["status"] === "ok") agentDone.set(nodeId, event);
+      else agentDone.delete(nodeId);
     } else if (
       event.type === "gate.waiting" &&
       typeof nodeId === "string" &&
       typeof gateId === "string"
     ) {
-      waiting.set(gateKey(nodeId, gateId), toWaitingGate(nodeId, gateId, payload));
+      waiting.set(gateKey(nodeId, gateId), toWaitingGate(nodeId, gateId, payload, event.event_id));
+    } else if (event.type === "gate.invalidated" && typeof nodeId === "string" && typeof gateId === "string") {
+      const key = gateKey(nodeId, gateId);
+      if (waiting.get(key)?.waiting_event_id === payload["waiting_event_id"]) waiting.delete(key);
     } else if (
       event.type === "gate.resolved" &&
       typeof nodeId === "string" &&
@@ -356,11 +407,14 @@ function toWaitingGate(
   nodeId: string,
   gateId: string,
   payload: Record<string, unknown>,
+  event_id: string,
 ): WaitingGate {
   const rawOptions = Array.isArray(payload["options"]) ? payload["options"] : [];
   const options = rawOptions.filter((option): option is string => typeof option === "string");
   const result = payload["result"];
   return {
+    waiting_event_id: event_id,
+    ...(typeof payload["evaluation_hash"] === "string" ? { evaluation_hash: payload["evaluation_hash"] } : {}),
     node_id: nodeId,
     gate_id: gateId,
     kind: payload["kind"] === "human_confirm" ? "human_confirm" : "escalation",
@@ -375,7 +429,7 @@ function toWaitingGate(
 }
 
 function gateKey(nodeId: string, gateId: string): string {
-  return `${nodeId}/${gateId}`;
+  return JSON.stringify([nodeId, gateId]);
 }
 
 // ---------------------------------------------------------------------------
@@ -403,7 +457,9 @@ interface GateRun {
   humanGate: HumanGate;
   ctx: CheckerContext;
   actor: Actor;
-  pending?: WaitingGate;
+  pending?: WaitingGate | undefined;
+  inputHash?: () => Promise<string>;
+  checkpointCurrent?: () => Promise<boolean>;
   /** run 取消信号（ADR-0025）：人工挂起点可中断 */
   signal?: AbortSignal | undefined;
 }
@@ -411,9 +467,52 @@ interface GateRun {
 interface GateOutcome {
   stop: boolean;
   summary?: GateSummary;
+  recheck?: boolean;
+  restart_node?: boolean;
 }
 
 async function runGate(run: GateRun): Promise<GateOutcome> {
+  let current = run;
+  for (;;) {
+    if (current.signal?.aborted === true) return { stop: true };
+    if (current.checkpointCurrent !== undefined && !(await current.checkpointCurrent())) {
+      const pending = current.pending;
+      if (pending !== undefined) await invalidateWaiting(current.session, current.actor, {
+        workflow_id: current.workflow_id, node_id: current.node_id, gate_id: current.gate.id, phase: current.gate.attach.when,
+      }, pending.waiting_event_id, "worker 输入或产物已变化，重新执行节点");
+      return { stop: false, restart_node: true };
+    }
+    const outcome = await runGateOnce(current);
+    if (!outcome.recheck) return outcome;
+    current = { ...run, pending: undefined };
+  }
+}
+
+export interface GateEvaluation {
+  checks: Array<{ ref: string; result: GateResult["result"]; reason: string }>;
+  anchors: Anchor[];
+  confidence: number;
+  reason: string;
+  satisfied: boolean;
+  result: "pass" | "warn";
+  evaluation_hash: string;
+}
+
+/** gate 的唯一求值入口；server 校验审批时复用，不复制放行状态机。 */
+export async function evaluateGate(gate: GateDef, registry: CheckerRegistry, ctx: CheckerContext, input_hash?: string): Promise<GateEvaluation> {
+  const outcomes = await runChecks(gate, registry, ctx);
+  const anchors = dedupeAnchors(outcomes.flatMap((check) => check.result.anchors));
+  const confidence = outcomes.length === 0 ? 0 : Math.min(...outcomes.map((check) => check.result.confidence));
+  const reason = outcomes.map((check) => `${check.ref}=${check.result.result}（${check.result.reason}）`).join("；");
+  return {
+    checks: outcomes.map((check) => ({ ref: check.ref, result: check.result.result, reason: check.result.reason })),
+    anchors, confidence, reason, satisfied: isSatisfied(gate, outcomes),
+    result: outcomes.some((check) => check.result.result === "warn") ? "warn" : "pass",
+    evaluation_hash: sha256Hex(canonicalJson({ domain: "cord.gate-evaluation.v1", gate, payload: ctx.payload, anchors: ctx.anchors, outcomes, input_hash })),
+  };
+}
+
+async function runGateOnce(run: GateRun): Promise<GateOutcome> {
   const base: GateBase = {
     workflow_id: run.workflow_id,
     node_id: run.node_id,
@@ -421,31 +520,15 @@ async function runGate(run: GateRun): Promise<GateOutcome> {
     phase: run.gate.attach.when,
   };
 
-  if (run.pending) {
-    return settleByHuman(run, base, {
-      kind: run.pending.kind,
-      reason: run.pending.reason,
-      result: run.pending.result,
-      checks: [],
-      anchors: [],
-      confidence: 1,
-    });
+  const evaluation = await evaluateGate(run.gate, run.registry, run.ctx, await run.inputHash?.());
+  const { anchors, confidence, reason, result, evaluation_hash } = evaluation;
+  const summaries = evaluation.checks;
+  if (run.pending !== undefined && run.pending.evaluation_hash !== evaluation_hash) {
+    await invalidateWaiting(run.session, run.actor, base, run.pending.waiting_event_id, "审批依据已变化，重新检查并发起当前审批");
+    run = { ...run, pending: undefined };
   }
 
-  const checks = await runChecks(run.gate, run.registry, run.ctx);
-  const anchors = dedupeAnchors(checks.flatMap((check) => check.result.anchors));
-  const confidence = checks.length === 0 ? 0 : Math.min(...checks.map((c) => c.result.confidence));
-  const reason = checks.map((c) => `${c.ref}=${c.result.result}（${c.result.reason}）`).join("；");
-  const summaries = checks.map((c) => ({
-    ref: c.ref,
-    result: c.result.result,
-    reason: c.result.reason,
-  }));
-
-  if (isSatisfied(run.gate, checks)) {
-    const result: GateResult["result"] = checks.some((c) => c.result.result === "warn")
-      ? "warn"
-      : "pass";
+  if (evaluation.satisfied) {
     if (run.gate.pass.human_confirm) {
       return settleByHuman(run, base, {
         kind: "human_confirm",
@@ -454,6 +537,7 @@ async function runGate(run: GateRun): Promise<GateOutcome> {
         checks: summaries,
         anchors,
         confidence,
+        evaluation_hash,
       });
     }
     await appendResolved(run, base, {
@@ -492,6 +576,7 @@ async function runGate(run: GateRun): Promise<GateOutcome> {
         checks: summaries,
         anchors,
         confidence,
+        evaluation_hash,
       });
     default: {
       const blockReason = `未通过（on_fail=block）：${reason}`;
@@ -519,6 +604,7 @@ interface HumanDecision {
   checks: Array<{ ref: string; result: GateResult["result"]; reason: string }>;
   anchors: Anchor[];
   confidence: number;
+  evaluation_hash: string;
 }
 
 /**
@@ -542,17 +628,14 @@ async function settleByHuman(
     options,
     reason: decision.reason,
     result: decision.result ?? null,
+    evaluation_hash: decision.evaluation_hash,
   };
 
-  await appendEvent(
-    run.session,
-    run.actor,
-    "gate.waiting",
-    { ...waitingPayload, timed_out: false },
-    run.node_id,
-  );
+  const waiting_event_id = run.pending?.waiting_event_id ?? (await appendEvent(
+    run.session, run.actor, "gate.waiting", { ...waitingPayload, timed_out: false }, run.node_id,
+  )).event_id;
 
-  const answer = await askWithCancel(run.humanGate, question, options, run.gate.timeout, run.signal);
+  const answer = await askWithCancel(run.humanGate, question, options, run.gate.timeout, run.signal, { ...base, waiting_event_id, evaluation_hash: decision.evaluation_hash });
   if (answer === CANCELLED) {
     // ADR-0025：run 取消 → 不落 gate.resolved（事实由 workflow.run.cancelled 承载），直接止步
     return { stop: true };
@@ -572,6 +655,21 @@ async function settleByHuman(
     return { stop: true };
   }
 
+  if (typeof answer !== "string") {
+    await invalidateWaiting(run.session, run.actor, base, waiting_event_id, "审批依据变化，宿主请求重新检查");
+    return { stop: false, recheck: true };
+  }
+  const current = await evaluateGate(run.gate, run.registry, run.ctx, await run.inputHash?.());
+  if (run.signal?.aborted === true) return { stop: true };
+  if (run.checkpointCurrent !== undefined && !(await run.checkpointCurrent())) {
+    await invalidateWaiting(run.session, run.actor, base, waiting_event_id, "选择返回时 worker 输入或产物已变化，重新执行节点");
+    return { stop: false, restart_node: true };
+  }
+  if (current.evaluation_hash !== decision.evaluation_hash) {
+    await invalidateWaiting(run.session, run.actor, base, waiting_event_id, "选择返回时审批依据已变化，旧选择不用于当前内容");
+    return { stop: false, recheck: true };
+  }
+
   if (answer !== options[0]) {
     const reason = `人工未放行（选择「${answer}」）：${decision.reason}`;
     await appendResolved(run, base, {
@@ -583,6 +681,8 @@ async function settleByHuman(
       confidence: decision.confidence,
       human_confirmed: false,
       answer,
+      waiting_event_id,
+      evaluation_hash: decision.evaluation_hash,
     });
     return { stop: true, summary: { gate_id: run.gate.id, result: "block", action: "stop", reason } };
   }
@@ -598,6 +698,8 @@ async function settleByHuman(
     confidence: decision.confidence,
     human_confirmed: true,
     answer,
+    waiting_event_id,
+    evaluation_hash: decision.evaluation_hash,
   });
   return { stop: false, summary: { gate_id: run.gate.id, result, action: "continue", reason } };
 }
@@ -675,6 +777,8 @@ async function appendResolved(
     confidence: number;
     human_confirmed: boolean;
     answer?: string;
+    waiting_event_id?: string;
+    evaluation_hash?: string;
   },
 ): Promise<void> {
   await appendEvent(
@@ -697,7 +801,7 @@ async function appendEvent(
   type: EventType,
   payload: Record<string, unknown>,
   correlationId: string | null,
-): Promise<void> {
+): Promise<EventEnvelope> {
   const draft: EventDraft = {
     event_id: ulid(),
     session_id: session.req_id,
@@ -708,7 +812,14 @@ async function appendEvent(
     payload,
     source: { adapter: ADAPTER },
   };
-  await session.events.append(draft);
+  return session.events.append(draft);
+}
+
+async function invalidateWaiting(session: SessionHandle, actor: Actor, base: GateBase, waiting_event_id: string, reason: string): Promise<void> {
+  const invalidated = (await session.events.readOrdered()).some((event) =>
+    event.type === "gate.invalidated" && asRecord(event.payload)?.["waiting_event_id"] === waiting_event_id,
+  );
+  if (!invalidated) await appendEvent(session, actor, "gate.invalidated", { ...base, waiting_event_id, reason }, base.node_id);
 }
 
 const CANCELLED = Symbol("run-cancelled");
@@ -723,19 +834,27 @@ async function askWithCancel(
   options: string[],
   timeout: GateDef["timeout"],
   signal?: AbortSignal,
-): Promise<string | null | typeof CANCELLED> {
+  context?: HumanGateContext,
+): Promise<HumanGateAnswer | null | typeof CANCELLED> {
   if (signal?.aborted === true) return CANCELLED;
-  const ask = humanGate.ask(question, options);
-  const racers: Array<Promise<string | null | typeof CANCELLED>> = [ask];
+  const ask = humanGate.ask(question, options, context);
+  const racers: Array<Promise<HumanGateAnswer | null | typeof CANCELLED>> = [ask];
   if (timeout) racers.push(delay(parseDuration(timeout.after)));
+  let on_abort: (() => void) | undefined;
   if (signal !== undefined) {
     racers.push(
       new Promise<typeof CANCELLED>((resolve) => {
-        signal.addEventListener("abort", () => resolve(CANCELLED), { once: true });
+        on_abort = () => resolve(CANCELLED);
+        if (signal.aborted) on_abort();
+        else signal.addEventListener("abort", on_abort, { once: true });
       }),
     );
   }
-  return Promise.race(racers);
+  try {
+    return await Promise.race(racers);
+  } finally {
+    if (on_abort !== undefined) signal?.removeEventListener("abort", on_abort);
+  }
 }
 
 /** 门禁挂起超时（等人，量级小时/天）；与 checker 执行超时是两套口径（docs/06 §2.4）。 */

@@ -64,7 +64,7 @@ ledger.yaml                        # 可重建的账本投影
 
 Workflow 定义是 `agent-cord.dev/v1alpha1 / Workflow` YAML。加载时检查 schema、节点依赖、gate 引用、环和 checker 名称。执行器按稳定拓扑序推进节点：
 
-1. 读取事件流，跳过已经有 `workflow.node.exited` 的节点；恢复扫点时跳过已有 `status=ok` 的 `agent.task.completed` 的节点执行体。
+1. 读取事件流，跳过已经有 `workflow.node.exited` 的节点；未退出节点通过协调器校验 execution_input_hash 与 artifact 后态，仍有效才复用历史 ok，否则基于最新快照重新执行。
 2. 写入 `workflow.node.entered`。
 3. 顺序执行 pre gates；checker 抛错或返回非法结果时 fail-closed。
 4. 节点声明 `run` 时委托给 `NodeRunner`（协调 agent）：按 workflow 声明动态采集 artifact，重建最新快照并生成 `snapshot_id` / 事件链 provenance → 构建上下文包（PRD + 上游产物 + 账本 + 定位符）→ 经 AgentDriver 派发 → 写带 provenance 的 `agent.task.started` / `agent.task.completed`。artifact 写回双通道：worker 自写优先，非空文本回退为协调 agent 代写 draft；路径必须位于 session 目录内。任务失败/超时则停在该节点，run 记 failed，重跑会重试；声明 `run.retry` 时由协调 agent 在节点内按退避重试，重试的上下文包附上次失败摘要。
@@ -74,6 +74,8 @@ Workflow 定义是 `agent-cord.dev/v1alpha1 / Workflow` YAML。加载时检查 s
 快照的账本由同次事件读取直接经过 reducer 派生，与节点进度和 provenance 使用同一事件基线；进度按当前 workflow 过滤，账本冲突明确标记需人工处理。快照读取不刷新磁盘账本。文档读取与写回拒绝链接、非普通文件、事实文件与管理目录，代写采用独占临时文件、fsync 和 rename。普通准备/派发/写回失败落任务 completed，记录 failure_stage/retryable；事件追加故障上抛宿主（ADR-0028）。
 
 共识 gate 同样直接从当前事件投影判定，只接受无冲突的 confirmed 条目。协调器以本次快照的 artifact hash 为基线，记录前后指纹：观察到有效文件变化才记为 agent 文件通道，未变化时用完整最终文本代写，无新内容则失败；替换前观察到冲突时保留现状。driver 的明确空结果不会回退进度日志，辅助输出不拼入产物（ADR-0029）。
+
+审批使用稳定的 evaluation_hash 与具体 gate.waiting 事件 ID。等待恢复、REST 选择写入前、核心消费选择后都重新验证；依据变化落 gate.invalidated 并重新推进，worker 过期先重跑。approval_id 是等待 ULID，暂存与已落盘选择按该版本消费；重启不重复执行仍有效的 worker，不把旧审批批准用于新产物（ADR-0030）。
 
 每个节点边界检查取消信号：run 取消先落 `workflow.run.cancelled`（事实），再 abort 执行器——信号经 NodeRunContext → AgentTask 透传到 driver，driver 杀进程树并关闭事件流；人工 gate 挂起处与 abort 竞速，取消不落 `gate.resolved` 假判定。取消后该 run 的未决 gate 从审批投影移除，重新 start 即断点续跑。
 

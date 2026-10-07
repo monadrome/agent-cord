@@ -12,6 +12,7 @@ agent-cord 是一个多 agent 共识协作基座：把需求、决策、证据�
 - 在节点上声明 `run` 执行体：协调 agent 按最新快照和 workflow artifact 构建带 provenance 指纹的两层上下文包，经 ACP / headless driver 派发给 worker agent，产物自写或代写均留痕为 `agent.task.*` 事件。
 - 协调快照的账本、进度与 hash 来自同批事件，进度按 workflow 隔离；文件读取失败会阻断派发，任务失败记录阶段与是否可重试，修复后可断点恢复。
 - 共识 gate 从最新事件判定，冲突条目不放行；产物记录前后内容指纹，旧文档不能冒充本次产出。明确空结果与协议辅助文本不用于代写，观察到替换前冲突时保留当前文档。
+- 未退出节点只在输入与产物指纹一致时复用成功 worker；审批绑定具体等待事件，需求/证据变化后旧选择返回 409，并先重跑过期任务或重新检查，再确认新审批。
 - 用 `agents.yaml` 注册自定义 agent（ACP 子进程、headless CLI、自定义参数模板），与内置 claude / codex / kimi 并列；模板定制支持 `model` / `effort` / `max_turns` / `budget_usd` / `system_prompt` / `agent` / `agents_json` 旋钮——`system_prompt` 是软封装（追加提示），`agent` + `agents_json` 是硬封装（`--agent` 整个会话以该 subagent 身份运行，工具与权限一并继承），把 persona 注册成命名 agent。
 - 自定义 agent 配置按工作区隔离；通过清单 API 查看协议和诊断，通过显式重载应用配置。重载失败保留旧配置，在途 run 固定启动时的 agent 定义。
 - 用参数化 checker（`checks[].with`）拼装证据门禁：文件存在/非空/含章节/锚点数/事件已发，参数非法 fail-closed。
@@ -162,6 +163,8 @@ POST /doctor
 
 写命令必须携带 `Idempotency-Key`。错误统一返回 `{ code, message, details, request_id }`。启动 run 可指定 `{ sdlc_id, sdlc_version }`；归档版本禁止启动新 run。
 
+审批 `approval_id` 是当前 `gate.waiting` 的事件 ULID。依据变化后旧审批返回 409，重新获取审批列表后确认新版本；未变化的审批重启后保持 ID。已落盘选择会按等待事件与检查指纹恢复消费，不要求重复选择。
+
 ## 当前边界
 
 已实现：事件协议与 reducer、工作流执行器（pre gates → node.run → post gates）、参数化内置 checker、协调 agent（动态快照 + provenance 上下文包 + artifact 双通道写回 + 节点内重试）、run 取消（事件 + AbortSignal 贯穿到 driver）、盲评投票底座、ACP/headless agent driver 与 `agents.yaml` 自定义注册、CLI、REST/SSE server、人工 gate、SDLC 草稿/版本/归档/模板库、React 控制台。
@@ -181,7 +184,7 @@ POST /doctor
 - [文档入口](./docs/INDEX.md)：当前实现、协议、ADR 和设计归档的阅读路径。
 - [当前实现架构](./docs/current-architecture.md)：server、console、数据布局和运行路径。
 - [核心协议速查](./docs/protocol.md)：事件、账本、workflow、gate 和 voting 的实现契约。
-- [ADR 目录](./docs/adr/)：架构决策记录，当前包含 ADR-0001 ~ ADR-0029。
+- [ADR 目录](./docs/adr/)：架构决策记录，当前包含 ADR-0001 ~ ADR-0030。
 - [安全与权限模型](./docs/09-security.md)
 - [路线图](./docs/10-roadmap.md)
 - [风险与开放问题](./docs/11-risks.md)

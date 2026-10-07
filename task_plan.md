@@ -64,8 +64,29 @@
 
 - 阶段 9 已解决 coordinator 的旧账本、跨 workflow 进度、链接路径和写回异常留痕。
 - 阶段 10 已解决 ledger gate 的滞后/冲突放行、旧 artifact 误归因与协议日志冒充产物。
-- 继续核验：已完成 worker 的恢复扫点是否校验输入更新、人工 gate 等待期间是否验证最新状态、普通文件 checker 的物理路径边界。
+- 阶段 11 已解决未退出 worker 的输入/产物复用校验与版本化审批、等待期间变更重检、已落盘决策恢复。
+- 继续核验普通文件 checker 的物理路径边界、同 workflow ID 不同发布版本的已退出进度是否隔离，以及 agent 配置变化的任务输入标识。
 - 全局 REST 幂等缓存仍需审查其他写入口的并发同键与跨路由复用；本轮仅为 agent 重载入口合并同键在途请求。
+
+## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
+
+- [x] 核验当前分支与阶段 10；上一轮实现和远端同步属于已验证进展
+- [x] ADR-0030：稳定 execution_input_hash、未退出节点的 completion 复用校验
+- [x] gate 统一求值指纹、等待前后重新检查、依据变化时 invalidated/recheck
+- [x] 审批 ID 绑定 workflow/node/gate/waiting 事件，旧请求与旧暂存决策不能用于新审批
+- [x] 覆盖不变输入恢复、PRD/账本/产物更新、人工等待变化、重启与旧审批拒绝
+- [x] 全量验证、实际服务验收与文档同步
+- [ ] 提交与推送
+
+### 验证记录（阶段 11）
+
+- 首轮类型检查定位到 HumanGateAnswer 新响应的窄化与 evaluation_hash 参数放置，已修正。
+- 审批 JSON 编码超过 Fastify 参数上限，改用等待事件 ULID；随后补齐遗漏的 ULID_RE import。
+- 旧 checkpoint 用例没有真实上游进度，改成完整 executor 在 completed 与 exited 之间模拟中断。
+- 首轮全量 422 测试 / 37 文件通过，build:all 通过；输入/产物变更、连续恢复、版本化审批与已落盘决策恢复有明确回归。
+- 实际预览首轮因 fixture 的 file-nonempty 参数漏填被阻断，脚本超时退出并确认 pid 不存在；改用结构化 YAML 参数后重新运行。
+- 最终 424 测试 / 37 文件通过，typecheck/build:all/diff 检查通过；额外覆盖同名跨 workflow 审批、迟到旧失效事件和等待同步取消。
+- 实际 HTTP 验收：不变输入重启 worker 调用保持 1 次，PRD 更新后旧审批 409、worker 调用 2 次，共识推翻后机器 block，health/doctor 通过。
 
 ## 阶段 10：最新账本门禁与当前产物证据（已实现并验证）
 

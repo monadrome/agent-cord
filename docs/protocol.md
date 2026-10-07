@@ -39,6 +39,8 @@ ADR-0029 增加 `artifact_before_hash`（started/completed）、`artifact_after_
 
 driver 保留明确空最终字符串，与无显式最终文本的 null 区分；初始化、协议进度、用户回声、思考等已识别辅助输出以 `TextEventData.channel=metadata` 保留 raw，coordinator 不把它们拼为 fallback 产物。未标记的文本仍视为内容，维持自定义 driver 兼容性。
 
+ADR-0030 增加 `execution_input_hash`（agent started/completed）：覆盖完整 workflow、节点、需求文档 hash、账本摘要、已退出进度和上下文预算，排除事件序号/时间戳。可写当前 artifact 以 completed 后态验证，不把自身写入作为输入变化。`snapshot_id` 继续记录完整 provenance，两者作用不同。
+
 ## 2. Ledger 投影
 
 权威实现：[`src/core/reducer.ts`](../src/core/reducer.ts)。
@@ -74,7 +76,7 @@ checker 结果是 `pass`、`block` 或 `warn`。未知 checker、抛错和非法
 
 `checks` 项可带 `with` 参数（ADR-0024），透传为 `CheckerContext.params`；参数非法由 checker 按 `block` 处理，不用缺省值猜。内置 checker：`anchors-present`、`ledger-has-confirmed`、`vote-confirmed`，以及参数化的 `file-exists {path}`、`file-nonempty {path, min_bytes?}`、`doc-has-section {path, heading}`、`anchors-min-count {min}`、`event-emitted {type, within_node?}`。文件类 path 一律限制在 session 目录内。
 
-节点可声明执行体 `run`（ADR-0023）：`{ agent, prompt?, readonly?, timeout_ms?, retry? }`。执行顺序为 pre gates → node.run → post gates；node.run 由注入执行器的 `NodeRunner` 端口处理（生产实现是协调 agent，见 `src/coordinator/`），未注入时跳过并在 node.exited 记 `notes`。恢复扫点：节点已有 `status=ok` 的 agent.task.completed 时不重复执行；失败/超时则重跑时重试。
+节点可声明执行体 `run`（ADR-0023）：`{ agent, prompt?, readonly?, timeout_ms?, retry? }`。执行顺序为 pre gates → node.run → post gates；node.run 由注入执行器的 `NodeRunner` 端口处理（生产实现是协调 agent，见 `src/coordinator/`），未注入时跳过并在 node.exited 记 `notes`。未退出节点恢复时通过 `NodeRunner.isCompletionReusable` 验证当前输入 hash 与产物后态，相同才复用历史 ok；旧事件没有指纹、验证错误或接口未提供时重新执行（ADR-0030）。已退出节点保持原事实，不自动回滚。
 
 `run.retry`（ADR-0025）：`{ max_attempts(1-10, 默认 1), backoff_ms(默认 0) }`。协调 agent 按尝试循环，退避为 `backoff_ms × 第 n 次失败`，每次尝试落独立的 agent.task.started/completed（带 `attempt`/`max_attempts`），重试的上下文包附上次失败摘要。驱动解析失败属定义性错误，不重试。
 
@@ -89,6 +91,10 @@ run 取消（ADR-0025）：`POST /api/v1/runs/:run_id/cancel` 先落 `workflow.r
 ```text
 gate.waiting → human.decision.recorded → gate.resolved
 ```
+
+`gate.waiting.evaluation_hash` 标识机器检查与审批输入版本，server 注入完整需求快照 hash。等待恢复与选择返回后调用同一 `evaluateGate` 重新检查；依据变化落 `gate.invalidated{workflow_id,node_id,gate_id,waiting_event_id,reason}`，移除匹配旧等待并重检，不伪造人工拒绝。worker checkpoint 过期时先重跑未退出节点，再审批新产物。
+
+REST 的 `approval_id` 是等待事件 ULID；旧静态编码可解析但不允许写决策。当前选择校验指纹后再落 `human.decision.recorded`（含 waiting_event_id/evaluation_hash），同需求串行处理，同版本已有决策时拒绝重复写入。有效选择重启后从事件恢复消费；过期版本不能进入新审批。旧审批和输入变化返回 409，客户端刷新审批列表。`HumanGate.ask` 可接收等待上下文，返回字符串选择或 `{kind: recheck}` 控制响应。
 
 ## 4. 投票
 

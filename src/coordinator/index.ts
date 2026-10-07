@@ -16,3 +16,4 @@ export {
 } from "./context-pack.js";
 
 export { createNodeRunner, type CoordinatorOptions } from "./coordinator.js";
+export { readApprovalContextHash } from "./checkpoint.js";

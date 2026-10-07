@@ -26,8 +26,10 @@ export {
   WorkflowCycleError,
   WorkflowDefinitionError,
   createExecutor,
+  evaluateGate,
   topologicalOrder,
   type ExecutorOptions,
   type GateSummary,
+  type GateEvaluation,
   type WorkflowNode,
 } from "./executor.js";

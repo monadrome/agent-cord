@@ -159,7 +159,7 @@ export type StartRunInput = z.infer<typeof StartRunInputSchema>;
 // ---------------------------------------------------------------------------
 
 export interface ApprovalItem {
-  /** base64url("<node_id>/<gate_id>")：审批无独立事实，id 是事件流定位键的编码（ADR-0021 注意点 2） */
+  /** ADR-0030：gate.waiting 事件 ULID，流程和节点从事件事实投影 */
   approval_id: string;
   req_id: string;
   workflow_id: string;

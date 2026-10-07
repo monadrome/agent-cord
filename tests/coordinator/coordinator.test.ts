@@ -803,10 +803,13 @@ describe("执行器 × node.run", () => {
     const runner = createNodeRunner(DEF, { resolveDriver: () => driver, workspaceRoot: root });
     const executor = createExecutor({ humanGate, nodeRunner: runner });
 
-    // 第一次：跑到 plan 的任务完成、但制造「未退出」状态（人工制造中断：只跑到 started/completed）
-    await runner.runNode(DEF.spec.nodes[1]!, session, { workflow_id: "wf-agent", node_id: "plan" });
-    // 补一条 node.entered 在任务完成之前（模拟真实顺序：entered → started → completed，无 exited）
-    // 注意：上面 runNode 直接调用没有 entered 事件；这里模拟恢复场景 = 有 completed 无 exited
+    const append = session.events.append.bind(session.events);
+    const interruption = vi.spyOn(session.events, "append").mockImplementation(async (draft) => {
+      if (draft.type === "workflow.node.exited" && asPayload(draft).node_id === "plan") throw new Error("interrupted before node exit");
+      return append(draft);
+    });
+    await expect(executor.run(DEF, session)).rejects.toThrow("interrupted before node exit");
+    interruption.mockRestore();
     await executor.run(DEF, session);
 
     const events = await session.events.readOrdered();

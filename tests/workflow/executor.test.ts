@@ -297,6 +297,40 @@ describe("executor: 拓扑推进与事件落盘", () => {
 // ---------------------------------------------------------------------------
 
 describe("executor: 崩溃后重新 run（扫点恢复）", () => {
+  it("HumanGate 建立等待时同步取消也能立即收束，不记录假决策", async () => {
+    const controller = new AbortController();
+    const def = workflow([{ id: "review", gates: [gate({ id: "g", node: "review", human_confirm: true })] }]);
+    const fake = createFakeSession();
+    await createExecutor({ signal: controller.signal, payload: { anchors: [ANCHOR] }, humanGate: {
+      ask: async () => { controller.abort(); return new Promise<string>(() => undefined); },
+    } }).run(def, fake.session);
+    expect(types(fake.events)).toEqual(["workflow.node.entered", "gate.waiting"]);
+  });
+
+  it("等待中的机器结果变化后旧选择不放行，重新检查并按当前配置阻断", async () => {
+    let valid = true;
+    const registry = { register() {}, get() { return { name: "state", check: async () => ({ result: valid ? "pass" as const : "block" as const, anchors: [], reason: valid ? "有效" : "已失效", confidence: 1 }) }; } };
+    const def = workflow([{ id: "review", gates: [gate({ id: "g", node: "review", ref: "state", human_confirm: true })] }]);
+    const fake = createFakeSession();
+    await createExecutor({ registry, humanGate: { ask: async (_q, options) => { valid = false; return options[0]!; } } }).run(def, fake.session);
+    expect(types(fake.events)).toContain("gate.invalidated");
+    expect(payloads(fake.events, "gate.resolved")[0]).toMatchObject({ result: "block", human_confirmed: false });
+    expect(nodeSequence(fake.events)).toEqual(["+review"]);
+  });
+
+  it("恢复待审批 gate 重新检查，已经失效的旧 pass 不能继续询问旧选择题", async () => {
+    let valid = true;
+    const registry = { register() {}, get() { return { name: "state", check: async () => ({ result: valid ? "pass" as const : "block" as const, anchors: [], reason: valid ? "有效" : "失效", confidence: 1 }) }; } };
+    const def = workflow([{ id: "review", gates: [gate({ id: "g", node: "review", ref: "state", human_confirm: true })] }]);
+    const fake = createFakeSession();
+    await expect(createExecutor({ registry, humanGate: crashingGate() }).run(def, fake.session)).rejects.toThrow();
+    valid = false;
+    const recorder = recordingGate(0);
+    await createExecutor({ registry, humanGate: recorder.humanGate }).run(def, fake.session);
+    expect(recorder.asks).toHaveLength(0);
+    expect(payloads(fake.events, "gate.resolved")[0]).toMatchObject({ result: "block", human_confirmed: false });
+  });
+
   it("跳过已完成节点，只重跑未退出节点", async () => {
     const def = workflow([{ id: "a" }, { id: "b", depends_on: ["a"] }, { id: "c", depends_on: ["b"] }]);
     const fake = createFakeSession();

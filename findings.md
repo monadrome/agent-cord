@@ -58,3 +58,10 @@
 - checker 只过滤 confirmed，不过滤 conflict；当前 reducer 已支持冲突标记，门禁尚未消费。
 - `settleArtifact` 把任何已有非空文档记作当前 agent 自写，返回的新文本也不会更新旧内容；需比较派发快照中的完整内容 hash。
 - 产物代写已使用原子临时文件，但尚未在替换前检查目标是否发生变化；可增加预期内容 hash，观测到冲突后保留现状并失败，跨进程强互斥仍需后续 lease。
+
+## 实现校准（2026-10-06，恢复与审批版本）
+
+- executor 的 agentDone 只记录历史 ok，无法判断 PRD、账本、工作流定义或产物在中断期间是否变化。
+- resumed node.entered 会清除完成标记，使连续两次审批中断恢复可能无理由重复执行 worker。
+- runGate 的 pending 分支绕过 checker；人工等待返回后也不重读证据，已推翻共识可能被旧选择放行。
+- approval_id 与 decided 暂存只绑定 node/gate，worker 因新输入重跑后，旧审批选择可能被新 gate 消费；需要等待事件版本绑定。

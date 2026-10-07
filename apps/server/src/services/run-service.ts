@@ -11,10 +11,14 @@ import { ulid } from "ulid";
 import {
   createExecutor,
   createNodeRunner,
+  createBuiltinRegistry,
+  evaluateGate,
+  readApprovalContextHash,
   type AgentDriver,
   type Anchor,
   type EventEnvelope,
   type HumanGate,
+  type HumanGateAnswer,
   type SessionHandle,
   type WorkflowDef,
 } from "agent-cord";
@@ -30,7 +34,8 @@ interface PendingAsk {
   gate_id: string;
   question: string;
   options: string[];
-  resolve: (choice: string) => void;
+  waiting_event_id: string;
+  resolve: (choice: HumanGateAnswer) => void;
 }
 
 interface ActiveRun {
@@ -39,10 +44,6 @@ interface ActiveRun {
   promise: Promise<void>;
   /** run 取消（ADR-0025）：abort → 执行器节点边界止步 + 人工挂起唤醒 + agent 子进程收束 */
   controller: AbortController;
-}
-
-function askKey(nodeId: string, gateId: string): string {
-  return `${nodeId}/${gateId}`;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -73,6 +74,7 @@ export class RunService {
   private readonly pendingAsks = new Map<string, PendingAsk>();
   /** 无在途执行器时的人工决策暂存：恢复执行器重新提问时优先消费 */
   private readonly decided = new Map<string, string>();
+  private readonly decision_queue = new Map<string, Promise<unknown>>();
 
   constructor(sessions: SessionService, sdlcs: SdlcService, index: IndexStore, options: RunServiceOptions = {}) {
     this.sessions = sessions;
@@ -185,18 +187,65 @@ export class RunService {
    * 人工 gate 决策：先写 human.decision.recorded 事件（ADR-0012），再唤醒/暂存。
    * 返回写入的事件 id。
    */
-  async decide(reqId: string, approvalId: string, choice: string): Promise<{ event_id: string }> {
-    const key = decodeApprovalId(approvalId);
-    if (key === null) throw notFound(`非法的 approval_id：${approvalId}`);
+  decide(reqId: string, approvalId: string, choice: string): Promise<{ event_id: string }> {
+    const prior = this.decision_queue.get(reqId) ?? Promise.resolve();
+    const operation = prior.catch(() => undefined).then(() => this.decideCurrent(reqId, approvalId, choice));
+    this.decision_queue.set(reqId, operation);
+    return operation.finally(() => {
+      if (this.decision_queue.get(reqId) === operation) this.decision_queue.delete(reqId);
+    });
+  }
+
+  private async decideCurrent(reqId: string, approvalId: string, choice: string): Promise<{ event_id: string }> {
+    const ticket = decodeApprovalId(approvalId);
+    if (ticket === null) throw notFound(`非法的 approval_id：${approvalId}`);
+    if (ticket.waiting_event_id === undefined) throw conflict("审批缺少等待版本，请读取当前审批后重新确认");
     const session = await this.sessions.open(reqId);
     const events = await session.events.readOrdered();
-    const waiting = scanPendingApprovals(events).get(askKey(key.node_id, key.gate_id));
+    const waiting = [...scanPendingApprovals(events).values()].find((info) => info.waiting_event_id === ticket.waiting_event_id);
     if (waiting === undefined) {
-      throw notFound(`审批不存在或已处理：${key.node_id}/${key.gate_id}`);
+      if (events.some((event) => event.type === "gate.waiting" && event.event_id === ticket.waiting_event_id)) {
+        throw conflict("该审批已处理或被新版本替代，请确认当前审批");
+      }
+      throw notFound("审批不存在或已处理");
+    }
+    const key = { node_id: waiting.node_id, gate_id: waiting.gate_id };
+    if (events.some((event) => event.type === "human.decision.recorded" && asRecord(event.payload)?.["waiting_event_id"] === waiting.waiting_event_id)) {
+      throw conflict("该审批已有决策，请读取当前审批");
     }
     if (waiting.options.length > 0 && !waiting.options.includes(choice)) {
       throw conflict(`选项不在审批给出的范围内：${JSON.stringify(choice)}（可选：${waiting.options.join(" / ")}）`);
     }
+
+    const latest = this.index.latestRun(reqId);
+    const versioned = await this.sdlcs.get(latest?.sdlc_id ?? waiting.workflow_id, latest?.sdlc_version);
+    if (versioned.def.metadata.id !== waiting.workflow_id) throw conflict("审批不属于当前绑定的工作流，请确认当前审批");
+    const node = versioned.def.spec.nodes.find((item) => item.id === key.node_id);
+    const gate = node?.gates.find((item) => item.id === key.gate_id);
+    if (node === undefined || gate === undefined) throw conflict("绑定流程中找不到当前审批，拒绝记录决策");
+    let current_hash: string;
+    try {
+      const anchors = nodeAnchors(reqId, node.artifact);
+      const evaluated = await evaluateGate(gate, createBuiltinRegistry(), { session_dir: session.dir, session, node_id: node.id, anchors, payload: { anchors } }, await readApprovalContextHash(versioned.def, node, session));
+      current_hash = evaluated.evaluation_hash;
+    } catch {
+      throw conflict("无法验证当前审批依据，拒绝记录放行，请先修复输入");
+    }
+    if (waiting.evaluation_hash !== current_hash) {
+      await session.events.append({ event_id: ulid(), session_id: reqId, type: "gate.invalidated", schema_version: "1", actor: { kind: "system", id: "console-server" }, correlation_id: node.id,
+        payload: { workflow_id: waiting.workflow_id, node_id: node.id, gate_id: gate.id, waiting_event_id: waiting.waiting_event_id, reason: "审批依据已变化，旧选择不用于当前内容" }, source: { adapter: "console-server" } });
+      const stale_key = `${reqId}:${waiting.waiting_event_id}`;
+      const pending = this.pendingAsks.get(stale_key);
+      this.pendingAsks.delete(stale_key);
+      this.decided.delete(stale_key);
+      if (pending !== undefined) pending.resolve({ kind: "recheck" });
+      else if (!this.active.has(reqId)) await this.start(reqId, versioned.sdlc_id, versioned.version);
+      throw conflict("审批依据已变化，已重新检查；请确认当前审批");
+    }
+
+    const still_waiting = [...scanPendingApprovals(await session.events.readOrdered()).values()]
+      .some((info) => info.waiting_event_id === waiting.waiting_event_id);
+    if (!still_waiting) throw conflict("审批在核验期间已取消或更新，请读取当前审批");
 
     const event = await session.events.append({
       event_id: ulid(),
@@ -206,6 +255,8 @@ export class RunService {
       actor: { kind: "human", id: "local-human" },
       correlation_id: key.node_id,
       payload: {
+        waiting_event_id: waiting.waiting_event_id,
+        evaluation_hash: current_hash,
         question: waiting.question,
         options: waiting.options,
         chosen: choice,
@@ -218,7 +269,7 @@ export class RunService {
       source: { adapter: "console-server" },
     });
 
-    const fullKey = `${reqId}:${askKey(key.node_id, key.gate_id)}`;
+    const fullKey = `${reqId}:${waiting.waiting_event_id}`;
     const pending = this.pendingAsks.get(fullKey);
     if (pending !== undefined) {
       this.pendingAsks.delete(fullKey);
@@ -238,7 +289,7 @@ export class RunService {
   async recover(): Promise<string[]> {
     const resumed: string[] = [];
     for (const run of this.index.listRuns()) {
-      if (run.status !== "running") continue;
+      if (run.status !== "running" && run.status !== "waiting_human") continue;
       let versioned;
       try {
         versioned = await this.sdlcs.get(run.sdlc_id, run.sdlc_version);
@@ -249,7 +300,13 @@ export class RunService {
       const session = await this.sessions.open(run.req_id);
       const events = await session.events.readOrdered();
       const finalStatus = this.computeFinalStatus(events, versioned.def, run.run_id);
-      if (finalStatus !== null) {
+      const recorded_decision = [...scanPendingApprovals(events).values()].some((waiting) =>
+        waiting.workflow_id === versioned.def.metadata.id && events.some((event) =>
+          event.type === "human.decision.recorded" && asRecord(event.payload)?.["waiting_event_id"] === waiting.waiting_event_id,
+        ),
+      );
+      if (run.status === "waiting_human" && !recorded_decision) continue;
+      if (finalStatus !== null && !(finalStatus === "waiting_human" && recorded_decision)) {
         this.index.finishRun(run.run_id, finalStatus, new Date().toISOString(), null);
         continue;
       }
@@ -315,6 +372,7 @@ export class RunService {
     const driverResolver = this.options.driverResolverForRun?.() ?? this.options.driverResolver;
     const executor = createExecutor({
       humanGate,
+      gateInputHash: (node) => readApprovalContextHash(def, node, session),
       payloadFor: (node) => ({ anchors: nodeAnchors(session.req_id, node.artifact) }),
       signal: controller.signal,
       // ADR-0023：节点声明 run 时由协调 agent 派发 worker；未配置 resolver 时执行器记 notes 跳过
@@ -339,6 +397,8 @@ export class RunService {
         this.safeFinish(run.run_id, "failed", error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
+        for (const [key, pending] of this.pendingAsks) if (pending.req_id === session.req_id) this.pendingAsks.delete(key);
+        for (const key of this.decided.keys()) if (key.startsWith(`${session.req_id}:`)) this.decided.delete(key);
         this.active.delete(session.req_id);
       });
     this.active.set(session.req_id, { run_id: run.run_id, req_id: session.req_id, promise, controller });
@@ -350,25 +410,36 @@ export class RunService {
    */
   private createHumanGate(session: SessionHandle): HumanGate {
     return {
-      ask: async (question: string, options: string[]): Promise<string> => {
+      ask: async (question: string, options: string[], context): Promise<HumanGateAnswer> => {
         const events = await session.events.readOrdered();
         const pending = scanPendingApprovals(events);
-        const current = [...pending.values()].find((info) => info.question === question) ??
-          [...pending.values()][pending.size - 1];
+        const current = context === undefined ? [...pending.values()].find((info) => info.question === question) :
+          [...pending.values()].find((info) => info.waiting_event_id === context.waiting_event_id);
         if (current === undefined) {
+          if (context !== undefined && events.some((event) => event.type === "gate.invalidated" && asRecord(event.payload)?.["waiting_event_id"] === context.waiting_event_id)) return { kind: "recheck" };
           throw new Error(`gate.waiting 事件缺失，无法定位审批（question=${question}）`);
         }
-        const fullKey = `${session.req_id}:${askKey(current.node_id, current.gate_id)}`;
+        const fullKey = `${session.req_id}:${current.waiting_event_id}`;
+        for (const key of this.decided.keys()) {
+          if (key.startsWith(`${session.req_id}:`) && key !== fullKey) this.decided.delete(key);
+        }
         const predecided = this.decided.get(fullKey);
         if (predecided !== undefined) {
           this.decided.delete(fullKey);
           return predecided;
         }
-        return new Promise<string>((resolve) => {
+        const recorded = [...events].reverse().find((event) => {
+          const payload = asRecord(event.payload);
+          return event.type === "human.decision.recorded" && payload?.["waiting_event_id"] === current.waiting_event_id && payload["evaluation_hash"] === context?.evaluation_hash;
+        });
+        const chosen = asRecord(recorded?.payload)?.["chosen"];
+        if (typeof chosen === "string" && options.includes(chosen)) return chosen;
+        return new Promise<HumanGateAnswer>((resolve) => {
           this.pendingAsks.set(fullKey, {
             req_id: session.req_id,
             node_id: current.node_id,
             gate_id: current.gate_id,
+            waiting_event_id: current.waiting_event_id,
             question,
             options,
             resolve,

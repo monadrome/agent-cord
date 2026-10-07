@@ -118,8 +118,18 @@ export interface CheckerRegistry {
 }
 
 /** 门禁等待人工时由宿主提供的选择题通道（M2: CLI；M3: 飞书） */
+export interface HumanGateContext {
+  workflow_id: string;
+  node_id: string;
+  gate_id: string;
+  waiting_event_id: string;
+  evaluation_hash: string;
+}
+
+export type HumanGateAnswer = string | { kind: "recheck" };
+
 export interface HumanGate {
-  ask(question: string, options: string[]): Promise<string>;
+  ask(question: string, options: string[], context?: HumanGateContext): Promise<HumanGateAnswer>;
 }
 
 export interface WorkflowExecutor {
@@ -148,6 +158,13 @@ export type NodeRunStatus = "ok" | "failed" | "timeout" | "cancelled";
  *   ADR-0028：事件存储追加失败必须上抛给宿主，不能伪造任务事实或继续派发。
  */
 export interface NodeRunner {
+  /** ADR-0030：只有验证当前输入与产物后才可复用；缺省不复用历史成功任务 */
+  isCompletionReusable?(
+    node: WorkflowDef["spec"]["nodes"][number],
+    session: SessionHandle,
+    ctx: NodeRunContext,
+    completion: EventEnvelope,
+  ): Promise<boolean>;
   runNode(
     node: WorkflowDef["spec"]["nodes"][number],
     session: SessionHandle,
