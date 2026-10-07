@@ -15,7 +15,7 @@ Fastify server
     ├── RunService：workflow runner、人工 gate、恢复、NodeRunner 注入
     ├── SdlcService：YAML 校验、发布版本、草稿、归档、模板库
     ├── AgentService：工作区配置快照、清单与显式重载
-    ├── CoordinationService：独立协调轮次、结构化提议投影、取消与中断恢复
+    ├── CoordinationService：独立协调轮次、新鲜度、人工采用、取消与中断恢复
     └── IndexStore：幂等键、运行登记、SDLC 归档登记（派生数据）
     │
     ├── cord/<req-id>/events.jsonl  事实来源
@@ -96,7 +96,9 @@ intake → align → plan → implement → verify → review → done
 
 当前默认流程包含证据 gate 和人工 review gate；真实 agent 产出由声明了 `run` 的自定义 SDLC（如模板库 agent-collab 档）承载。
 
-独立 ContextSessionAgent 不依赖 node.run：每轮固定 resolver，按当前 SDLC 版本采集最新快照（含同次事件投影的待人工 gate），新建 driver 会话，输出严格 JSON Draft 提议。来源引用、节点依赖和完成状态由宿主验证；运行期间输入变化则落 stale，不返回旧建议。它不启动 worker、不写文档、不放行 gate。CoordinationService 提供异步创建、查询和取消；轮次事实只在事件流，重启将未完成请求记 interrupted，不重放调用（ADR-0032）。当前 console 可看轮次事件，独立操作面板待后续实现。
+独立 ContextSessionAgent 不依赖 node.run：每轮固定 resolver，按当前 SDLC 版本采集最新快照（含同次事件投影的待人工 gate），新建 driver 会话，输出严格 JSON Draft 提议。来源引用、实际下一节点和完成状态由宿主验证；运行期间输入变化则落 stale，不返回旧建议。它不自行启动 worker、写文档或放行 gate。CoordinationService 提供异步创建、查询、取消与显式人工采用；轮次事实只在事件流，重启将未完成请求记 interrupted，不重放调用（ADR-0032/0033）。
+
+人工采用只接受当前有效 advance，重检位于 RunService 预留槽位内，采用事实落盘后进入绑定版本的整个 SDLC runner；其余提议不生成 gate 决策。查询新鲜度与历史完成状态分离，重复采用返回原 run。运行登记的 coordination_round_id 保留启动来源，恢复缺少匹配采用事实时 fail-closed，旧 SQLite 表自动兼容。
 
 ## 5. Server 和 API
 
@@ -104,7 +106,7 @@ server 默认监听 `127.0.0.1:7250`，工作区由 `CORD_ROOT` 指定。核心�
 
 - 查询：`/health`、`/dashboard`、`/requirements`、需求详情、timeline、ledger、votes、runs、approvals。
 - Agent：`GET /agents` 查看配置 revision、公开清单和诊断；`POST /agents/reload` 显式重载（幂等键），清单不包含 env、args 或角色 prompt。
-- 协调：`POST/GET /requirements/:req_id/coordination`、`GET /requirements/:req_id/coordination/:round_id`、`POST .../:round_id/cancel`；创建返回 202，每需求至多一个在途协调轮次。
+- 协调：`POST/GET /requirements/:req_id/coordination`、`GET /requirements/:req_id/coordination/:round_id`、`POST .../:round_id/cancel`、`POST .../:round_id/adopt`；创建/采用返回 202，每需求至多一个在途协调轮次。
 - 命令：创建需求、编辑快照文档、启动 run（可指定 `sdlc_id` + `sdlc_version`）、取消 run（`POST /runs/:run_id/cancel`，幂等）、处理人工审批。
 - 实时：`/requirements/:req_id/events/stream`，使用事件 `seq` 作为 SSE id，并支持 `Last-Event-ID` 回放。
 - SDLC：列表、读取版本、validate、publish、草稿（GET/PUT/DELETE `/sdlcs/:id/draft`）、版本归档（archive/unarchive）、模板库（`GET /sdlc-templates`）。归档版本禁止启动新 run，不影响在途/历史 run。
@@ -119,6 +121,8 @@ console 使用 hash 路由，页面包括工作台、需求列表、需求详情
 需求详情页启动 run 时可选 SDLC 与版本（默认 = 内置 SDLC 最新版）；SDLC 页支持模板载入、草稿保存/恢复、克隆已发布版本到编辑器、版本归档。
 
 Agent 页支持公开清单搜索、来源与协议筛选、配置诊断/指纹、刷新和显式重载；加载失败与重载失败保留已有清单，成功后更新 server 返回的配置版本。不读取或编辑凭据、env 或角色提示。
+
+需求详情的协调视图提供 Agent/SDLC 版本/超时选择、创建/取消、轮次历史、结构化 Draft 提议、风险和来源导航；显示 server 新鲜度和采用条件，人工采用后可跳转绑定 run。SSE/轮询更新投影，失败保留已加载内容，后台暂停轮询，卸载清理定时器。文档来源跳转定位对应文档，切换加载时禁用编辑/保存。
 
 ## 7. 当前非目标
 

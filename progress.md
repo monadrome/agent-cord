@@ -19,6 +19,16 @@
 - 当前原型提供库与 REST，console 独立操作面板和 Draft 提议受控消费留作持续目标的下一阶段；不声称全部持续目标完成。
 - GitHub 远端查询报 10 秒低速超时，准备按仓库约定保留本地功能提交并尝试有界推送。
 - 本地功能提交 `12f0643`；HTTP/1.1 推送达到 45 秒上限，GitHub 报低于 1 bytes/sec 持续 15 秒。远端更新未确认，本地提交保留；预览 API 仍正常。
+- 开始阶段 14：核验干净工作树与提交，接入协调 console 操作面和受控采用；先落 ADR，采用前重检最新输入/配置，推进仍交给已有 workflow runner。
+- ADR-0033 与 adopted 事实、历史 status/当前新鲜度分离、原别名保留；采用在 RunService 槽位内重检，事件失败不派发、同轮并发/重启重放返回原 run。
+- console 新增协调子视图和 typed client：agent/版本/超时、创建/取消、历史/结构化提议、来源跳转、server 新鲜度与显式采用；沿用现有 token 和 lucide 图标。
+- 53 个定向用例 / 4 文件通过，build:all/typecheck 通过；进入实际浏览器和完整 workspace 验证。
+- 全量首轮复现终态/槽位释放竞态，修复后 487 测试 / 41 文件通过；浏览器复现文档切换迟到读取覆盖编辑，已同步 loading 并限制加载/保存期间的操作。
+- 第二轮 Playwright 完整通过，1440/390/320 无溢出/重叠，无 pageerror；已覆盖创建/取消/超时/坏输出/选择题/来源跳转/新鲜度/失败保留历史/采用/人工 gate/重复采用/空态/加载。
+- 最后审查增加 coordination_round_id 的运行登记与 SQLite 旧表兼容，恢复缺少 adopted/requested 绑定事实时失败、不派发。29 个相关用例 / 3 文件与 typecheck 通过，准备最终全量与预览验收。
+- 最终 491 测试 / 42 文件、`npm run typecheck`、`npm run build:all`、`git diff --check` 全通过；最新代码第三轮浏览器闭环再次通过，1440/390/320 无溢出/重叠、pageerror=0。
+- 完整验收证据 `/tmp/cord-stage14-preview-r3/browser-result.json` 与 coordination-desktop/mobile/stale/adopted.png；保留可直接采用的离线预览 `http://127.0.0.1:7300/#/requirements/REQ-COORDINATION/coordination`，工作区 `/tmp/cord-stage14-preview-final`，preview-result.json 证明 current/adoptable/health/doctor 均为 true。
+- 阶段 14 已实现并验证，进入本地提交与推送；持续目标下一步优先检查 SDLC 发布版本进度隔离，随后继续共享幂等边界与真实需求 dogfooding。
 
 ## 2026-09-25
 

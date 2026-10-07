@@ -37,7 +37,9 @@ export function coordinationInputHash(def: WorkflowDef, snapshot: RequirementSna
 function eligibleNodes(def: WorkflowDef, snapshot: RequirementSnapshot): string[] {
   if ((snapshot.workflow.waiting?.length ?? 0) > 0) return [];
   const exited = new Set(snapshot.workflow.exited);
-  return def.spec.nodes.filter((node) => !exited.has(node.id) && node.depends_on.every((id) => exited.has(id))).map((node) => node.id);
+  const next_id = topologicalOrder(def).find((id) => !exited.has(id));
+  const node = def.spec.nodes.find((item) => item.id === next_id);
+  return node !== undefined && node.depends_on.every((id) => exited.has(id)) ? [node.id] : [];
 }
 
 /** 只接受完整 JSON；来源存在性与 workflow 依赖是宿主判定，不能由模型自报。 */

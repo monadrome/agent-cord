@@ -122,9 +122,43 @@
 
 ### 持续目标的后续工作
 
-- 独立协调轮次的 console 操作与结构化提议展示，当前只能经库/REST 使用。
-- 人工选择 Draft 提议后经既有 workflow 路由受控执行，消费前再次验证输入版本，保持关键 gate 人工。
-- 继续补 SDLC 版本进度隔离、共享 REST 幂等并发边界和真实需求 dogfooding；不以当前离线原型声称持续目标已全部完成。
+- [x] 独立协调轮次的 console 操作与结构化提议展示（阶段 14）
+- [x] 人工采用 Draft advance 提议后经既有 workflow 受控执行，消费前再次验证输入版本，保持关键 gate 人工（阶段 14）
+- [ ] 继续补 SDLC 版本进度隔离、共享 REST 幂等并发边界和真实需求 dogfooding；不以当前离线原型声称持续目标已全部完成
+
+## 阶段 14：协调工作台与受控采用（已实现并验证）
+
+- [x] 核验上一轮本地提交 `12f0643` / `a02a99c`、干净工作树与既有 REST 实现；上一轮为已验证实现进展
+- [x] ADR-0033：提议采用事实、完成态与当前新鲜度分离、原 agent 别名与绑定 SDLC 版本、执行器下一节点约束
+- [x] server 采用前重新验证快照/配置/进度，预留 run 槽位并保留人工 gate，重复采用返回原 run
+- [x] typed client 和需求详情“协调”视图：配置选择、创建、取消、历史、结构化提议、来源定位、输入变化/失败/恢复、显式采用
+- [x] 离线 REST/客户端闭环与成功、过期、配置变更、并发、存储故障、重启用例
+- [x] 全量 test/typecheck/build/diff 与 desktop/mobile Playwright 验收，更新文档
+- [ ] 本地提交与有界推送
+
+### 阶段 14 设计方向
+
+- 沿用控制台白/灰/蓝/绿/红/黄 token、系统文字和等宽数据，紧凑工具栏 + 左侧轮次历史 + 右侧提议明细，手机上下排列；版本与新鲜度是扫描重点。
+- 采用命令表示进入绑定版本的整个 SDLC runner，模型不挑选任意跳转目标；advance 只允许执行器拓扑顺序中第一个未退出节点。
+- 前端不计算新鲜度或放行状态，server 返回 current/adoptable 与原因；历史 ok 和当前依据变化可同时成立。
+
+### 阶段 14 验证记录
+
+- 原有 33 个协调用例与 build/typecheck 通过；新增采用测试首轮 45/46，通过路径和 slot/事件失败边界均生效，但发现错误 workflow 的 adopted 事件被接受。
+- 加入 adopted 事实与提议 workflow/node/input/run 的一致性校验，避免错误引用或合并冲突伪装为已采用。
+- 53 个定向测试 / 4 文件、build:all/typecheck 通过；typed client 真实 HTTP 已完成协调 → 采用 → 人工 gate → 完成闭环。
+- UI 审查修正绑定 SDLC 在采用后变化导致 effect 重置、command 保持忙碌的风险；默认值使用 ref，挂载生命周期只随需求变化。
+- 首轮全量 485/486 通过；发现 completed 可读而后台 finally 未释放槽位的竞态。终态查询等待后台清理完成后返回，保留首 await 前的在途预留，并补连续轮次回归。
+- 修复后全量 487 测试 / 41 文件通过。首轮浏览器已通过创建/取消/超时/坏输出/人工选择题/来源跳转/过期输入，恢复文档时保存按钮超时；定位到文档切换读取未完成时可编辑，迟到读取覆盖输入。切换同步设置 loading、加载时禁用保存、保存时禁用文档切换，使用新临时工作区重跑。
+- 第二轮浏览器完整通过：1440/390/320 无溢出/重叠，创建/取消/超时/坏输出/选择题/来源/输入变化/失败保留历史/采用/人工 gate/重复采用/空态/加载均通过，无 pageerror；截图保存于 `/tmp/cord-stage14-preview-r2`。
+- 最后恢复审查补充运行登记 coordination_round_id；登记后、adopted 落盘前中断必须在重启时 fail-closed，合法采用事实则恢复既有 runner。补正反恢复回归和 SQLite 旧表兼容。
+- 最终 491 测试 / 42 文件、typecheck/build:all/diff 全通过；最新代码的第三轮浏览器验收再次完整通过，证据 `/tmp/cord-stage14-preview-r3/browser-result.json` 与 desktop/mobile/stale/adopted 截图。
+- 保留未被验收消耗的预览需求：`http://127.0.0.1:7300/#/requirements/REQ-COORDINATION/coordination`，工作区 `/tmp/cord-stage14-preview-final`。1440/390/320 无溢出，当前提议可采用，health/doctor 为 true，pageerror=0；该预览使用离线 fake driver。
+
+### 下一阶段
+
+- 优先核验同 workflow ID 不同 SDLC 发布版本的进度/审批/协调快照隔离，防止新版本继承旧节点退出事实。
+- 继续完善 REST 幂等并发与输入绑定、文件 checker 物理路径边界，并安排真实需求 dogfooding；持续目标保持完整，不以本轮功能代替全部目标。
 
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 

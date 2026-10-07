@@ -185,6 +185,12 @@ describe("独立协调轮次", () => {
 });
 
 describe("提议验证与上下文预算", () => {
+  it("advance 只能选择执行器实际下一节点，不能选择拓扑中的另一个独立 ready 节点", async () => {
+    const workflow = { ...def, spec: { nodes: [def.spec.nodes[0]!, { id: "parallel", depends_on: [], gates: [] }] } };
+    const snapshot = await readSnapshot(session, { workflow_id: workflow.metadata.id });
+    expect(() => parseCoordinationProposal(JSON.stringify({ ...proposal, next_action: { ...proposal.next_action, node_id: "parallel" } }), workflow, snapshot)).toThrow(/不可推进/);
+    expect(buildCoordinationPrompt(workflow, snapshot)).toContain('eligible_nodes: ["intake"]');
+  });
   it("拒绝未知节点、依赖未完成节点、完成节点和虚假的 complete", async () => {
     const snapshot = await readSnapshot(session, { workflow_id: def.metadata.id });
     for (const node_id of ["unknown", "plan"]) expect(() => parseCoordinationProposal(JSON.stringify({ ...proposal, next_action: { ...proposal.next_action, node_id } }), def, snapshot)).toThrow(/不可推进/);

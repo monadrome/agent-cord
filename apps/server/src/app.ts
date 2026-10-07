@@ -18,6 +18,7 @@ import {
   SNAPSHOT_DOC_NAMES,
   StartRunInputSchema,
   StartCoordinationInputSchema,
+  AdoptCoordinationInputSchema,
   UpdateDocInputSchema,
   ValidateSdlcInputSchema,
   type AgentCatalogView,
@@ -78,12 +79,12 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
   for (const warning of catalog.warnings) app.log.warn(`agents.yaml：${warning}`);
   const index = await IndexStore.open(sessions.cordRoot);
   const sdlcs = new SdlcService(sessions.cordRoot, index);
-  const coordination = new CoordinationService(sessions, sdlcs, { workspaceRoot: root, resolver: () => agents.resolver(), onError: (error) => app.log.error(error) });
 
   const runs = new RunService(sessions, sdlcs, index, {
     driverResolverForRun: () => agents.resolver(),
     workspaceRoot: root,
   });
+  const coordination = new CoordinationService(sessions, sdlcs, { workspaceRoot: root, resolver: () => agents.resolver(), runs, onError: (error) => app.log.error(error) });
 
   await runInit(root);
   await sdlcs.ensureDefaults();
@@ -323,6 +324,13 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
   app.post("/api/v1/requirements/:req_id/coordination/:round_id/cancel", { config: { idempotency: true } }, async (req) => {
     const { req_id, round_id } = req.params as { req_id: string; round_id: string };
     return { request_id: requestId(req), round: await coordination.cancel(req_id, round_id) };
+  });
+  app.post("/api/v1/requirements/:req_id/coordination/:round_id/adopt", { config: { idempotency: true } }, async (req, reply) => {
+    const { req_id, round_id } = req.params as { req_id: string; round_id: string };
+    parseOrThrow(AdoptCoordinationInputSchema, req.body ?? {});
+    const run = await coordination.adopt(req_id, round_id);
+    reply.code(202);
+    return { request_id: requestId(req), run };
   });
 
   app.get("/api/v1/runs/:run_id", async (req) => {

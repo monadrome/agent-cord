@@ -27,7 +27,7 @@
 | `workflow.node.*` | workflow 节点进入和退出 |
 | `workflow.run.*` | run 级控制：取消（cancelled，ADR-0025） |
 | `agent.task.*` | 节点执行体的 agent 任务（started / completed；中间流式输出不入流） |
-| `coordinator.round.*` | 独立协调轮次（requested / started / completed / cancel_requested；提议不推进状态机） |
+| `coordinator.round.*` | 独立协调轮次（requested / started / completed / cancel_requested）与人工采用（adopted） |
 | `human.*` | 人工选择记录 |
 
 事件类型目录在 `EVENT_TYPES`；新增类型需要同步 schema 和 ADR。
@@ -129,10 +129,16 @@ REST 的 `approval_id` 是等待事件 ULID；旧静态编码可解析但不允�
 
 `ContextSessionAgent.coordinate` 每轮重新采集当前 workflow 的需求文档、事件派生账本/进度/人工等待，调用 `driver.run` 新会话（readonly），不 resume 或注入历史事件/旧提议。上下文总字符预算与结果上限为 60000/32768，必需元信息超预算时拒绝派发。driver metadata 不作文本 fallback，明确空最终字符串不能回退。
 
-输出必须符合 `CoordinationProposalSchema`：summary、next_action、risks；next_action 是 advance / ask_human / wait / complete，每种都必须有 reason 和 evidence。evidence 仅引用存在的 snapshot document、无冲突 confirmed ledger entry 或当前 workflow node。advance 节点必须未退出且依赖已退出，无待人工 gate；complete 要求全部退出且无等待；人工选项不能重复。未知字段、自由文本、围栏 JSON、未知来源或非法节点均 failed/output。存在性验证不等价于语义正确性。
+输出必须符合 `CoordinationProposalSchema`：summary、next_action、risks；next_action 是 advance / ask_human / wait / complete，每种都必须有 reason 和 evidence。evidence 仅引用存在的 snapshot document、无冲突 confirmed ledger entry 或当前 workflow node。advance 只能指向执行器拓扑顺序第一个未退出且依赖已退出的节点，无待人工 gate；complete 要求全部退出且无等待；人工选项不能重复。未知字段、自由文本、围栏 JSON、未知来源或非法节点均 failed/output。存在性验证不等价于语义正确性。
 
 轮次事件与 worker 恢复完全分离：server requested 绑定 SDLC 版本，started/completed 记录 round_id、workflow_id、driver、snapshot provenance、input_hash、prompt_hash 与可选配置身份。语义 input_hash 排除事件序号与轮次自身事件，覆盖完整文档 hash、账本、进度/等待、workflow 和配置身份。结果返回前重检；变化记 stale，读取失败记 failed/freshness，均没有提议。completed 只在 ok 时携带提议，其余状态 proposal 为 null；不保存原始输出/上下文或 driver raw。
 
 REST 创建 `POST /requirements/:req_id/coordination` 输入 `{agent, sdlc_id?, sdlc_version?, timeout_ms?}`，返回 202；列表/读取使用 GET，取消 `POST .../:round_id/cancel` 先落 cancel_requested 再 abort。写命令使用 Idempotency-Key；跨 method/path 复用键返回 409，创建并发同键合并为一轮。每需求只允许一轮在途协调，resolver 在创建时固定，归档版本拒绝新轮次。事件写入失败必须报告宿主，不能伪造 completed。server 重启将未完成轮次落 failed/interrupted；已有取消请求则落 cancelled，不重放模型调用。
 
-提议是该轮完成时的 Draft，之后的输入变更应发起新轮次。任何提议都不生成 node.exited、gate.resolved 或 artifact；实际推进仍经既有 workflow run 与人工 gate。当前是库/REST 原型，readonly 不提供 OS 沙箱（ADR-0032）。
+提议是该轮完成时的 Draft，之后的输入变更应发起新轮次。任何提议本身都不生成 node.exited、gate.resolved 或 artifact；实际推进仍经既有 workflow run 与人工 gate。readonly 不提供 OS 沙箱（ADR-0032）。
+
+ADR-0033 增 `POST .../:round_id/adopt` 人工采用：查询投影保留原 agent 别名，公开 current（true/false/null）、adoptable、adoption_reason、adopted_run_id/adopted_at。历史 ok 与 current=false 可同时成立，浏览器不能据此自行放行。写时在 RunService 的预留槽位内核验绑定版本、配置身份、最新快照与真实下一节点，归档/未知身份/读取失败/过期均 409；只接受 advance，其余行动保持 Draft。
+
+采用事实 `coordinator.round.adopted{round_id,workflow_id,node_id,input_hash,run_id}` 使用 human actor，登记 run 后、launch 前经 append 落盘。普通 run 与采用共享在途互斥，同轮并发/重启重放返回原 run，不重复派发。事件写入失败记 run failed；run 登记含可空 coordination_round_id，旧 SQLite 表自动增加该列。恢复时绑定协调轮次的 run 必须有匹配采用事实及 requested SDLC 版本，否则 failed 而不启动。投影消费采用事件时核验 workflow/node/input/run 一致性，不允许错误引用或双 run 绑定伪装成功。终态查询等待后台槽位释放后返回，下一轮不要求固定延迟。
+
+console 需求详情“协调”视图只展示这些投影，并通过 typed client 发起创建、取消和采用；来源导航沿用文档/账本/概览。新鲜度轮询在后台页面暂停，组件卸载释放定时器；请求失败保留已加载历史与提议。文档切换时同步进入 loading，加载中禁用编辑/保存，防止迟到读取覆盖输入。

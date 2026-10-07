@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 import { ulid } from "ulid";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp, type BuiltServer } from "@agent-cord/server";
 import type { CoordinationRoundView } from "@agent-cord/server/contracts";
 import { EVENT_PAYLOAD_SCHEMAS, type EventType } from "agent-cord";
@@ -61,12 +61,189 @@ beforeEach(async () => {
   expect((await request("POST", "/api/v1/requirements", { req_id: "REQ-CONTEXT", title: "协调原型", prd: "# PRD\nCURRENT_CONTEXT" }, "create")).status).toBe(201);
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
+  for (const run of server.runs.listRuns()) if (server.runs.activeRunId(run.req_id) === run.run_id) await server.runs.cancel(run.run_id);
   await server.app.close();
   server.index.close();
   await rm(root, { recursive: true, force: true });
 });
 
+async function valid_round(): Promise<CoordinationRoundView> {
+  const result = await start(ulid());
+  expect(result.status).toBe(202);
+  const round = await done(result.body.round.round_id);
+  expect(round.status).toBe("ok");
+  return round;
+}
+function adopt(round_id: string, key = ulid()) {
+  return request("POST", `/api/v1/requirements/REQ-CONTEXT/coordination/${round_id}/adopt`, {}, key);
+}
+
+describe("协调提议受控采用", () => {
+  it("采用当前 advance 提议启动绑定 SDLC，事实在节点派发前落盘，人工 gate 仍挂起", async () => {
+    const round = await valid_round();
+    expect(round).toMatchObject({ agent: "coordinator", current: true, adoptable: true, adopted_run_id: null });
+    expect((await request("POST", `/api/v1/requirements/REQ-CONTEXT/coordination/${round.round_id}/adopt`, {})).status).toBe(400);
+    const response = await adopt(round.round_id);
+    expect(response.status).toBe(202);
+    const run_id = response.body.run.run_id;
+    expect(server.index.getRun(run_id)?.coordination_round_id).toBe(round.round_id);
+    expect(response.body.run).toMatchObject({ sdlc_id: "simple-sdlc", sdlc_version: 1 });
+    await wait_for(async () => (await server.sessions.listApprovals("REQ-CONTEXT")).length === 1);
+    const after = await server.coordination.get("REQ-CONTEXT", round.round_id);
+    expect(after).toMatchObject({ status: "ok", adoptable: false, adopted_run_id: run_id });
+    const events = await server.sessions.readEvents("REQ-CONTEXT");
+    const adoption = events.find((event) => event.type === "coordinator.round.adopted")!;
+    expect(adoption.actor.kind).toBe("human");
+    expect(adoption.payload).toMatchObject({ round_id: round.round_id, workflow_id: round.workflow_id, node_id: "intake", input_hash: round.input_hash, run_id });
+    expect(EVENT_PAYLOAD_SCHEMAS["coordinator.round.adopted"]?.safeParse(adoption.payload).success).toBe(true);
+    expect(adoption.seq).toBeLessThan(events.find((event) => event.type === "workflow.node.entered")!.seq);
+    expect(events.filter((event) => event.type === "gate.resolved").some((event) => (event.payload as Record<string, unknown>).human_confirmed === true)).toBe(false);
+  });
+
+  it("历史 ok 在文档变化后 current=false，采用 409 且不登记 run；恢复原输入可以重新核验", async () => {
+    const round = await valid_round();
+    const file = join(root, "cord", "REQ-CONTEXT", "prd.md");
+    const original = await readFile(file, "utf8");
+    await writeFile(file, "# PRD\nCHANGED_AFTER_COMPLETION");
+    expect(await server.coordination.get("REQ-CONTEXT", round.round_id)).toMatchObject({ status: "ok", current: false, adoptable: false });
+    expect((await adopt(round.round_id)).status).toBe(409);
+    expect(server.runs.listRuns("REQ-CONTEXT")).toHaveLength(0);
+    await writeFile(file, original);
+    expect((await server.coordination.get("REQ-CONTEXT", round.round_id)).adoptable).toBe(true);
+  });
+
+  it("同别名配置变化后旧提议不可采用，使用 requested 的原别名核验配置", async () => {
+    const round = await valid_round();
+    expect(round.agent).toBe("coordinator");
+    expect(round.driver).toBe("headless:coordinator");
+    await config(JSON.stringify({ ...proposal, summary: "CHANGED_CONFIGURATION" }));
+    await server.agents.reload();
+    expect(await server.coordination.get("REQ-CONTEXT", round.round_id)).toMatchObject({ status: "ok", current: false, adoptable: false });
+    expect((await adopt(round.round_id)).status).toBe(409);
+    const fresh = await valid_round();
+    expect((await adopt(fresh.round_id)).status).toBe(202);
+  });
+
+  it("同轮并发采用只启动一个 run，取消和重启后重复采用仍返回原 run", async () => {
+    const round = await valid_round();
+    const results = await Promise.all([adopt(round.round_id), adopt(round.round_id), adopt(round.round_id)]);
+    expect(results.map((item) => item.status)).toEqual([202, 202, 202]);
+    expect(new Set(results.map((item) => item.body.run.run_id)).size).toBe(1);
+    const run_id = results[0]!.body.run.run_id;
+    expect(server.runs.listRuns("REQ-CONTEXT")).toHaveLength(1);
+    await server.runs.cancel(run_id);
+    await writeFile(join(root, "cord", "REQ-CONTEXT", "prd.md"), "# AFTER_ADOPTION_CHANGE");
+    await restart();
+    const replay = await adopt(round.round_id);
+    expect(replay.status).toBe(202);
+    expect(replay.body.run).toMatchObject({ run_id, status: "cancelled" });
+    expect(server.runs.listRuns("REQ-CONTEXT")).toHaveLength(1);
+    expect((await server.sessions.readEvents("REQ-CONTEXT")).filter((event) => event.type === "coordinator.round.adopted")).toHaveLength(1);
+  });
+
+  it("普通 run 与采用并发只允许一个进入运行槽位", async () => {
+    const round = await valid_round();
+    const results = await Promise.all([adopt(round.round_id), request("POST", "/api/v1/requirements/REQ-CONTEXT/runs", {}, "ordinary-run")]);
+    expect(results.map((item) => item.status).sort()).toEqual([202, 409]);
+    expect(server.runs.listRuns("REQ-CONTEXT")).toHaveLength(1);
+  });
+
+  it("进入 run 槽位后再次核验：查询有效但文件在启动前变化仍 409", async () => {
+    const round = await valid_round();
+    const real_start = server.runs.start.bind(server.runs);
+    vi.spyOn(server.runs, "start").mockImplementation(async (...args) => {
+      await writeFile(join(root, "cord", "REQ-CONTEXT", "prd.md"), "# CHANGED_BEFORE_RESERVED_VALIDATION");
+      return real_start(...args);
+    });
+    expect((await adopt(round.round_id)).status).toBe(409);
+    expect(server.runs.listRuns("REQ-CONTEXT")).toHaveLength(0);
+    expect(server.runs.isActive("REQ-CONTEXT")).toBe(false);
+    expect((await server.sessions.readEvents("REQ-CONTEXT")).some((event) => event.type === "coordinator.round.adopted")).toBe(false);
+  });
+
+  it("采用事件追加失败不派发节点，登记 failed 并释放槽位，修复后可再次采用", async () => {
+    const round = await valid_round();
+    const session = await server.sessions.open("REQ-CONTEXT");
+    const real_append = session.events.append.bind(session.events);
+    const mock = vi.spyOn(session.events, "append").mockImplementation((draft) => draft.type === "coordinator.round.adopted" ? Promise.reject(new Error("adoption store unavailable")) : real_append(draft));
+    expect((await adopt(round.round_id)).status).toBe(500);
+    expect(server.runs.listRuns("REQ-CONTEXT")[0]?.status).toBe("failed");
+    expect(server.runs.isActive("REQ-CONTEXT")).toBe(false);
+    expect((await server.sessions.readEvents("REQ-CONTEXT")).some((event) => event.type === "workflow.node.entered" || event.type === "coordinator.round.adopted")).toBe(false);
+    mock.mockRestore();
+    expect((await adopt(round.round_id)).status).toBe(202);
+  });
+
+  it("归档版本阻止采用，历史输入身份仍有效", async () => {
+    const round = await valid_round();
+    await server.sdlcs.archive("simple-sdlc", 1);
+    expect(await server.coordination.get("REQ-CONTEXT", round.round_id)).toMatchObject({ current: true, adoptable: false, adoption_reason: "绑定的 SDLC 版本已归档" });
+    expect((await adopt(round.round_id)).status).toBe(409);
+    expect(server.runs.listRuns("REQ-CONTEXT")).toHaveLength(0);
+  });
+
+  it.each(["wait", "ask_human"])("%s 是有效 Draft，但不能制造节点推进或人工 gate 决策", async (kind) => {
+    await config(JSON.stringify({ ...proposal, next_action: { kind, reason: "需要人工补充事实", evidence: proposal.next_action.evidence,
+      ...(kind === "ask_human" ? { question: "是否采用该范围？", options: ["采用", "调整"] } : {}) } }));
+    await server.agents.reload();
+    const round = await valid_round();
+    expect(round).toMatchObject({ current: true, adoptable: false });
+    expect((await adopt(round.round_id)).status).toBe(409);
+    expect(server.runs.listRuns("REQ-CONTEXT")).toHaveLength(0);
+    expect((await server.sessions.readEvents("REQ-CONTEXT")).some((event) => event.type === "gate.resolved" || event.type === "workflow.node.exited")).toBe(false);
+  });
+
+  it("没有配置身份的旧成功事件不能被采用", async () => {
+    const session = await server.sessions.open("REQ-CONTEXT");
+    const round_id = ulid();
+    for (const [type, payload] of [
+      ["coordinator.round.requested", { round_id, workflow_id: "simple-sdlc", driver: "coordinator", sdlc_id: "simple-sdlc", sdlc_version: 1 }],
+      ["coordinator.round.completed", { round_id, workflow_id: "simple-sdlc", driver: "coordinator", status: "ok", proposal, error: null, duration_ms: 1, input_hash: "a".repeat(64) }],
+    ] as const) await session.events.append({ event_id: ulid(), session_id: session.req_id, type, schema_version: "1", actor: { kind: "system", id: "legacy" }, correlation_id: round_id, payload, source: { adapter: "test" } });
+    expect(await server.coordination.get("REQ-CONTEXT", round_id)).toMatchObject({ current: null, adoptable: false });
+    expect((await adopt(round_id)).status).toBe(409);
+  });
+
+  it("采用事实必须匹配提议的 workflow/节点/输入，不能因错误引用伪装成已采用", async () => {
+    const round = await valid_round();
+    const session = await server.sessions.open("REQ-CONTEXT");
+    await session.events.append({ event_id: ulid(), session_id: session.req_id, type: "coordinator.round.adopted", schema_version: "1", actor: { kind: "human", id: "test" }, correlation_id: round.round_id,
+      payload: { round_id: round.round_id, workflow_id: "OTHER_WORKFLOW", node_id: "intake", input_hash: round.input_hash, run_id: ulid() }, source: { adapter: "test" } });
+    expect((await request("GET", `/api/v1/requirements/REQ-CONTEXT/coordination/${round.round_id}`)).status).toBe(500);
+  });
+
+  it.each([false, true])("登记与派发间中断后，采用事实存在=%s 决定是否恢复 runner", async (recorded) => {
+    const round = await valid_round();
+    const run_id = ulid();
+    server.index.insertRun({ run_id, req_id: "REQ-CONTEXT", sdlc_id: "simple-sdlc", sdlc_version: 1, status: "running", started_at: new Date().toISOString(), finished_at: null, error: null, coordination_round_id: round.round_id });
+    if (recorded) {
+      const session = await server.sessions.open("REQ-CONTEXT");
+      await session.events.append({ event_id: ulid(), session_id: session.req_id, type: "coordinator.round.adopted", schema_version: "1", actor: { kind: "human", id: "test" }, correlation_id: round.round_id,
+        payload: { round_id: round.round_id, workflow_id: round.workflow_id, node_id: "intake", input_hash: round.input_hash, run_id }, source: { adapter: "test" } });
+    }
+    await restart();
+    if (recorded) {
+      await wait_for(async () => (await server.sessions.listApprovals("REQ-CONTEXT")).length === 1);
+      expect(server.runs.activeRunId("REQ-CONTEXT")).toBe(run_id);
+      expect((await server.coordination.get("REQ-CONTEXT", round.round_id)).adopted_run_id).toBe(run_id);
+    } else {
+      expect(await server.runs.getRun(run_id)).toMatchObject({ status: "failed", error: "协调采用事实缺失或版本不匹配，未恢复派发" });
+      expect(server.runs.isActive("REQ-CONTEXT")).toBe(false);
+      expect((await server.sessions.readEvents("REQ-CONTEXT")).some((event) => event.type === "workflow.node.entered")).toBe(false);
+    }
+  });
+});
+
 describe("Context Session Agent REST", () => {
+  it("终态查询返回时后台槽位已释放，连续发起无需额外等待或固定延迟", async () => {
+    for (let index = 0; index < 3; index++) {
+      const response = await start(`consecutive-${index}`);
+      expect(response.status).toBe(202);
+      expect((await done(response.body.round.round_id)).status).toBe("ok");
+    }
+    expect((await server.coordination.list("REQ-CONTEXT"))).toHaveLength(3);
+  });
   it("创建异步轮次 → 成功提议 → 事件投影，提议不推进 workflow 或改变文档", async () => {
     const original = await readFile(join(root, "cord", "REQ-CONTEXT", "prd.md"), "utf8");
     const response = await start();

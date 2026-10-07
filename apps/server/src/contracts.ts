@@ -171,6 +171,7 @@ export interface CoordinationRoundView {
   sdlc_version: number;
   workflow_id: string;
   driver: string;
+  agent: string;
   status: "pending" | "running" | CoordinationStatus;
   requested_at: string;
   started_at: string | null;
@@ -181,7 +182,13 @@ export interface CoordinationRoundView {
   proposal: CoordinationProposal | null;
   error: string | null;
   failure_stage: string | null;
+  current: boolean | null;
+  adoptable: boolean;
+  adoption_reason: string | null;
+  adopted_run_id: string | null;
+  adopted_at: string | null;
 }
+export const AdoptCoordinationInputSchema = z.strictObject({});
 
 // ---------------------------------------------------------------------------
 // 审批（人工 gate）

@@ -1109,6 +1109,74 @@ p {
 .agent-protocol code { overflow-wrap: anywhere; }
 .agent-config-hash { color: var(--ink-soft); font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
 .agent-loading { min-height: 185px; display: grid; place-items: center; color: var(--ink-soft); font-size: 13px; }
+.coordination-workspace { letter-spacing: 0; min-width: 0; overflow-wrap: anywhere; }
+.requirement-page-head > div { min-width: 0; max-width: 100%; }
+.requirement-page-head h1 { font-size: 26px; letter-spacing: 0; overflow-wrap: anywhere; }
+.coordination-head, .coordination-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.coordination-head h2 { display: flex; align-items: center; gap: 8px; }
+.coordination-head h2 svg { color: var(--accent); }
+.coordination-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 115px auto; align-items: end; gap: 12px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.coordination-controls .field { min-width: 0; }
+.coordination-controls .select, .coordination-controls input { width: 100%; max-width: none; height: 38px; min-width: 0; }
+.coordination-start, .coordination-adopt { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 38px; }
+.coordination-start { min-width: 128px; }
+.coordination-layout { display: grid; grid-template-columns: minmax(0, 270px) minmax(0, 1fr); gap: 26px; margin-top: 20px; }
+.coordination-workspace h3 { font-size: 15px; margin: 0; line-height: 1.4; }
+.coordination-workspace h4 { font-size: 13px; margin: 0 0 7px; font-weight: 600; }
+.coordination-history > header { display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 10px; }
+.coordination-history > ul { list-style: none; padding: 0; margin: 0; max-height: 650px; overflow-y: auto; }
+.coordination-round { display: grid; width: 100%; min-height: 103px; gap: 7px; text-align: left; border: 0; border-bottom: 1px solid var(--line); border-left: 3px solid transparent; padding: 12px 10px; color: var(--ink); font: inherit; background: transparent; cursor: pointer; }
+.coordination-round:hover { background: var(--panel); }
+.coordination-round-selected { background: var(--accent-soft); border-left-color: var(--accent); }
+.coordination-round strong { font-size: 13px; line-height: 1.45; font-weight: 600; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.coordination-round > .small { font-size: 11.5px; overflow-wrap: anywhere; }
+.coordination-round-top { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.coordination-detail { min-width: 0; }
+.coordination-detail-head > div { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.coordination-status-pending, .coordination-status-running { color: var(--accent); background: var(--accent-soft); }
+.coordination-status-ok { color: var(--ok); background: var(--ok-soft); }
+.coordination-status-failed, .coordination-status-timeout { color: var(--danger); background: var(--danger-soft); }
+.coordination-status-cancelled { color: var(--ink-soft); background: var(--line); }
+.coordination-status-stale { color: var(--warn); background: var(--warn-soft); }
+.coordination-warn { color: var(--warn); }
+.coordination-context { display: grid; gap: 8px; margin: 0; font-size: 13px; }
+.coordination-context > div { display: grid; grid-template-columns: 78px minmax(0, 1fr); align-items: baseline; gap: 12px; }
+.coordination-context dt { color: var(--ink-soft); }
+.coordination-context dd { margin: 0; overflow-wrap: anywhere; }
+.coordination-context .mono { font-size: 12px; }
+.coordination-proposal { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
+.coordination-summary { font-size: 16px; line-height: 1.5; font-weight: 600; margin-bottom: 16px; overflow-wrap: anywhere; }
+.coordination-action-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.coordination-reason { font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.coordination-evidence, .coordination-risks, .coordination-question { margin-top: 18px; }
+.coordination-evidence ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.coordination-evidence li { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 10px; align-items: baseline; }
+.coordination-evidence .link { display: inline-flex; align-items: center; gap: 4px; width: fit-content; max-width: 100%; overflow-wrap: anywhere; }
+.coordination-evidence .link svg { flex: 0 0 auto; }
+.coordination-evidence .link > span, .coordination-adopted .link > span { min-width: 0; overflow-wrap: anywhere; }
+.coordination-risks ul, .coordination-question ul { margin: 0; padding-left: 20px; font-size: 13px; color: var(--ink-soft); overflow-wrap: anywhere; }
+.coordination-risks li + li, .coordination-question li + li { margin-top: 5px; }
+.coordination-failure { margin-top: 18px; border-left: 3px solid var(--danger); padding: 9px 12px; background: var(--danger-soft); color: var(--danger); font-size: 13px; overflow-wrap: anywhere; }
+.coordination-failure p { margin-top: 6px; white-space: pre-wrap; }
+.coordination-record { margin-top: 22px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-soft); }
+.coordination-record summary { cursor: pointer; width: fit-content; }
+.coordination-record .coordination-context { margin-top: 12px; }
+.coordination-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding-top: 16px; margin-top: 16px; border-top: 1px solid var(--line); }
+.coordination-footer > .small { max-width: 100%; overflow-wrap: anywhere; }
+.coordination-adopted { display: grid; gap: 6px; max-width: 100%; }
+.coordination-adopted .link { display: inline-flex; align-items: center; gap: 6px; overflow-wrap: anywhere; }
+.coordination-adopted svg { flex: 0 0 auto; }
+.coordination-loading { min-height: 160px; display: grid; place-items: center; font-size: 13px; color: var(--ink-soft); }
+.coordination-workspace button:focus-visible, .coordination-workspace summary:focus-visible, .coordination-workspace select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 720px) {
+  .coordination-controls { grid-template-columns: 115px minmax(0, 1fr); }
+  .coordination-agent-field, .coordination-sdlc-field { grid-column: 1 / -1; }
+  .coordination-start { width: 100%; min-width: 0; }
+  .coordination-layout { grid-template-columns: minmax(0, 1fr); gap: 22px; }
+  .coordination-history > ul { max-height: 265px; }
+  .coordination-round { min-height: 92px; }
+  .coordination-context > div { grid-template-columns: 70px minmax(0, 1fr); gap: 10px; }
+}
 .agent-spinning { animation: agent-spin 1.1s linear infinite; }
 @keyframes agent-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .agent-spinning { animation: none; } }

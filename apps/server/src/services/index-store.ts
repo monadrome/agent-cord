@@ -29,6 +29,8 @@ export interface RunRow {
   started_at: string;
   finished_at: string | null;
   error: string | null;
+  /** ADR-0033：采用启动的 run 在恢复前必须核验对应事实；普通 run 为 null。 */
+  coordination_round_id?: string | null;
 }
 
 export class IndexStore {
@@ -69,6 +71,8 @@ export class IndexStore {
         PRIMARY KEY (sdlc_id, version)
       );
     `);
+    const columns = db.prepare("PRAGMA table_info(runs)").all();
+    if (!columns.some((column) => column["name"] === "coordination_round_id")) db.exec("ALTER TABLE runs ADD COLUMN coordination_round_id TEXT");
     return new IndexStore(db);
   }
 
@@ -128,9 +132,9 @@ export class IndexStore {
   insertRun(run: RunRow): void {
     this.db
       .prepare(
-        "INSERT INTO runs (run_id, req_id, sdlc_id, sdlc_version, status, started_at, finished_at, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO runs (run_id, req_id, sdlc_id, sdlc_version, status, started_at, finished_at, error, coordination_round_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
-      .run(run.run_id, run.req_id, run.sdlc_id, run.sdlc_version, run.status, run.started_at, run.finished_at, run.error);
+      .run(run.run_id, run.req_id, run.sdlc_id, run.sdlc_version, run.status, run.started_at, run.finished_at, run.error, run.coordination_round_id ?? null);
   }
 
   finishRun(runId: string, status: RunStatus, finishedAt: string, error: string | null): void {

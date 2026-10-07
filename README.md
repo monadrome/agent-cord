@@ -149,6 +149,7 @@ POST /requirements/:req_id/coordination       # 独立协调轮次，202
 GET  /requirements/:req_id/coordination
 GET  /requirements/:req_id/coordination/:round_id
 POST /requirements/:req_id/coordination/:round_id/cancel
+POST /requirements/:req_id/coordination/:round_id/adopt   # 人工采用并启动绑定 SDLC，202
 POST /runs/:run_id/cancel                     # 幂等；已终态返回现状
 GET  /requirements/:req_id/timeline
 GET  /requirements/:req_id/ledger
@@ -184,7 +185,11 @@ curl -X POST http://127.0.0.1:7250/api/v1/requirements/REQ-001/coordination \
 
 创建返回 `round_id`，随后读取轮次或订阅需求 SSE。每轮 `driver.run` 新会话，重新读取 PRD、artifact、当前事件派生的账本/进度/人工等待；不继承旧会话。模型必须返回严格 JSON 提议，行动类型为 `advance`、`ask_human`、`wait` 或 `complete`。宿主验证节点依赖、待人工 gate 和来源引用；输入在调用期间变化则记 `stale` 并隐藏提议。
 
-`ok` 表示提议在该轮完成时通过验证，不代表节点完成或 gate 放行，也不保证模型推理正确。后续输入变化应新建轮次。提议保持 Draft，实际推进仍经 run 与人工 gate；当前提供库 API 和 REST，console 尚无独立操作面板。只读参数不替代 OS 沙箱。server 重启把未完成轮次记为 `failed/interrupted`，不重放模型调用；已持久化取消请求恢复为 `cancelled`。详见 [ADR-0032](./docs/adr/ADR-0032-context-session-agent.md)。
+`ok` 表示提议在该轮完成时通过验证，不代表节点完成或 gate 放行，也不保证模型推理正确。查询的 `current` / `adoptable` 表示当前输入与采用条件，历史状态不因后续输入变化改写。只读参数不替代 OS 沙箱。server 重启把未完成轮次记为 `failed/interrupted`，不重放模型调用；已持久化取消请求恢复为 `cancelled`。详见 [ADR-0032](./docs/adr/ADR-0032-context-session-agent.md)。
+
+控制台路径：需求详情 → 协调。选择 Agent、SDLC 版本与超时，发起/取消协调，查看轮次、结构化提议、风险与来源；文档、共识与节点引用可跳转现有子视图。server 重新核验最新输入与 Agent 配置，输入变化或版本归档时禁用采用；刷新失败保留历史内容。
+
+有效 `advance` 提议可由人点击“采用并启动 SDLC”，或调用 `POST .../:round_id/adopt`（空请求体、Idempotency-Key）。建议只能指向执行器实际下一节点；采用启动整个绑定版本，从该节点续跑，仍保留机器/人工 gate。`ask_human`、`wait`、`complete` 不由此入口推进节点。采用事实先落盘再派发，同轮重复采用返回原 run；登记与落盘之间中断时，恢复必须验证采用事实，缺失则失败且不派发。详见 [ADR-0033](./docs/adr/ADR-0033-coordination-adoption-console.md)。
 
 ## 当前边界
 
@@ -205,7 +210,7 @@ curl -X POST http://127.0.0.1:7250/api/v1/requirements/REQ-001/coordination \
 - [文档入口](./docs/INDEX.md)：当前实现、协议、ADR 和设计归档的阅读路径。
 - [当前实现架构](./docs/current-architecture.md)：server、console、数据布局和运行路径。
 - [核心协议速查](./docs/protocol.md)：事件、账本、workflow、gate 和 voting 的实现契约。
-- [ADR 目录](./docs/adr/)：架构决策记录，当前包含 ADR-0001 ~ ADR-0032。
+- [ADR 目录](./docs/adr/)：架构决策记录，当前包含 ADR-0001 ~ ADR-0033。
 - [安全与权限模型](./docs/09-security.md)
 - [路线图](./docs/10-roadmap.md)
 - [风险与开放问题](./docs/11-risks.md)

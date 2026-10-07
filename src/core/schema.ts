@@ -294,6 +294,7 @@ export const EVENT_TYPES = [
   "coordinator.round.requested",
   "coordinator.round.completed",
   "coordinator.round.cancel_requested",
+  "coordinator.round.adopted",
   "human.decision.recorded",
   "reconcile.requested",
 ] as const;
@@ -548,6 +549,11 @@ export const CoordinatorRoundCancelRequestedPayloadSchema = z.looseObject({
   round_id: z.string().regex(ULID_RE),
   reason: z.string().optional(),
 });
+/** ADR-0033：人工采用当前提议，实际执行继续经绑定版本的 SDLC runner。 */
+export const CoordinatorRoundAdoptedPayloadSchema = z.looseObject({
+  round_id: z.string().regex(ULID_RE), workflow_id: z.string().min(1), node_id: z.string().min(1),
+  input_hash: z.string().length(64), run_id: z.string().regex(ULID_RE),
+});
 
 /** 已知 payload 的 schema 表；未列出的类型（如 M3 才落地的 reconcile.requested）尚无固化形状。 */
 export const EVENT_PAYLOAD_SCHEMAS: Partial<Record<EventType, z.ZodType>> = {
@@ -570,4 +576,5 @@ export const EVENT_PAYLOAD_SCHEMAS: Partial<Record<EventType, z.ZodType>> = {
   "coordinator.round.requested": CoordinatorRoundRequestedPayloadSchema,
   "coordinator.round.completed": CoordinatorRoundCompletedPayloadSchema,
   "coordinator.round.cancel_requested": CoordinatorRoundCancelRequestedPayloadSchema,
+  "coordinator.round.adopted": CoordinatorRoundAdoptedPayloadSchema,
 };

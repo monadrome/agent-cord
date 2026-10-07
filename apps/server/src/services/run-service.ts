@@ -14,6 +14,8 @@ import {
   createBuiltinRegistry,
   evaluateGate,
   readApprovalContextHash,
+  CoordinatorRoundAdoptedPayloadSchema,
+  CoordinatorRoundRequestedPayloadSchema,
   type AgentDriver,
   type Anchor,
   type EventEnvelope,
@@ -66,6 +68,13 @@ export interface RunServiceOptions {
   workspaceRoot?: string;
 }
 
+/** ADR-0033：运行槽位内校验人工采用依据，事实落盘成功后才启动执行器。 */
+export interface RunStartGuard {
+  coordination_round_id: string;
+  validate(session: SessionHandle, def: WorkflowDef): Promise<void>;
+  record(session: SessionHandle, run_id: string): Promise<void>;
+}
+
 export class RunService {
   private readonly sessions: SessionService;
   private readonly sdlcs: SdlcService;
@@ -93,7 +102,7 @@ export class RunService {
   }
 
   /** 启动（或恢复）某需求的 run；绑定具体 SDLC 版本（ADR-0022 决策 4） */
-  async start(reqId: string, sdlcId?: string, sdlcVersion?: number): Promise<RunInfo> {
+  async start(reqId: string, sdlcId?: string, sdlcVersion?: number, guard?: RunStartGuard): Promise<RunInfo> {
     if (this.active.has(reqId)) {
       throw conflict(`需求 ${reqId} 已有在途 run（${this.active.get(reqId)?.run_id}），等待其结束或人工处理`);
     }
@@ -101,6 +110,7 @@ export class RunService {
     const reservedRunId = ulid();
     const controller = new AbortController();
     this.active.set(reqId, { run_id: reservedRunId, req_id: reqId, promise: Promise.resolve(), controller });
+    let registered = false;
     try {
       const session = await this.sessions.open(reqId);
       const versioned = await this.sdlcs.get(sdlcId ?? DEFAULT_SDLC_ID, sdlcVersion);
@@ -110,6 +120,7 @@ export class RunService {
           `SDLC "${versioned.sdlc_id}" v${versioned.version} 已归档，禁止启动新 run（可取消归档或选择其他版本）`,
         );
       }
+      await guard?.validate(session, versioned.def);
       const run: RunRow = {
         run_id: reservedRunId,
         req_id: reqId,
@@ -119,11 +130,15 @@ export class RunService {
         started_at: new Date().toISOString(),
         finished_at: null,
         error: null,
+        coordination_round_id: guard?.coordination_round_id ?? null,
       };
       this.index.insertRun(run);
+      registered = true;
+      await guard?.record(session, reservedRunId);
       this.launch(session, run, versioned.def, controller);
       return runRowToInfo(run);
     } catch (error) {
+      if (registered) this.safeFinish(reservedRunId, "failed", error instanceof Error ? error.message : String(error));
       if (this.active.get(reqId)?.run_id === reservedRunId) this.active.delete(reqId);
       throw error;
     }
@@ -302,6 +317,22 @@ export class RunService {
       }
       const session = await this.sessions.open(run.req_id);
       const events = await session.events.readOrdered();
+      if (run.coordination_round_id != null) {
+        const adoption = events.find((event) => {
+          if (event.type !== "coordinator.round.adopted") return false;
+          const parsed = CoordinatorRoundAdoptedPayloadSchema.safeParse(event.payload);
+          return parsed.success && parsed.data.run_id === run.run_id && parsed.data.round_id === run.coordination_round_id && parsed.data.workflow_id === versioned.def.metadata.id;
+        });
+        const request = events.find((event) => {
+          if (event.type !== "coordinator.round.requested") return false;
+          const parsed = CoordinatorRoundRequestedPayloadSchema.safeParse(event.payload);
+          return parsed.success && parsed.data.round_id === run.coordination_round_id && parsed.data.sdlc_id === run.sdlc_id && parsed.data.sdlc_version === run.sdlc_version;
+        });
+        if (adoption === undefined || request === undefined) {
+          this.index.finishRun(run.run_id, "failed", new Date().toISOString(), "协调采用事实缺失或版本不匹配，未恢复派发");
+          continue;
+        }
+      }
       const finalStatus = this.computeFinalStatus(events, versioned.def, run.run_id);
       const recorded_decision = [...scanPendingApprovals(events).values()].some((waiting) =>
         waiting.workflow_id === versioned.def.metadata.id && events.some((event) =>

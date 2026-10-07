@@ -22,6 +22,7 @@ describe("parseHash", () => {
     expect(parseHash("#/requirements/REQ-1")).toEqual({ page: "requirement", reqId: "REQ-1", tab: "overview" });
     expect(parseHash("#/requirements/REQ-1/ledger")).toEqual({ page: "requirement", reqId: "REQ-1", tab: "ledger" });
     expect(parseHash("#/requirements/REQ-1?tab=events")).toEqual({ page: "requirement", reqId: "REQ-1", tab: "events" });
+    expect(parseHash("#/requirements/REQ-1/coordination")).toEqual({ page: "requirement", reqId: "REQ-1", tab: "coordination" });
     expect(parseHash("#/requirements/REQ-1/bogus")).toEqual({ page: "requirement", reqId: "REQ-1", tab: "overview" });
   });
 

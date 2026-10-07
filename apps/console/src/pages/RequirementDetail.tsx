@@ -30,11 +30,13 @@ import {
   StatusBadge,
 } from "../ui.js";
 import { MarkdownPreview } from "../markdown.js";
+import { CoordinationPanel } from "./CoordinationPanel.js";
 
-export const DETAIL_TABS = ["overview", "docs", "ledger", "votes", "events", "approvals"] as const;
+export const DETAIL_TABS = ["overview", "coordination", "docs", "ledger", "votes", "events", "approvals"] as const;
 export type DetailTab = (typeof DETAIL_TABS)[number];
 export const DETAIL_TAB_TEXT: Record<DetailTab, string> = {
   overview: "概览",
+  coordination: "协调",
   docs: "文档",
   ledger: "账本",
   votes: "投票",
@@ -101,6 +103,7 @@ export function RequirementDetail({ reqId, tab, onTab, onBack }: Props): ReactEl
   /** 可启动的 SDLC 选项（`<sdlc_id>@<version>` 编码）；缺省 = server 默认 SDLC */
   const [sdlcOptions, setSdlcOptions] = useState<SdlcSummary[]>([]);
   const [selectedSdlc, setSelectedSdlc] = useState<string>("");
+  const [focused_doc, set_focused_doc] = useState<SnapshotDocName>("prd");
 
   useEffect(() => {
     let cancelled = false;
@@ -249,7 +252,7 @@ export function RequirementDetail({ reqId, tab, onTab, onBack }: Props): ReactEl
         ‹ 返回需求列表
       </button>
 
-      <header className="page-head">
+      <header className="page-head requirement-page-head">
         <div>
           <p className="eyebrow mono">{reqId}</p>
           <h1>{detail?.title ?? "加载中…"}</h1>
@@ -324,7 +327,10 @@ export function RequirementDetail({ reqId, tab, onTab, onBack }: Props): ReactEl
       </nav>
 
       {tab === "overview" ? <OverviewTab timeline={timeline} activeRun={activeRun} /> : null}
-      {tab === "docs" ? <DocsTab reqId={reqId} docs={detail?.docs ?? null} /> : null}
+      {tab === "coordination" ? <CoordinationPanel req_id={reqId} default_sdlc={timeline?.sdlc_version !== null && timeline?.sdlc_version !== undefined ? `${timeline.sdlc_id}@${timeline.sdlc_version}` : ""}
+        event_seq={events.at(-1)?.seq ?? 0} run_in_flight={runInFlight} onChanged={loadProjections} onRun={() => onTab("overview")}
+        onSource={(source, id) => { if (source === "document") { set_focused_doc(id.replace(/\.md$/, "") as SnapshotDocName); onTab("docs"); } else onTab(source === "ledger" ? "ledger" : "overview"); }} /> : null}
+      {tab === "docs" ? <DocsTab reqId={reqId} docs={detail?.docs ?? null} initial_doc={focused_doc} /> : null}
       {tab === "ledger" ? <LedgerTab ledger={ledger} /> : null}
       {tab === "votes" ? <VotesTab votes={votes} /> : null}
       {tab === "events" ? <EventsTab events={events} /> : null}
@@ -474,8 +480,8 @@ function GateLine({ gate }: { gate: GateState }): ReactElement {
 // 文档
 // ---------------------------------------------------------------------------
 
-function DocsTab({ reqId, docs }: { reqId: string; docs: Record<SnapshotDocName, boolean> | null }): ReactElement {
-  const [doc, setDoc] = useState<SnapshotDocName>("prd");
+function DocsTab({ reqId, docs, initial_doc = "prd" }: { reqId: string; docs: Record<SnapshotDocName, boolean> | null; initial_doc?: SnapshotDocName }): ReactElement {
+  const [doc, setDoc] = useState<SnapshotDocName>(initial_doc);
   const [content, setContent] = useState("");
   const [saved, setSaved] = useState("");
   const [loading, setLoading] = useState(true);
@@ -543,7 +549,8 @@ function DocsTab({ reqId, docs }: { reqId: string; docs: Record<SnapshotDocName,
             key={name}
             type="button"
             className={name === doc ? "tab tab-active" : "tab"}
-            onClick={() => setDoc(name)}
+            disabled={busy}
+            onClick={() => { if (name !== doc) { setLoading(true); setDoc(name); } }}
           >
             {name}.md
             {docs !== null && !docs[name] ? <span className="muted small"> · 未生成</span> : null}
@@ -571,7 +578,7 @@ function DocsTab({ reqId, docs }: { reqId: string; docs: Record<SnapshotDocName,
         </div>
       </div>
       <div className="form-actions">
-        <button type="button" className="btn btn-primary" disabled={busy || !dirty} onClick={() => void save()}>
+        <button type="button" className="btn btn-primary" disabled={loading || busy || !dirty} onClick={() => void save()}>
           {busy ? "保存中…" : "保存"}
         </button>
         {dirty ? <span className="muted small">有未保存的修改</span> : <span className="muted small">已与磁盘一致</span>}

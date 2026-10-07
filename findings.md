@@ -80,3 +80,15 @@
 - Context Session Agent 应使用固定的 `AgentDriver` resolver 快照，输入只来自同一批 `readSnapshot` 结果；结构化输出解析失败必须 fail-closed 并落 completed/failed 事实，不能把模型自由文本当作可执行路由。
 - 独立协调包与 worker 包的消费不同：前者必须保留完整 workflow/输出 schema 并硬限制总字符数，文档只作为片段；复用 readSnapshot，使用独立 buildCoordinationPrompt，避免继承 worker 的 artifact 写入指令。
 - 已验证输出期间 PRD、账本、进度或人工等待变化会 stale；自身控制事件不改变语义输入 hash。轮次只能给 Draft 建议，来源验证不能证明推理正确性。
+
+## 实现校准（2026-10-07，协调工作台与采用边界）
+
+- 轮次 requested 保存的是 registry 别名，started/completed 保存的是 driver 实际名（如 headless:coordinator）；采用时必须保留并使用原别名，不能用实际名重新解析自定义配置。
+- 既有轮次 status=ok 只表示完成时通过验证，文档之后变更不会改变历史事件；console 需要独立的 server 新鲜度投影，不能把旧 ok 当作可采用。
+- 当前 executor 按固定拓扑顺序推进全部未退出节点，不能让 advance 的任意 ready 节点暗示能跳转。采用入口只接受真实下一节点，命令明确为启动绑定 SDLC。
+- RunService.start 在首个 await 前预留在途槽位；采用校验必须发生在该槽位内，采用事实落盘成功后才能 launch，避免普通 run 与采用并发绕过边界。
+- 采用事实也需要消费侧核验：合法 payload schema 不能证明它引用了正确的 workflow/node/input；若同轮出现两个 run 绑定，投影必须拒绝而不是选择最后一条。
+- React 生命周期不能因采用后 timeline 绑定版本变化而重置未完成命令；刷新默认选择与组件挂载生命周期应独立，异步回执按 generation 丢弃过期更新。
+- completed 事件可见与后台槽位释放是两个时刻；终态 API 等待后台清理后返回，连续协调无需固定延迟。
+- run 登记先于 adopted 事件时，需要持久化 coordination_round_id 并在恢复时核验，否则崩溃窗口会绕过“事实落盘后才派发”；旧 SQLite 表新增可空列保留普通 run 的恢复行为。
+- 浏览器已验证真实操作链保留人工 gate，491 个离线测试证明输入/配置变化、归档、并发、事件故障与恢复边界；尚未用外部真实 LLM 做本阶段验收，预览为离线 fake driver。

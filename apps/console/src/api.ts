@@ -11,6 +11,7 @@ import type {
   AgentCatalogView,
   ApprovalItem,
   CreateRequirementInput,
+  CoordinationRoundView,
   DashboardView,
   DoctorView,
   HealthView,
@@ -23,6 +24,7 @@ import type {
   SdlcValidationResult,
   SnapshotDocName,
   StartRunInput,
+  StartCoordinationInput,
   StreamedEvent,
   TimelineView,
   VoteSummary,
@@ -111,6 +113,14 @@ export interface EventsResponse {
 export interface RunResponse {
   request_id: string;
   run: RunInfo;
+}
+export interface CoordinationResponse {
+  request_id: string;
+  round: CoordinationRoundView;
+}
+export interface CoordinationListResponse {
+  request_id: string;
+  rounds: CoordinationRoundView[];
 }
 
 export interface DecideApprovalResponse {
@@ -278,6 +288,11 @@ export interface ApiClient {
   subscribeEvents(reqId: string, onEvent: (event: StreamedEvent) => void, onError?: (error: unknown) => void): () => void;
 
   startRun(reqId: string, input?: StartRunInput, key?: string): Promise<RunResponse>;
+  listCoordination(reqId: string): Promise<CoordinationListResponse>;
+  getCoordination(reqId: string, roundId: string): Promise<CoordinationResponse>;
+  startCoordination(reqId: string, input: StartCoordinationInput, key?: string): Promise<CoordinationResponse>;
+  cancelCoordination(reqId: string, roundId: string, key?: string): Promise<CoordinationResponse>;
+  adoptCoordination(reqId: string, roundId: string, key?: string): Promise<RunResponse>;
   /** 取消 run（ADR-0025）：幂等，已终态返回现状 */
   cancelRun(runId: string, reason?: string, key?: string): Promise<RunResponse>;
   decideApproval(
@@ -329,6 +344,11 @@ export function createClient(baseUrl = ""): ApiClient {
 
     startRun: (reqId, input = {}, key) =>
       request<RunResponse>(baseUrl, `${reqPath(reqId)}/runs`, writeInit("POST", input, key)),
+    listCoordination: (reqId) => request<CoordinationListResponse>(baseUrl, `${reqPath(reqId)}/coordination`),
+    getCoordination: (reqId, roundId) => request<CoordinationResponse>(baseUrl, `${reqPath(reqId)}/coordination/${encodeURIComponent(roundId)}`),
+    startCoordination: (reqId, input, key) => request<CoordinationResponse>(baseUrl, `${reqPath(reqId)}/coordination`, writeInit("POST", input, key)),
+    cancelCoordination: (reqId, roundId, key) => request<CoordinationResponse>(baseUrl, `${reqPath(reqId)}/coordination/${encodeURIComponent(roundId)}/cancel`, writeInit("POST", undefined, key)),
+    adoptCoordination: (reqId, roundId, key) => request<RunResponse>(baseUrl, `${reqPath(reqId)}/coordination/${encodeURIComponent(roundId)}/adopt`, writeInit("POST", {}, key)),
     cancelRun: (runId, reason, key) =>
       request<RunResponse>(
         baseUrl,
