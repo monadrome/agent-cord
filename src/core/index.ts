@@ -36,6 +36,8 @@ export {
   VoteCompletedPayloadSchema,
   WorkflowNodeEnteredPayloadSchema,
   WorkflowNodeExitedPayloadSchema,
+  WorkflowScopeSchema,
+  WorkflowRunStartedPayloadSchema,
 } from "./schema.js";
 export type {
   Actor,
@@ -53,6 +55,7 @@ export type {
   LedgerStatus,
   VoteRecord,
   WorkflowDef,
+  WorkflowScope,
 } from "./schema.js";
 
 export type {

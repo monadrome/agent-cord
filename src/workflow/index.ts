@@ -33,3 +33,4 @@ export {
   type GateEvaluation,
   type WorkflowNode,
 } from "./executor.js";
+export { workflowRevision, matchesWorkflowScope } from "./scope.js";

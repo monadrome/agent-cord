@@ -1,7 +1,7 @@
 /**
  * 薄执行器（ADR-0018 决策 3）：读图 → 拓扑推进 → 每步事件落盘 → 恢复时按事件流扫点。
  *
- * 事件 payload 约定（schema.ts 未定义，此处是 M2 的事实契约，全部带 `workflow_id` 便于
+ * 事件 payload 约定（权威 schema 见 core/schema.ts，全部带 `workflow_id` 便于
  * 同 session 内多流程共存）：
  * - `workflow.node.entered`：{ workflow_id, node_id, artifact, resumed }
  * - `workflow.node.exited`： { workflow_id, node_id, artifact, gates: GateSummary[] }
@@ -43,6 +43,7 @@ import type {
 } from "../core/ports.js";
 import { createBuiltinRegistry } from "./checkers.js";
 import { canonicalJson, sha256Hex } from "../core/hash.js";
+import { matchesWorkflowScope } from "./scope.js";
 
 export type WorkflowNode = WorkflowDef["spec"]["nodes"][number];
 
@@ -68,6 +69,8 @@ export class WorkflowCycleError extends WorkflowDefinitionError {
 }
 
 export interface ExecutorOptions {
+  /** ADR-0034：宿主固定的执行版本；缺省为无版本兼容模式。 */
+  workflow_revision?: string;
   /** 门禁等待人工时的选择题通道（M2: CLI；M3: 飞书） */
   humanGate: HumanGate;
   /** 固定注册表（跨 session 复用）；未提供时按 `registryFor` / 内置注册表构造 */
@@ -105,12 +108,15 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
      */
     async run(def: WorkflowDef, session: SessionHandle): Promise<void> {
       const workflow_id = def.metadata.id;
+      const workflow_revision = options.workflow_revision;
+      if (workflow_revision !== undefined && !/^[0-9a-f]{64}$/.test(workflow_revision)) throw new WorkflowDefinitionError("workflow_revision 必须是 SHA-256 指纹");
+      const scope = { workflow_id, workflow_revision };
       const registry =
         options.registry ?? options.registryFor?.(session) ?? createBuiltinRegistry();
       const nodes = new Map(def.spec.nodes.map((node) => [node.id, node]));
       const gatesByNode = indexGates(def);
       const order = topologicalOrder(def);
-      const state = await scan(session, workflow_id);
+      const state = await scan(session, workflow_id, workflow_revision);
 
       for (const nodeId of order) {
         if (state.completed.has(nodeId)) continue;
@@ -123,6 +129,7 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
           const payload = options.payloadFor?.(node) ?? options.payload ?? {};
           const ctx: CheckerContext = {
             session_dir: session.dir,
+            ...scope,
             anchors: extractAnchors(payload),
             payload,
             node_id: nodeId,
@@ -134,7 +141,7 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
             actor,
             "workflow.node.entered",
             {
-              workflow_id,
+              ...scope,
               node_id: nodeId,
               artifact: node.artifact ?? null,
               resumed: state.entered.has(nodeId),
@@ -148,7 +155,7 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
             for (const gate of gates) {
               if (options.signal?.aborted === true) return "stop";
               const outcome = await runGate({
-                workflow_id,
+                ...scope,
                 node_id: nodeId,
                 gate,
                 session,
@@ -159,7 +166,7 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
                 pending: state.waiting.get(gateKey(nodeId, gate.id)),
                 ...(options.gateInputHash !== undefined ? { inputHash: () => options.gateInputHash!(node, gate, session) } : {}),
                 ...(gate.attach.when === "post" && options.nodeRunner?.isCompletionReusable !== undefined && state.agentDone.has(nodeId)
-                  ? { checkpointCurrent: () => options.nodeRunner!.isCompletionReusable!(node, session, { workflow_id, node_id: nodeId }, state.agentDone.get(nodeId)!) }
+                  ? { checkpointCurrent: () => options.nodeRunner!.isCompletionReusable!(node, session, { ...scope, node_id: nodeId }, state.agentDone.get(nodeId)!) }
                   : {}),
                 signal: options.signal,
               });
@@ -182,7 +189,7 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
               let reusable = false;
               if (completion !== undefined && options.nodeRunner.isCompletionReusable !== undefined) {
                 try {
-                  reusable = await options.nodeRunner.isCompletionReusable(node, session, { workflow_id, node_id: nodeId }, completion) === true;
+                  reusable = await options.nodeRunner.isCompletionReusable(node, session, { ...scope, node_id: nodeId }, completion) === true;
                 } catch {
                   notes.push("无法验证历史任务输入，按最新快照重新执行");
                 }
@@ -193,19 +200,19 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
                 for (const gate of nodeGates.filter((item) => item.attach.when === "post")) {
                   const pending = state.waiting.get(gateKey(nodeId, gate.id));
                   if (pending !== undefined) {
-                    await invalidateWaiting(session, actor, { workflow_id, node_id: nodeId, gate_id: gate.id, phase: "post" }, pending.waiting_event_id, "worker 输入或产物已变化，旧审批不能用于重跑后的产物");
+                    await invalidateWaiting(session, actor, { ...scope, node_id: nodeId, gate_id: gate.id, phase: "post" }, pending.waiting_event_id, "worker 输入或产物已变化，旧审批不能用于重跑后的产物");
                     state.waiting.delete(gateKey(nodeId, gate.id));
                   }
                 }
                 const outcome = await options.nodeRunner.runNode(node, session, {
-                  workflow_id,
+                  ...scope,
                   node_id: nodeId,
                   ...(options.signal !== undefined ? { signal: options.signal } : {}),
                 });
                 // 失败/超时/取消：停在该节点，修复后按新输入重跑。
                 if (outcome.status !== "ok") return;
                 const latest = [...await session.events.readOrdered()].reverse().find((event) =>
-                  event.type === "agent.task.completed" && asRecord(event.payload)?.["workflow_id"] === workflow_id && asRecord(event.payload)?.["node_id"] === nodeId,
+                  event.type === "agent.task.completed" && matchesWorkflowScope(event.payload, scope) && asRecord(event.payload)?.["node_id"] === nodeId,
                 );
                 if (latest !== undefined) state.agentDone.set(nodeId, latest);
               }
@@ -225,7 +232,7 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
             actor,
             "workflow.node.exited",
             {
-              workflow_id,
+              ...scope,
               node_id: nodeId,
               artifact: node.artifact ?? null,
               gates: summaries,
@@ -360,7 +367,7 @@ interface ScannedState {
   agentDone: Map<string, EventEnvelope>;
 }
 
-async function scan(session: SessionHandle, workflowId: string): Promise<ScannedState> {
+async function scan(session: SessionHandle, workflowId: string, workflow_revision?: string): Promise<ScannedState> {
   const completed = new Set<string>();
   const entered = new Set<string>();
   const waiting = new Map<string, WaitingGate>();
@@ -368,7 +375,7 @@ async function scan(session: SessionHandle, workflowId: string): Promise<Scanned
 
   for (const event of await session.events.readOrdered()) {
     const payload = asRecord(event.payload);
-    if (!payload || payload["workflow_id"] !== workflowId) continue;
+    if (!payload || !matchesWorkflowScope(payload, { workflow_id: workflowId, workflow_revision })) continue;
     const nodeId = payload["node_id"];
     const gateId = payload["gate_id"];
     if (event.type === "workflow.run.cancelled") { waiting.clear(); continue; }
@@ -438,6 +445,7 @@ function gateKey(nodeId: string, gateId: string): string {
 
 interface GateBase {
   workflow_id: string;
+  workflow_revision?: string;
   node_id: string;
   gate_id: string;
   phase: "pre" | "post";
@@ -450,6 +458,7 @@ interface CheckOutcome {
 
 interface GateRun {
   workflow_id: string;
+  workflow_revision?: string;
   node_id: string;
   gate: GateDef;
   session: SessionHandle;
@@ -478,7 +487,7 @@ async function runGate(run: GateRun): Promise<GateOutcome> {
     if (current.checkpointCurrent !== undefined && !(await current.checkpointCurrent())) {
       const pending = current.pending;
       if (pending !== undefined) await invalidateWaiting(current.session, current.actor, {
-        workflow_id: current.workflow_id, node_id: current.node_id, gate_id: current.gate.id, phase: current.gate.attach.when,
+        workflow_id: current.workflow_id, workflow_revision: current.workflow_revision, node_id: current.node_id, gate_id: current.gate.id, phase: current.gate.attach.when,
       }, pending.waiting_event_id, "worker 输入或产物已变化，重新执行节点");
       return { stop: false, restart_node: true };
     }
@@ -508,13 +517,16 @@ export async function evaluateGate(gate: GateDef, registry: CheckerRegistry, ctx
     checks: outcomes.map((check) => ({ ref: check.ref, result: check.result.result, reason: check.result.reason })),
     anchors, confidence, reason, satisfied: isSatisfied(gate, outcomes),
     result: outcomes.some((check) => check.result.result === "warn") ? "warn" : "pass",
-    evaluation_hash: sha256Hex(canonicalJson({ domain: "cord.gate-evaluation.v1", gate, payload: ctx.payload, anchors: ctx.anchors, outcomes, input_hash })),
+    evaluation_hash: sha256Hex(canonicalJson({ domain: "cord.gate-evaluation.v1", gate, payload: ctx.payload, anchors: ctx.anchors, outcomes, input_hash,
+      ...(ctx.workflow_revision !== undefined ? { workflow_id: ctx.workflow_id, workflow_revision: ctx.workflow_revision } : {}),
+    })),
   };
 }
 
 async function runGateOnce(run: GateRun): Promise<GateOutcome> {
   const base: GateBase = {
     workflow_id: run.workflow_id,
+    workflow_revision: run.workflow_revision,
     node_id: run.node_id,
     gate_id: run.gate.id,
     phase: run.gate.attach.when,

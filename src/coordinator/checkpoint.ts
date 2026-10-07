@@ -17,6 +17,7 @@ export function executionInputHash(
     domain: "cord.execution-input.v2",
     agent_configuration_hash,
     workflow: def,
+    ...(snapshot.workflow_revision !== undefined ? { workflow_revision: snapshot.workflow_revision } : {}),
     node,
     req_id: snapshot.req_id,
     title: snapshot.title,
@@ -28,13 +29,15 @@ export function executionInputHash(
   }));
 }
 
-export async function readApprovalContextHash(def: WorkflowDef, node: Node, session: SessionHandle, agent_configuration_hash: string | null = null): Promise<string> {
+export async function readApprovalContextHash(def: WorkflowDef, node: Node, session: SessionHandle, agent_configuration_hash: string | null = null, workflow_revision?: string): Promise<string> {
   const snapshot = await readSnapshot(session, {
     workflow_id: def.metadata.id,
+    workflow_revision,
     files: [...def.spec.nodes, node].flatMap((item) => item.artifact === undefined ? [] : [item.artifact]),
   });
   return sha256Hex(canonicalJson({
     domain: "cord.approval-context.v1", workflow: def, node,
+    ...(workflow_revision !== undefined ? { workflow_revision } : {}),
     agent_configuration_hash,
     req_id: snapshot.req_id, title: snapshot.title,
     docs: snapshot.docs.map(({ file, exists, content_hash }) => ({ file, exists, content_hash })),

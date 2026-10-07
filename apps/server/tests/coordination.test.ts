@@ -216,11 +216,13 @@ describe("协调提议受控采用", () => {
   it.each([false, true])("登记与派发间中断后，采用事实存在=%s 决定是否恢复 runner", async (recorded) => {
     const round = await valid_round();
     const run_id = ulid();
-    server.index.insertRun({ run_id, req_id: "REQ-CONTEXT", sdlc_id: "simple-sdlc", sdlc_version: 1, status: "running", started_at: new Date().toISOString(), finished_at: null, error: null, coordination_round_id: round.round_id });
+    server.index.insertRun({ run_id, req_id: "REQ-CONTEXT", sdlc_id: "simple-sdlc", sdlc_version: 1, status: "running", started_at: new Date().toISOString(), finished_at: null, error: null, coordination_round_id: round.round_id, workflow_revision: round.workflow_revision });
+    const session = await server.sessions.open("REQ-CONTEXT");
+    await session.events.append({ event_id: ulid(), session_id: session.req_id, type: "workflow.run.started", schema_version: "1", actor: { kind: "human", id: "test" }, correlation_id: run_id,
+      payload: { run_id, workflow_id: round.workflow_id, workflow_revision: round.workflow_revision, sdlc_id: "simple-sdlc", sdlc_version: 1, coordination_round_id: round.round_id }, source: { adapter: "test" } });
     if (recorded) {
-      const session = await server.sessions.open("REQ-CONTEXT");
       await session.events.append({ event_id: ulid(), session_id: session.req_id, type: "coordinator.round.adopted", schema_version: "1", actor: { kind: "human", id: "test" }, correlation_id: round.round_id,
-        payload: { round_id: round.round_id, workflow_id: round.workflow_id, node_id: "intake", input_hash: round.input_hash, run_id }, source: { adapter: "test" } });
+        payload: { round_id: round.round_id, workflow_id: round.workflow_id, workflow_revision: round.workflow_revision, node_id: "intake", input_hash: round.input_hash, run_id }, source: { adapter: "test" } });
     }
     await restart();
     if (recorded) {

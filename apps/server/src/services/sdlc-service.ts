@@ -14,6 +14,7 @@ import {
   parseWorkflow,
   topologicalOrder,
   WorkflowLoadError,
+  workflowRevision,
   type WorkflowDef,
 } from "agent-cord";
 import type { SdlcSummary, SdlcValidationResult, SdlcVersionInfo } from "../contracts.js";
@@ -79,6 +80,7 @@ interface VersionedDef {
   yaml: string;
   content_hash: string;
   published_at: string;
+  workflow_revision: string;
 }
 
 function hashContent(text: string): string {
@@ -265,10 +267,12 @@ export class SdlcService {
       throw notFound(`SDLC "${sdlcId}" 的版本 v${resolved} 不存在`);
     }
     const header = parseVersionHeader(yaml);
+    const def = parseWorkflow(yaml, { source: file });
     return {
       sdlc_id: sdlcId,
       version: resolved,
-      def: parseWorkflow(yaml, { source: file }),
+      def,
+      workflow_revision: workflowRevision(def, { id: sdlcId, version: resolved }),
       yaml,
       content_hash: header.content_hash,
       published_at: header.published_at,

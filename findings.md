@@ -92,3 +92,13 @@
 - completed 事件可见与后台槽位释放是两个时刻；终态 API 等待后台清理后返回，连续协调无需固定延迟。
 - run 登记先于 adopted 事件时，需要持久化 coordination_round_id 并在恢复时核验，否则崩溃窗口会绕过“事实落盘后才派发”；旧 SQLite 表新增可空列保留普通 run 的恢复行为。
 - 浏览器已验证真实操作链保留人工 gate，491 个离线测试证明输入/配置变化、归档、并发、事件故障与恢复边界；尚未用外部真实 LLM 做本阶段验收，预览为离线 fake driver。
+
+## 实现校准（2026-10-07，SDLC 执行版本隔离）
+
+- executor.scan、readSnapshot、RunService.computeFinalStatus 和 SessionService 的进度投影都只按 workflow_id 过滤；新发布版本可被旧 node.exited 直接跳过，任务输入 hash 无机会验证。
+- scanPendingApprovals 的键没有发布版本，旧等待可覆盖新等待，旧版本取消也可能删除新版本审批。
+- 已有 SDLC 绑定只在 SQLite run 登记；需要把启动绑定作为事件事实保存，索引删除后才能确定当前发布版本，而非回退默认 SDLC。
+- 版本隔离不能使用 run_id：同版本重新 start 必须继续恢复；也不能只 hash 定义：相同定义的不同发布版本/发布名称仍是不同执行版本。
+- 首轮 7 个真实反例全部复现；完整版本绑定后同版本恢复保持 worker/审批 ID，跨版本重新派发，旧取消不删除新等待。
+- 当前版本必须按 started 事实的因果顺序读取，不能靠 SQLite started_at 排序；部分索引重建可能晚插入旧 run，墙钟也不能证明当前绑定。
+- 启动绑定/任务/审批/协调全部使用执行版本后，510 个离线测试与真实 HTTP/浏览器均通过；索引删除后恢复新尝试仍沿用同版本进度，旧 run 记录保持历史，验收应核验当前 run 而非假定恢复始终保留 run_id。

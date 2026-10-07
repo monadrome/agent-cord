@@ -27,6 +27,7 @@ export interface ContextSessionAgentOptions {
 export function coordinationInputHash(def: WorkflowDef, snapshot: RequirementSnapshot, configuration_hash: string | null, max_prompt_chars = DEFAULT_MAX_PROMPT_CHARS): string {
   return sha256Hex(canonicalJson({
     domain: "cord.coordination-input.v1", workflow: def, configuration_hash, max_prompt_chars,
+    ...(snapshot.workflow_revision !== undefined ? { workflow_revision: snapshot.workflow_revision } : {}),
     req_id: snapshot.req_id, title: snapshot.title,
     docs: snapshot.docs.map(({ file, exists, content_hash }) => ({ file, exists, content_hash })),
     ledger: snapshot.ledger,
@@ -71,6 +72,7 @@ export function buildCoordinationPrompt(def: WorkflowDef, snapshot: RequirementS
     "advance 只可选择 eligible_nodes；该提议不代表机器 checker 或人工审批已放行。等待人工 gate 时请选择 ask_human 或 wait。",
     `req_id: ${snapshot.req_id}\ntitle: ${snapshot.title ?? "（未命名）"}`,
     `workflow: ${JSON.stringify(def)}`,
+    ...(snapshot.workflow_revision !== undefined ? [`workflow_revision: ${snapshot.workflow_revision}`] : []),
     `progress: ${JSON.stringify(snapshot.workflow)}`,
     `eligible_nodes: ${JSON.stringify(eligibleNodes(def, snapshot))}`,
     `ledger: ${JSON.stringify(snapshot.ledger)}`,
@@ -108,6 +110,7 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
   async function coordinate(def: WorkflowDef, session: SessionHandle, input: CoordinationInput): Promise<CoordinationResult> {
     const started_at = Date.now();
     const base: Record<string, unknown> = { round_id: input.round_id, workflow_id: def.metadata.id, driver: input.agent };
+    if (input.workflow_revision !== undefined) base["workflow_revision"] = input.workflow_revision;
     const append = async (type: "coordinator.round.started" | "coordinator.round.completed", payload: Record<string, unknown>) => session.events.append({
       event_id: ulid(), session_id: session.req_id, type, schema_version: "1",
       actor: { kind: "agent", id: ADAPTER }, correlation_id: input.round_id, payload, source: { adapter: ADAPTER },
@@ -121,7 +124,7 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
     let snapshot: RequirementSnapshot;
     let prompt: string;
     try {
-      snapshot = await readSnapshot(session, { workflow_id: def.metadata.id, files: def.spec.nodes.flatMap((node) => node.artifact === undefined ? [] : [node.artifact]) });
+      snapshot = await readSnapshot(session, { workflow_id: def.metadata.id, workflow_revision: input.workflow_revision, files: def.spec.nodes.flatMap((node) => node.artifact === undefined ? [] : [node.artifact]) });
       Object.assign(base, { snapshot_id: snapshot.snapshot_id, snapshot_event_seq: snapshot.event_seq, snapshot_event_chain_hash: snapshot.event_chain_hash });
       prompt = buildCoordinationPrompt(def, snapshot, max_prompt_chars);
     } catch (error) {
@@ -208,7 +211,7 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
     try { proposal = parseCoordinationProposal(text, def, snapshot); }
     catch (error) { return complete("failed", null, error instanceof Error ? error.message : "协调输出校验失败", { ...extra, failure_stage: "output" }); }
     try {
-      const current = await readSnapshot(session, { workflow_id: def.metadata.id, files: def.spec.nodes.flatMap((node) => node.artifact === undefined ? [] : [node.artifact]) });
+      const current = await readSnapshot(session, { workflow_id: def.metadata.id, workflow_revision: input.workflow_revision, files: def.spec.nodes.flatMap((node) => node.artifact === undefined ? [] : [node.artifact]) });
       if (coordinationInputHash(def, current, driver.configuration_hash ?? null, max_prompt_chars) !== base["input_hash"]) {
         return complete("stale", null, "协调期间需求、账本或 workflow 进度已变化，请重新协调", { ...extra, failure_stage: "freshness" });
       }

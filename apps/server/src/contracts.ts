@@ -120,6 +120,7 @@ export interface RunInfo {
   started_at: string;
   finished_at: string | null;
   error: string | null;
+  workflow_revision: string | null;
 }
 
 export interface GateState {
@@ -170,6 +171,7 @@ export interface CoordinationRoundView {
   sdlc_id: string;
   sdlc_version: number;
   workflow_id: string;
+  workflow_revision: string | null;
   driver: string;
   agent: string;
   status: "pending" | "running" | CoordinationStatus;
@@ -199,6 +201,7 @@ export interface ApprovalItem {
   approval_id: string;
   req_id: string;
   workflow_id: string;
+  workflow_revision: string | null;
   node_id: string;
   gate_id: string;
   kind: "human_confirm" | "escalation";

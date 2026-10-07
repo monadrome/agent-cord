@@ -25,7 +25,7 @@
 | `vote.*` | 投票开始与完成 |
 | `gate.*` | gate 等待和解决 |
 | `workflow.node.*` | workflow 节点进入和退出 |
-| `workflow.run.*` | run 级控制：取消（cancelled，ADR-0025） |
+| `workflow.run.*` | 发布绑定启动（started，ADR-0034）与取消（cancelled，ADR-0025） |
 | `agent.task.*` | 节点执行体的 agent 任务（started / completed；中间流式输出不入流） |
 | `coordinator.round.*` | 独立协调轮次（requested / started / completed / cancel_requested）与人工采用（adopted） |
 | `human.*` | 人工选择记录 |
@@ -62,6 +62,14 @@ ADR-0031 增加 driver 可选 `configuration_hash` 与任务事件 `agent_config
 ## 3. Workflow 和 Gate
 
 权威 schema：`WorkflowDefSchema`、`GateDefSchema`；加载器：[`src/workflow/loader.ts`](../src/workflow/loader.ts)；执行器：[`src/workflow/executor.ts`](../src/workflow/executor.ts)。
+
+ADR-0034 区分公开 workflow_id、稳定 workflow_revision 与一次 run_id。`workflowRevision(def, {id,version})` 对规范化完整定义及发布绑定计算 SHA-256；同版本稳定，不同定义/版本/发布名称隔离。`matchesWorkflowScope` 同时验证 ID 和版本，显式版本不回退无版本历史，无版本库模式也不继承带版本事实。
+
+server 总是传入版本，workflow.node、gate、agent.task、协调轮次与人工决策记录该身份。进度扫点、worker checkpoint、待人工 gate、取消、event-emitted checker、快照、终态/时间线/审批和协调输入都按同一作用域读取。文档/共识账本仍为需求 session 共享输入，快照的事件 provenance 仍覆盖完整事件批次。`SnapshotOptions.workflow_revision` 必须同时带 workflow_id；无过滤的全 session 快照保留各作用域的等待，取消只移除匹配版本。
+
+`workflow.run.started{run_id,workflow_id,workflow_revision,sdlc_id,sdlc_version,coordination_round_id?}` 是发布绑定事实。登记后、派发前追加，失败不派发；run 索引增加可空版本列，兼容旧表。恢复从 started 重建缺失索引，当前绑定按因果启动顺序确定，不依赖墙钟或索引插入顺序；只恢复最新绑定，历史版本不自动推进。无版本/缺启动事实/登记与事实不一致/发布定义已改变时 fail-closed；协调 run 额外核验对应采用事实。索引删除不能让当前需求回退默认 SDLC。
+
+RunInfo、ApprovalItem、CoordinationRoundView 公开 workflow_revision（旧数据为 null）。当前审批列表和需求投影按最新绑定版本过滤，事件接口仍展示完整历史。决策必须属于当前版本，旧等待 ULID 不得用于新版本。旧无版本事实保留审计，不隐式迁移；用户重新 start 指定版本后重新核验。
 
 Workflow 必须声明节点、依赖和 gate。gate 至少包含：
 

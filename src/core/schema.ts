@@ -241,6 +241,9 @@ export const WorkflowDefSchema = z.object({
   }),
 });
 export type WorkflowDef = z.infer<typeof WorkflowDefSchema>;
+/** ADR-0034：公开 workflow 名称与执行版本分离，省略版本为库的兼容模式。 */
+export const WorkflowScopeSchema = z.object({ workflow_id: z.string().min(1), workflow_revision: z.string().length(64).optional() });
+export type WorkflowScope = z.infer<typeof WorkflowScopeSchema>;
 
 /** ADR-0032：协调提议仅引用当前快照/工作流，不能携带任意命令或修改协议。 */
 export const CoordinationEvidenceSchema = z.discriminatedUnion("source", [
@@ -288,6 +291,7 @@ export const EVENT_TYPES = [
   "workflow.node.entered",
   "workflow.node.exited",
   "workflow.run.cancelled",
+  "workflow.run.started",
   "agent.task.started",
   "agent.task.completed",
   "coordinator.round.started",
@@ -319,6 +323,8 @@ export const CliMessageReceivedPayloadSchema = z.looseObject({
 
 /** `human.decision.recorded`：门禁选择题的一次结构化记录（含超时/EOF 兜底） */
 export const HumanDecisionRecordedPayloadSchema = z.looseObject({
+  workflow_id: z.string().min(1).optional(),
+  workflow_revision: z.string().length(64).optional(),
   waiting_event_id: z.string().regex(ULID_RE).optional(),
   evaluation_hash: z.string().length(64).optional(),
   question: z.string(),
@@ -383,6 +389,7 @@ export const VoteCompletedPayloadSchema = z.looseObject({
 /** `gate.waiting`：执行器写（人工等待挂起） */
 export const GateWaitingPayloadSchema = z.looseObject({
   workflow_id: z.string().min(1),
+  workflow_revision: z.string().length(64).optional(),
   node_id: z.string().min(1),
   gate_id: z.string().min(1),
   phase: z.enum(["pre", "post"]).optional(),
@@ -398,6 +405,7 @@ export const GateWaitingPayloadSchema = z.looseObject({
 
 export const GateInvalidatedPayloadSchema = z.looseObject({
   workflow_id: z.string().min(1), node_id: z.string().min(1), gate_id: z.string().min(1),
+  workflow_revision: z.string().length(64).optional(),
   waiting_event_id: z.string().regex(ULID_RE), reason: z.string(),
 });
 
@@ -410,6 +418,7 @@ export const GateResolvedPayloadSchema = z.looseObject({
   action: GateActionSchema,
   reason: z.string(),
   workflow_id: z.string().optional(),
+  workflow_revision: z.string().length(64).optional(),
   node_id: z.string().optional(),
   phase: z.enum(["pre", "post"]).optional(),
   checks: z.array(z.looseObject({ ref: z.string(), result: z.enum(["pass", "block", "warn"]), reason: z.string() })).optional(),
@@ -423,6 +432,7 @@ export const GateResolvedPayloadSchema = z.looseObject({
 
 export const WorkflowNodeEnteredPayloadSchema = z.looseObject({
   workflow_id: z.string().min(1),
+  workflow_revision: z.string().length(64).optional(),
   node_id: z.string().min(1),
   artifact: z.string().nullable().optional(),
   resumed: z.boolean().optional(),
@@ -430,6 +440,7 @@ export const WorkflowNodeEnteredPayloadSchema = z.looseObject({
 
 export const WorkflowNodeExitedPayloadSchema = z.looseObject({
   workflow_id: z.string().min(1),
+  workflow_revision: z.string().length(64).optional(),
   node_id: z.string().min(1),
   artifact: z.string().nullable().optional(),
   gates: z
@@ -447,6 +458,7 @@ export const WorkflowNodeExitedPayloadSchema = z.looseObject({
 /** `agent.task.started`：协调 agent 派发节点任务（ADR-0023） */
 export const AgentTaskStartedPayloadSchema = z.looseObject({
   workflow_id: z.string().min(1),
+  workflow_revision: z.string().length(64).optional(),
   node_id: z.string().min(1),
   driver: z.string().min(1),
   execution_input_hash: z.string().length(64).optional(),
@@ -478,6 +490,7 @@ export const AgentUsagePayloadSchema = z.looseObject({
 /** `agent.task.completed`：节点任务终态（中间流式事件不入事件流，ADR-0023 决策 3） */
 export const AgentTaskCompletedPayloadSchema = z.looseObject({
   workflow_id: z.string().min(1),
+  workflow_revision: z.string().length(64).optional(),
   node_id: z.string().min(1),
   driver: z.string().min(1),
   execution_input_hash: z.string().length(64).optional(),
@@ -512,14 +525,21 @@ export const AgentTaskCompletedPayloadSchema = z.looseObject({
 /** `workflow.run.cancelled`：run 取消（ADR-0025）。取消是事实：落盘后执行器在节点边界止步 */
 export const WorkflowRunCancelledPayloadSchema = z.looseObject({
   workflow_id: z.string().min(1),
+  workflow_revision: z.string().length(64).optional(),
   run_id: z.string().min(1),
   reason: z.string().optional(),
+});
+export const WorkflowRunStartedPayloadSchema = z.looseObject({
+  workflow_id: z.string().min(1), workflow_revision: z.string().length(64), run_id: z.string().regex(ULID_RE),
+  sdlc_id: z.string().min(1), sdlc_version: z.number().int().positive(),
+  coordination_round_id: z.string().regex(ULID_RE).optional(),
 });
 
 const coordination_round_fields = {
   round_id: z.string().regex(ULID_RE),
   workflow_id: z.string().min(1),
   driver: z.string().min(1),
+  workflow_revision: z.string().length(64).optional(),
   input_hash: z.string().length(64).optional(),
   prompt_hash: z.string().length(64).optional(),
   agent_configuration_hash: z.string().length(64).optional(),
@@ -530,6 +550,7 @@ const coordination_round_fields = {
 export const CoordinatorRoundStartedPayloadSchema = z.looseObject(coordination_round_fields);
 export const CoordinatorRoundRequestedPayloadSchema = z.looseObject({
   round_id: z.string().regex(ULID_RE), workflow_id: z.string().min(1), driver: z.string().min(1),
+  workflow_revision: z.string().length(64).optional(),
   sdlc_id: z.string().min(1), sdlc_version: z.number().int().positive(),
 });
 export const CoordinatorRoundCompletedPayloadSchema = z.looseObject({
@@ -552,6 +573,7 @@ export const CoordinatorRoundCancelRequestedPayloadSchema = z.looseObject({
 /** ADR-0033：人工采用当前提议，实际执行继续经绑定版本的 SDLC runner。 */
 export const CoordinatorRoundAdoptedPayloadSchema = z.looseObject({
   round_id: z.string().regex(ULID_RE), workflow_id: z.string().min(1), node_id: z.string().min(1),
+  workflow_revision: z.string().length(64).optional(),
   input_hash: z.string().length(64), run_id: z.string().regex(ULID_RE),
 });
 
@@ -570,6 +592,7 @@ export const EVENT_PAYLOAD_SCHEMAS: Partial<Record<EventType, z.ZodType>> = {
   "workflow.node.entered": WorkflowNodeEnteredPayloadSchema,
   "workflow.node.exited": WorkflowNodeExitedPayloadSchema,
   "workflow.run.cancelled": WorkflowRunCancelledPayloadSchema,
+  "workflow.run.started": WorkflowRunStartedPayloadSchema,
   "agent.task.started": AgentTaskStartedPayloadSchema,
   "agent.task.completed": AgentTaskCompletedPayloadSchema,
   "coordinator.round.started": CoordinatorRoundStartedPayloadSchema,

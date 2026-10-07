@@ -19,7 +19,7 @@ describe("协调运行登记", () => {
     legacy.prepare("INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run("legacy-run", "REQ-LEGACY", "simple-sdlc", 1, "failed", "2026-10-07T00:00:00.000Z", "2026-10-07T00:01:00.000Z", "旧失败原因");
     legacy.close();
     index = await IndexStore.open(root);
-    expect(index.getRun("legacy-run")).toMatchObject({ req_id: "REQ-LEGACY", status: "failed", error: "旧失败原因", coordination_round_id: null });
+    expect(index.getRun("legacy-run")).toMatchObject({ req_id: "REQ-LEGACY", status: "failed", error: "旧失败原因", coordination_round_id: null, workflow_revision: null });
     index.close(); index = null;
     index = await IndexStore.open(root);
     expect(index.listRuns()).toHaveLength(1);
@@ -29,10 +29,11 @@ describe("协调运行登记", () => {
     index = await IndexStore.open(root);
     const base = { req_id: "REQ-INDEX", sdlc_id: "simple-sdlc", sdlc_version: 1, status: "running" as const, started_at: "2026-10-07T00:00:00.000Z", finished_at: null, error: null };
     index.insertRun({ ...base, run_id: "ordinary" });
-    index.insertRun({ ...base, run_id: "coordinated", coordination_round_id: "bound-round" });
+    index.insertRun({ ...base, run_id: "coordinated", coordination_round_id: "bound-round", workflow_revision: "a".repeat(64) });
     index.close(); index = null;
     index = await IndexStore.open(root);
     expect(index.getRun("ordinary")?.coordination_round_id).toBeNull();
     expect(index.getRun("coordinated")?.coordination_round_id).toBe("bound-round");
+    expect(index.getRun("coordinated")?.workflow_revision).toBe("a".repeat(64));
   });
 });

@@ -11,10 +11,12 @@ import {
   initSession,
   openSession,
   ULID_RE,
+  matchesWorkflowScope,
   type EventEnvelope,
   type Ledger,
   type SessionHandle,
   type WorkflowDef,
+  type WorkflowScope,
 } from "agent-cord";
 import type {
   ApprovalItem,
@@ -51,8 +53,8 @@ function gateKey(nodeId: string, gateId: string): string {
   return JSON.stringify([nodeId, gateId]);
 }
 
-export function approvalKey(workflow_id: string, node_id: string, gate_id: string): string {
-  return JSON.stringify([workflow_id, node_id, gate_id]);
+export function approvalKey(workflow_id: string, node_id: string, gate_id: string, workflow_revision?: string): string {
+  return JSON.stringify([workflow_id, workflow_revision, node_id, gate_id]);
 }
 
 /** 当前审批 ID 为等待事件 ULID；旧静态编码仅供解析（ADR-0030）。 */
@@ -73,6 +75,7 @@ interface WaitingGateInfo {
   waiting_event_id: string;
   evaluation_hash: string | null;
   workflow_id: string;
+  workflow_revision?: string;
   node_id: string;
   gate_id: string;
   kind: "human_confirm" | "escalation";
@@ -91,30 +94,32 @@ interface GateResolvedInfo {
 }
 
 /** 审批投影：未被 gate.resolved 覆盖的 gate.waiting（与执行器扫点同一口径，ADR-0021 决策 5） */
-export function scanPendingApprovals(events: readonly EventEnvelope[]): Map<string, WaitingGateInfo> {
+export function scanPendingApprovals(events: readonly EventEnvelope[], scope?: WorkflowScope): Map<string, WaitingGateInfo> {
   const waiting = new Map<string, WaitingGateInfo>();
   for (const event of events) {
     const payload = asRecord(event.payload);
     if (payload === null) continue;
+    if (scope !== undefined && !matchesWorkflowScope(payload, scope)) continue;
     // ADR-0025：run 取消使该流程此前未决的 gate 失效（重启 run 会重新发起 waiting）；
     // 取消事件没有 node_id/gate_id，必须先于 gate 键守卫处理
     if (event.type === "workflow.run.cancelled") {
       const cancelledWorkflow = str(payload["workflow_id"]);
       for (const [k, info] of waiting) {
-        if (info.workflow_id === cancelledWorkflow) waiting.delete(k);
+        if (info.workflow_id === cancelledWorkflow && info.workflow_revision === payload["workflow_revision"]) waiting.delete(k);
       }
       continue;
     }
     const nodeId = str(payload["node_id"]);
     const gateId = str(payload["gate_id"]);
     if (nodeId === null || gateId === null) continue;
-    const key = approvalKey(str(payload["workflow_id"]) ?? "", nodeId, gateId);
+    const key = approvalKey(str(payload["workflow_id"]) ?? "", nodeId, gateId, str(payload["workflow_revision"]) ?? undefined);
     if (event.type === "gate.waiting") {
       const rawOptions = Array.isArray(payload["options"]) ? payload["options"] : [];
       waiting.set(key, {
         waiting_event_id: event.event_id,
         evaluation_hash: str(payload["evaluation_hash"]),
         workflow_id: str(payload["workflow_id"]) ?? "",
+        workflow_revision: str(payload["workflow_revision"]) ?? undefined,
         node_id: nodeId,
         gate_id: gateId,
         kind: payload["kind"] === "human_confirm" ? "human_confirm" : "escalation",
@@ -203,10 +208,11 @@ export class SessionService {
   }
 
   /** 需求摘要：状态/当前节点从事件流投影（def 用于完成态判定；activeRun 由 run 服务给出） */
-  async summarize(reqId: string, activeRun: boolean, def: WorkflowDef | null): Promise<RequirementSummary> {
+  async summarize(reqId: string, activeRun: boolean, def: WorkflowDef | null, workflow_revision?: string): Promise<RequirementSummary> {
     const handle = await this.open(reqId);
     const events = await handle.events.readOrdered();
-    const pending = scanPendingApprovals(events);
+    const progress = def === null ? events.filter((event) => asRecord(event.payload)?.["workflow_revision"] === undefined) : events.filter((event) => matchesWorkflowScope(event.payload, { workflow_id: def.metadata.id, workflow_revision }));
+    const pending = scanPendingApprovals(progress);
     const last = events[events.length - 1];
     const created = events.find((event) => event.type === "session.created");
     const title = str(asRecord(created?.payload)?.["title"]) ?? reqId;
@@ -215,15 +221,15 @@ export class SessionService {
       title,
       created_at: created?.timestamp ?? null,
       event_count: events.length,
-      status: computeStatus(events, pending.size, activeRun, def),
-      current_node: computeCurrentNode(events),
+      status: computeStatus(progress, pending.size, activeRun, def),
+      current_node: computeCurrentNode(progress),
       pending_approvals: pending.size,
       last_event_at: last?.timestamp ?? null,
     };
   }
 
-  async detail(reqId: string, activeRun: boolean, def: WorkflowDef | null): Promise<RequirementDetail> {
-    const summary = await this.summarize(reqId, activeRun, def);
+  async detail(reqId: string, activeRun: boolean, def: WorkflowDef | null, workflow_revision?: string): Promise<RequirementDetail> {
+    const summary = await this.summarize(reqId, activeRun, def, workflow_revision);
     const docs = {} as Record<SnapshotDocName, boolean>;
     for (const doc of SNAPSHOT_DOC_NAMES) {
       try {
@@ -264,15 +270,16 @@ export class SessionService {
   }
 
   /** 审批列表：事件流投影 + approval_id 编码 */
-  async listApprovals(reqId: string): Promise<ApprovalItem[]> {
+  async listApprovals(reqId: string, scope?: WorkflowScope): Promise<ApprovalItem[]> {
     const handle = await this.open(reqId);
     const events = await handle.events.readOrdered();
-    const pending = scanPendingApprovals(events);
+    const pending = scanPendingApprovals(events, scope);
     const decided = new Set(events.filter((event) => event.type === "human.decision.recorded").map((event) => str(asRecord(event.payload)?.["waiting_event_id"])));
     return [...pending.values()].filter((info) => !decided.has(info.waiting_event_id)).map((info) => ({
       approval_id: encodeApprovalId(info.node_id, info.gate_id, { workflow_id: info.workflow_id, waiting_event_id: info.waiting_event_id }),
       req_id: reqId,
       workflow_id: info.workflow_id,
+      workflow_revision: info.workflow_revision ?? null,
       node_id: info.node_id,
       gate_id: info.gate_id,
       kind: info.kind,
@@ -302,18 +309,18 @@ export class SessionService {
   }
 
   /** 工作流时间线：以 def 为骨架，用事件流填状态（前端不复制这份状态机） */
-  async timeline(reqId: string, def: WorkflowDef | null): Promise<TimelineNode[]> {
+  async timeline(reqId: string, def: WorkflowDef | null, workflow_revision?: string): Promise<TimelineNode[]> {
     const handle = await this.open(reqId);
     const events = await handle.events.readOrdered();
     const workflowId = def?.metadata.id ?? "";
-    const pending = scanPendingApprovals(events);
+    const pending = scanPendingApprovals(events, { workflow_id: workflowId, workflow_revision });
     const resolved = new Map<string, GateResolvedInfo>();
     const enteredAt = new Map<string, string>();
     const exitedAt = new Map<string, string>();
 
     for (const event of events) {
       const payload = asRecord(event.payload);
-      if (payload === null || payload["workflow_id"] !== workflowId) continue;
+      if (payload === null || !matchesWorkflowScope(payload, { workflow_id: workflowId, workflow_revision })) continue;
       const nodeId = str(payload["node_id"]);
       if (nodeId === null) continue;
       if (event.type === "workflow.node.entered") {
@@ -343,7 +350,7 @@ export class SessionService {
         return {
           gate_id: gate.id,
           phase: gate.attach.when,
-          waiting: pending.has(approvalKey(workflowId, node.id, gate.id)),
+          waiting: pending.has(approvalKey(workflowId, node.id, gate.id, workflow_revision)),
           result: done?.result ?? null,
           action: done?.action ?? null,
           reason: done?.reason ?? null,
@@ -363,8 +370,8 @@ export class SessionService {
   }
 
   /** 工作流是否全部节点退出（用于 run 终态判定） */
-  async workflowCompleted(reqId: string, def: WorkflowDef): Promise<boolean> {
-    const nodes = await this.timeline(reqId, def);
+  async workflowCompleted(reqId: string, def: WorkflowDef, workflow_revision?: string): Promise<boolean> {
+    const nodes = await this.timeline(reqId, def, workflow_revision);
     return nodes.length > 0 && nodes.every((node) => node.status === "exited");
   }
 }

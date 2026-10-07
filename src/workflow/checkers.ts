@@ -7,6 +7,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { basename, join, resolve, sep } from "node:path";
 import { z } from "zod";
+import { matchesWorkflowScope } from "./scope.js";
 import {
   AnchorSchema,
   EventEnvelopeSchema,
@@ -354,6 +355,7 @@ export function createEventEmittedChecker(): Checker {
       if (withinNode && ctx.node_id === undefined) {
         return block(`within_node=true 需要执行器注入节点上下文（ctx.node_id 缺失）`);
       }
+      if (ctx.workflow_revision !== undefined && ctx.workflow_id === undefined) return block("执行版本缺少 workflow_id，无法验证事件作用域");
       let events: EventEnvelope[];
       try {
         events = await readEventsForCheck(ctx);
@@ -363,6 +365,9 @@ export function createEventEmittedChecker(): Checker {
       const hits = events.filter(
         (event) =>
           event.type === type &&
+          (ctx.workflow_id === undefined || (!/^(workflow|gate|agent\.task|coordinator\.round)\./.test(event.type) &&
+            (typeof event.payload !== "object" || event.payload === null || !("workflow_id" in event.payload))) ||
+            matchesWorkflowScope(event.payload, { workflow_id: ctx.workflow_id, workflow_revision: ctx.workflow_revision })) &&
           (!withinNode || event.correlation_id === ctx.node_id),
       );
       if (hits.length === 0) {

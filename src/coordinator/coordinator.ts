@@ -140,8 +140,10 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
     async isCompletionReusable(node, session, ctx, completion) {
       const payload = completion.payload as Record<string, unknown> | null;
       if (payload?.["status"] !== "ok" || typeof payload["execution_input_hash"] !== "string") return false;
+      if (payload["workflow_revision"] !== ctx.workflow_revision) return false;
       const snapshot = await readSnapshot(session, {
         workflow_id: ctx.workflow_id,
+        workflow_revision: ctx.workflow_revision,
         files: [...def.spec.nodes, node].flatMap((item) => item.artifact === undefined ? [] : [item.artifact]),
       });
       const driver = options.resolveDriver(node.run?.agent ?? "");
@@ -192,6 +194,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
     const agentName = node.run?.agent ?? "";
     const base = {
       workflow_id: ctx.workflow_id,
+      ...(ctx.workflow_revision !== undefined ? { workflow_revision: ctx.workflow_revision } : {}),
       node_id: ctx.node_id,
       attempt,
       ...(maxAttempts > 1 ? { max_attempts: maxAttempts } : {}),
@@ -245,6 +248,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
     try {
       snapshot = await readSnapshot(session, {
         workflow_id: ctx.workflow_id,
+        workflow_revision: ctx.workflow_revision,
         files: [...def.spec.nodes, node].flatMap((item) => item.artifact === undefined ? [] : [item.artifact]),
       });
       snapshotFields = {

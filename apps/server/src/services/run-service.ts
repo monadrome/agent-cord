@@ -16,6 +16,8 @@ import {
   readApprovalContextHash,
   CoordinatorRoundAdoptedPayloadSchema,
   CoordinatorRoundRequestedPayloadSchema,
+  WorkflowRunStartedPayloadSchema,
+  matchesWorkflowScope,
   type AgentDriver,
   type Anchor,
   type EventEnvelope,
@@ -71,7 +73,7 @@ export interface RunServiceOptions {
 /** ADR-0033：运行槽位内校验人工采用依据，事实落盘成功后才启动执行器。 */
 export interface RunStartGuard {
   coordination_round_id: string;
-  validate(session: SessionHandle, def: WorkflowDef): Promise<void>;
+  validate(session: SessionHandle, def: WorkflowDef, workflow_revision: string): Promise<void>;
   record(session: SessionHandle, run_id: string): Promise<void>;
 }
 
@@ -101,6 +103,20 @@ export class RunService {
     return this.active.get(reqId)?.run_id ?? null;
   }
 
+  /** 当前绑定按启动事实的因果顺序确定；没有新协议事实时只读旧操作登记。 */
+  async latestRun(req_id: string): Promise<RunRow | null> {
+    for (const event of [...await this.sessions.readEvents(req_id)].reverse()) {
+      if (event.type !== "workflow.run.started") continue;
+      const parsed = WorkflowRunStartedPayloadSchema.safeParse(event.payload);
+      if (!parsed.success) throw new Error("工作流启动绑定事件不符合契约");
+      const payload = parsed.data;
+      const row = this.index.getRun(payload.run_id);
+      if (row === null || row.req_id !== req_id || row.sdlc_id !== payload.sdlc_id || row.sdlc_version !== payload.sdlc_version || row.workflow_revision !== payload.workflow_revision) throw new Error("运行登记与启动绑定事实不一致");
+      return row;
+    }
+    return this.index.latestRun(req_id);
+  }
+
   /** 启动（或恢复）某需求的 run；绑定具体 SDLC 版本（ADR-0022 决策 4） */
   async start(reqId: string, sdlcId?: string, sdlcVersion?: number, guard?: RunStartGuard): Promise<RunInfo> {
     if (this.active.has(reqId)) {
@@ -120,7 +136,7 @@ export class RunService {
           `SDLC "${versioned.sdlc_id}" v${versioned.version} 已归档，禁止启动新 run（可取消归档或选择其他版本）`,
         );
       }
-      await guard?.validate(session, versioned.def);
+      await guard?.validate(session, versioned.def, versioned.workflow_revision);
       const run: RunRow = {
         run_id: reservedRunId,
         req_id: reqId,
@@ -131,9 +147,14 @@ export class RunService {
         finished_at: null,
         error: null,
         coordination_round_id: guard?.coordination_round_id ?? null,
+        workflow_revision: versioned.workflow_revision,
       };
       this.index.insertRun(run);
       registered = true;
+      await session.events.append({ event_id: ulid(), session_id: reqId, type: "workflow.run.started", schema_version: "1",
+        actor: { kind: "human", id: "local-human" }, correlation_id: reservedRunId,
+        payload: { run_id: reservedRunId, workflow_id: versioned.def.metadata.id, workflow_revision: versioned.workflow_revision, sdlc_id: versioned.sdlc_id, sdlc_version: versioned.version,
+          ...(guard !== undefined ? { coordination_round_id: guard.coordination_round_id } : {}) }, source: { adapter: "console-server" } });
       await guard?.record(session, reservedRunId);
       this.launch(session, run, versioned.def, controller);
       return runRowToInfo(run);
@@ -156,11 +177,14 @@ export class RunService {
       return runRowToInfo(row);
     }
     const session = await this.sessions.open(row.req_id);
-    const versioned = await this.sdlcs.get(row.sdlc_id, row.sdlc_version);
     const events = await session.events.readOrdered();
+    const started_payload = events.filter((event) => event.type === "workflow.run.started").map((event) => WorkflowRunStartedPayloadSchema.safeParse(event.payload)).find((item) => item.success && item.data.run_id === row.run_id);
+    const workflow_id = started_payload?.success === true ? started_payload.data.workflow_id : (await this.sdlcs.get(row.sdlc_id, row.sdlc_version)).def.metadata.id;
+    const scope = { workflow_id, workflow_revision: row.workflow_revision ?? undefined };
     const alreadyCancelled = events.some(
       (event) =>
         event.type === "workflow.run.cancelled" &&
+        matchesWorkflowScope(event.payload, scope) &&
         asRecord(event.payload)?.["run_id"] === runId,
     );
     if (!alreadyCancelled) {
@@ -172,7 +196,8 @@ export class RunService {
         actor: { kind: "human", id: "local-human" },
         correlation_id: null,
         payload: {
-          workflow_id: versioned.def.metadata.id,
+          workflow_id,
+          ...(row.workflow_revision != null ? { workflow_revision: row.workflow_revision } : {}),
           run_id: runId,
           ...(reason !== undefined ? { reason } : {}),
         },
@@ -233,9 +258,11 @@ export class RunService {
       throw conflict(`选项不在审批给出的范围内：${JSON.stringify(choice)}（可选：${waiting.options.join(" / ")}）`);
     }
 
-    const latest = this.index.latestRun(reqId);
+    const active = this.active.get(reqId);
+    const latest = active !== undefined ? this.index.getRun(active.run_id) : await this.latestRun(reqId);
+    if (latest === null || latest.workflow_revision == null) throw conflict("当前运行缺少可验证的执行版本，请重新启动绑定版本");
     const versioned = await this.sdlcs.get(latest?.sdlc_id ?? waiting.workflow_id, latest?.sdlc_version);
-    if (versioned.def.metadata.id !== waiting.workflow_id) throw conflict("审批不属于当前绑定的工作流，请确认当前审批");
+    if (latest.workflow_revision !== versioned.workflow_revision || waiting.workflow_revision !== latest.workflow_revision || versioned.def.metadata.id !== waiting.workflow_id) throw conflict("审批不属于当前执行版本，请确认当前审批");
     const node = versioned.def.spec.nodes.find((item) => item.id === key.node_id);
     const gate = node?.gates.find((item) => item.id === key.gate_id);
     if (node === undefined || gate === undefined) throw conflict("绑定流程中找不到当前审批，拒绝记录决策");
@@ -244,14 +271,14 @@ export class RunService {
       const anchors = nodeAnchors(reqId, node.artifact);
       const resolver = this.active.get(reqId)?.driverResolver ?? this.options.driverResolverForRun?.() ?? this.options.driverResolver;
       const config_hash = node.run !== undefined ? resolver?.(node.run.agent).configuration_hash ?? null : null;
-      const evaluated = await evaluateGate(gate, createBuiltinRegistry(), { session_dir: session.dir, session, node_id: node.id, anchors, payload: { anchors } }, await readApprovalContextHash(versioned.def, node, session, config_hash));
+      const evaluated = await evaluateGate(gate, createBuiltinRegistry(), { session_dir: session.dir, session, node_id: node.id, anchors, payload: { anchors }, workflow_id: waiting.workflow_id, workflow_revision: waiting.workflow_revision }, await readApprovalContextHash(versioned.def, node, session, config_hash, waiting.workflow_revision));
       current_hash = evaluated.evaluation_hash;
     } catch {
       throw conflict("无法验证当前审批依据，拒绝记录放行，请先修复输入");
     }
     if (waiting.evaluation_hash !== current_hash) {
       await session.events.append({ event_id: ulid(), session_id: reqId, type: "gate.invalidated", schema_version: "1", actor: { kind: "system", id: "console-server" }, correlation_id: node.id,
-        payload: { workflow_id: waiting.workflow_id, node_id: node.id, gate_id: gate.id, waiting_event_id: waiting.waiting_event_id, reason: "审批依据已变化，旧选择不用于当前内容" }, source: { adapter: "console-server" } });
+        payload: { workflow_id: waiting.workflow_id, workflow_revision: waiting.workflow_revision, node_id: node.id, gate_id: gate.id, waiting_event_id: waiting.waiting_event_id, reason: "审批依据已变化，旧选择不用于当前内容" }, source: { adapter: "console-server" } });
       const stale_key = `${reqId}:${waiting.waiting_event_id}`;
       const pending = this.pendingAsks.get(stale_key);
       this.pendingAsks.delete(stale_key);
@@ -273,6 +300,8 @@ export class RunService {
       actor: { kind: "human", id: "local-human" },
       correlation_id: key.node_id,
       payload: {
+        workflow_id: waiting.workflow_id,
+        workflow_revision: waiting.workflow_revision,
         waiting_event_id: waiting.waiting_event_id,
         evaluation_hash: current_hash,
         question: waiting.question,
@@ -296,7 +325,7 @@ export class RunService {
       // 无在途执行器（如 server 重启后）：暂存决策并恢复 run，执行器重新提问即消费
       this.decided.set(fullKey, choice);
       if (!this.active.has(reqId)) {
-        const latest = this.index.latestRun(reqId);
+        const latest = await this.latestRun(reqId);
         await this.start(reqId, latest?.sdlc_id, latest?.sdlc_version);
       }
     }
@@ -305,9 +334,27 @@ export class RunService {
 
   /** 启动时恢复：登记为 running 但进程已死的 run，按事件流投影修正或续跑（ADR-0021 注意点 4） */
   async recover(): Promise<string[]> {
+    // 启动绑定是事实；索引可删除，不能因此回退默认 SDLC 或失去当前版本。
+    for (const req_id of await this.sessions.listIds()) {
+      for (const event of await this.sessions.readEvents(req_id)) {
+        if (event.type !== "workflow.run.started") continue;
+        const parsed = WorkflowRunStartedPayloadSchema.safeParse(event.payload);
+        if (!parsed.success) throw new Error("工作流启动绑定事件不符合契约");
+        const payload = parsed.data;
+        if (this.index.getRun(payload.run_id) === null) this.index.insertRun({ run_id: payload.run_id, req_id, sdlc_id: payload.sdlc_id, sdlc_version: payload.sdlc_version,
+          status: "running", started_at: event.timestamp, finished_at: null, error: null, workflow_revision: payload.workflow_revision, coordination_round_id: payload.coordination_round_id ?? null });
+      }
+    }
     const resumed: string[] = [];
     for (const run of this.index.listRuns()) {
       if (run.status !== "running" && run.status !== "waiting_human") continue;
+      const session = await this.sessions.open(run.req_id);
+      const events = await session.events.readOrdered();
+      const started = events.filter((event) => event.type === "workflow.run.started").map((event) => WorkflowRunStartedPayloadSchema.safeParse(event.payload)).find((parsed) =>
+        parsed.success && parsed.data.run_id === run.run_id && parsed.data.sdlc_id === run.sdlc_id && parsed.data.sdlc_version === run.sdlc_version && parsed.data.coordination_round_id === (run.coordination_round_id ?? undefined) && parsed.data.workflow_revision === run.workflow_revision);
+      if (run.workflow_revision == null) { this.index.finishRun(run.run_id, "failed", new Date().toISOString(), "工作流执行版本缺失，拒绝恢复派发"); continue; }
+      if (started?.success !== true) { this.index.finishRun(run.run_id, "failed", new Date().toISOString(), "工作流启动绑定事实缺失，拒绝恢复派发"); continue; }
+      const is_current = (await this.latestRun(run.req_id))?.run_id === run.run_id;
       let versioned;
       try {
         versioned = await this.sdlcs.get(run.sdlc_id, run.sdlc_version);
@@ -315,30 +362,38 @@ export class RunService {
         this.index.finishRun(run.run_id, "failed", new Date().toISOString(), "绑定的 SDLC 版本已不存在");
         continue;
       }
-      const session = await this.sessions.open(run.req_id);
-      const events = await session.events.readOrdered();
+      if (run.workflow_revision !== versioned.workflow_revision) {
+        this.index.finishRun(run.run_id, "failed", new Date().toISOString(), "工作流执行版本缺失或发布定义已变化，拒绝恢复派发");
+        continue;
+      }
+      const scope = { workflow_id: versioned.def.metadata.id, workflow_revision: run.workflow_revision };
+      if (!matchesWorkflowScope(started.data, scope)) { this.index.finishRun(run.run_id, "failed", new Date().toISOString(), "工作流启动绑定与定义不一致，拒绝恢复派发"); continue; }
       if (run.coordination_round_id != null) {
         const adoption = events.find((event) => {
           if (event.type !== "coordinator.round.adopted") return false;
           const parsed = CoordinatorRoundAdoptedPayloadSchema.safeParse(event.payload);
-          return parsed.success && parsed.data.run_id === run.run_id && parsed.data.round_id === run.coordination_round_id && parsed.data.workflow_id === versioned.def.metadata.id;
+          return parsed.success && parsed.data.run_id === run.run_id && parsed.data.round_id === run.coordination_round_id && matchesWorkflowScope(parsed.data, scope);
         });
         const request = events.find((event) => {
           if (event.type !== "coordinator.round.requested") return false;
           const parsed = CoordinatorRoundRequestedPayloadSchema.safeParse(event.payload);
-          return parsed.success && parsed.data.round_id === run.coordination_round_id && parsed.data.sdlc_id === run.sdlc_id && parsed.data.sdlc_version === run.sdlc_version;
+          return parsed.success && parsed.data.round_id === run.coordination_round_id && parsed.data.sdlc_id === run.sdlc_id && parsed.data.sdlc_version === run.sdlc_version && matchesWorkflowScope(parsed.data, scope);
         });
         if (adoption === undefined || request === undefined) {
           this.index.finishRun(run.run_id, "failed", new Date().toISOString(), "协调采用事实缺失或版本不匹配，未恢复派发");
           continue;
         }
       }
-      const finalStatus = this.computeFinalStatus(events, versioned.def, run.run_id);
-      const recorded_decision = [...scanPendingApprovals(events).values()].some((waiting) =>
+      const finalStatus = this.computeFinalStatus(events, versioned.def, run.run_id, run.workflow_revision);
+      const recorded_decision = [...scanPendingApprovals(events, scope).values()].some((waiting) =>
         waiting.workflow_id === versioned.def.metadata.id && events.some((event) =>
           event.type === "human.decision.recorded" && asRecord(event.payload)?.["waiting_event_id"] === waiting.waiting_event_id,
         ),
       );
+      if (!is_current) {
+        if (finalStatus !== null) this.index.finishRun(run.run_id, finalStatus, new Date().toISOString(), null);
+        continue;
+      }
       if (run.status === "waiting_human" && !recorded_decision) continue;
       if (finalStatus !== null && !(finalStatus === "waiting_human" && recorded_decision)) {
         this.index.finishRun(run.run_id, finalStatus, new Date().toISOString(), null);
@@ -360,8 +415,9 @@ export class RunService {
   }
 
   /** 终态判定：流程完成 / 被 block / 等待人工 / 执行体失败 / 已取消 之外，run 视为可续跑 */
-  private computeFinalStatus(events: readonly EventEnvelope[], def: WorkflowDef, runId: string): RunStatus | null {
-    const pending = scanPendingApprovals(events);
+  private computeFinalStatus(events: readonly EventEnvelope[], def: WorkflowDef, runId: string, workflow_revision?: string): RunStatus | null {
+    const scope = { workflow_id: def.metadata.id, workflow_revision };
+    const pending = scanPendingApprovals(events, scope);
     const workflowId = def.metadata.id;
     const relevant = [...pending.values()].filter((info) => info.workflow_id === workflowId);
     if (relevant.length > 0) return "waiting_human";
@@ -369,6 +425,7 @@ export class RunService {
     const cancelled = events.some(
       (event) =>
         event.type === "workflow.run.cancelled" &&
+        matchesWorkflowScope(event.payload, scope) &&
         asRecord(event.payload)?.["run_id"] === runId,
     );
     const exited = new Set<string>();
@@ -376,7 +433,7 @@ export class RunService {
     let stopped = false;
     for (const event of events) {
       const payload = asRecord(event.payload);
-      if (payload?.["workflow_id"] !== workflowId) continue;
+      if (!matchesWorkflowScope(payload, scope)) continue;
       const nodeId = payload["node_id"];
       if (event.type === "workflow.node.exited" && typeof nodeId === "string") {
         exited.add(nodeId);
@@ -405,9 +462,10 @@ export class RunService {
     const { workspaceRoot } = this.options;
     const driverResolver = this.options.driverResolverForRun?.() ?? this.options.driverResolver;
     const executor = createExecutor({
+      workflow_revision: run.workflow_revision ?? undefined,
       humanGate,
       gateInputHash: (node) => readApprovalContextHash(def, node, session,
-        node.run !== undefined ? driverResolver?.(node.run.agent).configuration_hash ?? null : null),
+        node.run !== undefined ? driverResolver?.(node.run.agent).configuration_hash ?? null : null, run.workflow_revision ?? undefined),
       payloadFor: (node) => ({ anchors: nodeAnchors(session.req_id, node.artifact) }),
       signal: controller.signal,
       // ADR-0023：节点声明 run 时由协调 agent 派发 worker；未配置 resolver 时执行器记 notes 跳过
@@ -424,7 +482,7 @@ export class RunService {
       .run(def, session)
       .then(async () => {
         const events = await session.events.readOrdered();
-        const status = this.computeFinalStatus(events, def, run.run_id) ?? "completed";
+        const status = this.computeFinalStatus(events, def, run.run_id, run.workflow_revision ?? undefined) ?? "completed";
         this.safeFinish(run.run_id, status, null);
         await session.rebuildLedger();
       })

@@ -9,6 +9,7 @@ import { SNAPSHOT_DOC_FILES } from "../core/session.js";
 import { canonicalJson, hashChain, sha256Hex } from "../core/hash.js";
 import { createReducer } from "../core/reducer.js";
 import { readSessionDocument } from "./session-files.js";
+import { matchesWorkflowScope } from "../workflow/scope.js";
 
 export { resolveSessionFile } from "./session-files.js";
 
@@ -42,6 +43,7 @@ export interface WorkflowProgress {
 
 export interface RequirementSnapshot {
   req_id: string;
+  workflow_revision?: string;
   title: string | null;
   docs: SnapshotDoc[];
   ledger: SnapshotLedgerEntry[];
@@ -60,6 +62,7 @@ export interface SnapshotOptions {
   files?: readonly string[];
   /** 仅投影该 workflow 的节点进度；省略时保留 session 全部进度 */
   workflow_id?: string;
+  workflow_revision?: string;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -72,6 +75,7 @@ export async function readSnapshot(
   session: SessionHandle,
   options: SnapshotOptions = {},
 ): Promise<RequirementSnapshot> {
+  if (options.workflow_revision !== undefined && options.workflow_id === undefined) throw new Error("执行版本必须同时指定 workflow_id");
   const maxDocChars = options.maxDocChars ?? 20_000;
 
   const files = [...new Set([...SNAPSHOT_DOC_FILES, ...(options.files ?? [])])];
@@ -105,28 +109,28 @@ export async function readSnapshot(
   const titleValue = asRecord(created?.payload)?.["title"];
   const entered = new Set<string>();
   const exited = new Set<string>();
-  const waiting = new Map<string, { workflow_id: unknown; node_id: string; gate_id: string; waiting_event_id: string }>();
+  const waiting = new Map<string, { workflow_id: unknown; workflow_revision: unknown; node_id: string; gate_id: string; waiting_event_id: string }>();
   for (const event of events) {
     const payload = asRecord(event.payload);
-    if (options.workflow_id !== undefined && payload?.["workflow_id"] !== options.workflow_id) continue;
+    if (options.workflow_id !== undefined && !matchesWorkflowScope(payload, { workflow_id: options.workflow_id, workflow_revision: options.workflow_revision })) continue;
     const nodeId = payload?.["node_id"];
     if (event.type === "workflow.run.cancelled") {
-      for (const [key, gate] of waiting) if (gate.workflow_id === payload?.["workflow_id"]) waiting.delete(key);
+      for (const [key, gate] of waiting) if (gate.workflow_id === payload?.["workflow_id"] && gate.workflow_revision === payload?.["workflow_revision"]) waiting.delete(key);
     }
     if (typeof nodeId !== "string") continue;
     if (event.type === "workflow.node.entered") entered.add(nodeId);
     else if (event.type === "workflow.node.exited") exited.add(nodeId);
     const gate_id = payload?.["gate_id"];
     if (typeof gate_id !== "string") continue;
-    const key = JSON.stringify([payload?.["workflow_id"], nodeId, gate_id]);
-    if (event.type === "gate.waiting") waiting.set(key, { workflow_id: payload?.["workflow_id"], node_id: nodeId, gate_id, waiting_event_id: event.event_id });
+    const key = JSON.stringify([payload?.["workflow_id"], payload?.["workflow_revision"], nodeId, gate_id]);
+    if (event.type === "gate.waiting") waiting.set(key, { workflow_id: payload?.["workflow_id"], workflow_revision: payload?.["workflow_revision"], node_id: nodeId, gate_id, waiting_event_id: event.event_id });
     else if (event.type === "gate.resolved") waiting.delete(key);
     else if (event.type === "gate.invalidated" && waiting.get(key)?.waiting_event_id === payload?.["waiting_event_id"]) waiting.delete(key);
   }
 
   const eventSeq = events.reduce((max, event) => Math.max(max, event.seq), 0);
   const eventChainHash = hashChain(events);
-  const workflow = { entered: [...entered], exited: [...exited], waiting: [...waiting.values()].map(({ workflow_id: _workflow_id, ...gate }) => gate) };
+  const workflow = { entered: [...entered], exited: [...exited], waiting: [...waiting.values()].map(({ workflow_id: _workflow_id, workflow_revision: _workflow_revision, ...gate }) => gate) };
   const fingerprint = {
     req_id: session.req_id,
     title: typeof titleValue === "string" ? titleValue : null,
@@ -139,12 +143,14 @@ export async function readSnapshot(
     ledger,
     workflow,
     workflow_id: options.workflow_id ?? null,
+    ...(options.workflow_revision !== undefined ? { workflow_revision: options.workflow_revision } : {}),
     event_seq: eventSeq,
     event_chain_hash: eventChainHash,
   };
 
   return {
     req_id: session.req_id,
+    ...(options.workflow_revision !== undefined ? { workflow_revision: options.workflow_revision } : {}),
     title: typeof titleValue === "string" ? titleValue : null,
     docs,
     ledger,

@@ -28,6 +28,7 @@ function projectRounds(events: readonly EventEnvelope[], req_id: string): Coordi
       rounds.set(payload.round_id, {
         round_id: payload.round_id, req_id, sdlc_id: payload.sdlc_id, sdlc_version: payload.sdlc_version,
         workflow_id: payload.workflow_id, driver: payload.driver, agent: payload.driver, status: "pending",
+        workflow_revision: payload.workflow_revision ?? null,
         requested_at: event.timestamp, started_at: null, finished_at: null,
         snapshot_id: null, input_hash: null, agent_configuration_hash: null,
         proposal: null, error: null, failure_stage: null,
@@ -39,6 +40,7 @@ function projectRounds(events: readonly EventEnvelope[], req_id: string): Coordi
       const payload = parsed.data;
       const round = rounds.get(payload.round_id);
       if (round === undefined) continue; // 库调用轮次没有 server request 登记，不冒充 API 任务。
+      if ((payload.workflow_revision ?? null) !== round.workflow_revision) throw internalError("协调轮次的执行版本不一致");
       Object.assign(round, { driver: payload.driver, snapshot_id: payload.snapshot_id ?? round.snapshot_id,
         input_hash: payload.input_hash ?? round.input_hash, agent_configuration_hash: payload.agent_configuration_hash ?? round.agent_configuration_hash });
       if (event.type === "coordinator.round.started") {
@@ -55,6 +57,7 @@ function projectRounds(events: readonly EventEnvelope[], req_id: string): Coordi
       const round = rounds.get(parsed.data.round_id);
       if (round === undefined || round.status !== "ok" || round.proposal?.next_action.kind !== "advance" ||
         round.workflow_id !== parsed.data.workflow_id || round.proposal.next_action.node_id !== parsed.data.node_id || round.input_hash !== parsed.data.input_hash ||
+        round.workflow_revision !== (parsed.data.workflow_revision ?? null) ||
         (round.adopted_run_id !== null && round.adopted_run_id !== parsed.data.run_id)) throw internalError("协调采用事实与提议版本不一致");
       Object.assign(round, { adopted_run_id: parsed.data.run_id, adopted_at: event.timestamp });
     }
@@ -89,13 +92,14 @@ export class CoordinationService {
       await session.events.append({
         event_id: ulid(), session_id: req_id, type: "coordinator.round.requested", schema_version: "1",
         actor: { kind: "human", id: "local-human" }, correlation_id: active.round_id,
-        payload: { round_id: active.round_id, workflow_id: versioned.def.metadata.id, driver: input.agent, sdlc_id: versioned.sdlc_id, sdlc_version: versioned.version },
+        payload: { round_id: active.round_id, workflow_id: versioned.def.metadata.id, workflow_revision: versioned.workflow_revision, driver: input.agent, sdlc_id: versioned.sdlc_id, sdlc_version: versioned.version },
         source: { adapter: "console-server" },
       });
       requested = true;
       resolve_ready(await this.get(req_id, active.round_id));
       await createContextSessionAgent({ resolveDriver: resolver, workspaceRoot: this.options.workspaceRoot }).coordinate(versioned.def, session, {
         round_id: active.round_id, agent: input.agent, signal: active.controller.signal,
+        workflow_revision: versioned.workflow_revision,
         ...(input.timeout_ms !== undefined ? { timeout_ms: input.timeout_ms } : {}),
       });
     })().catch((error: unknown) => {
@@ -134,11 +138,14 @@ export class CoordinationService {
     return rounds;
   }
 
-  private async inspect(round: CoordinationRoundView, def?: WorkflowDef): Promise<Pick<CoordinationRoundView, "current" | "adoptable" | "adoption_reason">> {
+  private async inspect(round: CoordinationRoundView, def?: WorkflowDef, workflow_revision?: string): Promise<Pick<CoordinationRoundView, "current" | "adoptable" | "adoption_reason">> {
     const result = { current: null as boolean | null, adoptable: false, adoption_reason: null as string | null };
     if (round.status !== "ok" || round.proposal === null) return result;
     try {
-      const workflow = def ?? (await this.sdlcs.get(round.sdlc_id, round.sdlc_version)).def;
+      const versioned = def === undefined ? await this.sdlcs.get(round.sdlc_id, round.sdlc_version) : { def, workflow_revision };
+      const workflow = versioned.def;
+      if (round.workflow_revision === null) { result.adoption_reason = "该轮次缺少执行版本，请重新协调"; return result; }
+      if (round.workflow_revision !== versioned.workflow_revision) { result.current = false; result.adoption_reason = "绑定的工作流定义已变化，请发布新版本并重新协调"; return result; }
       if (workflow.metadata.id !== round.workflow_id) throw new Error("workflow 不匹配");
       const configuration_hash = this.options.resolver()(round.agent).configuration_hash;
       if (round.agent_configuration_hash === null || configuration_hash === undefined) {
@@ -146,7 +153,7 @@ export class CoordinationService {
         return result;
       }
       const session = await this.sessions.open(round.req_id);
-      const snapshot = await readSnapshot(session, { workflow_id: workflow.metadata.id, files: workflow.spec.nodes.flatMap((node) => node.artifact === undefined ? [] : [node.artifact]) });
+      const snapshot = await readSnapshot(session, { workflow_id: workflow.metadata.id, workflow_revision: round.workflow_revision, files: workflow.spec.nodes.flatMap((node) => node.artifact === undefined ? [] : [node.artifact]) });
       result.current = coordinationInputHash(workflow, snapshot, configuration_hash) === round.input_hash;
       if (!result.current) result.adoption_reason = "需求、进度或 Agent 配置已变化，请重新协调";
       else if (this.sdlcs.isArchived(round.sdlc_id, round.sdlc_version)) result.adoption_reason = "绑定的 SDLC 版本已归档";
@@ -177,15 +184,15 @@ export class CoordinationService {
     const node_id = round.proposal.next_action.node_id;
     return this.options.runs.start(req_id, round.sdlc_id, round.sdlc_version, {
       coordination_round_id: round_id,
-      validate: async (_session, def) => {
+      validate: async (_session, def, workflow_revision) => {
         const current = await this.readRound(req_id, round_id);
-        const inspected = await this.inspect(current, def);
+        const inspected = await this.inspect(current, def, workflow_revision);
         if (!inspected.adoptable || current.input_hash !== round.input_hash) throw conflict(inspected.adoption_reason ?? "协调提议已变化，请重新协调");
       },
       record: async (session, run_id) => {
         await session.events.append({ event_id: ulid(), session_id: req_id, type: "coordinator.round.adopted", schema_version: "1",
           actor: { kind: "human", id: "local-human" }, correlation_id: round_id,
-          payload: { round_id, workflow_id: round.workflow_id, node_id, input_hash: round.input_hash, run_id }, source: { adapter: "console-server" } });
+          payload: { round_id, workflow_id: round.workflow_id, workflow_revision: round.workflow_revision, node_id, input_hash: round.input_hash, run_id }, source: { adapter: "console-server" } });
       },
     });
   }
@@ -236,6 +243,7 @@ export class CoordinationService {
     await session.events.append({ event_id: ulid(), session_id: session.req_id, type: "coordinator.round.completed", schema_version: "1",
       actor: { kind: "system", id: "coordination-recovery" }, correlation_id: round.round_id,
       payload: { round_id: round.round_id, workflow_id: round.workflow_id, driver: round.driver,
+        ...(round.workflow_revision !== null ? { workflow_revision: round.workflow_revision } : {}),
         ...(round.snapshot_id !== null ? { snapshot_id: round.snapshot_id } : {}),
         ...(round.input_hash !== null ? { input_hash: round.input_hash } : {}),
         ...(round.agent_configuration_hash !== null ? { agent_configuration_hash: round.agent_configuration_hash } : {}),

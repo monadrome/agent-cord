@@ -79,6 +79,7 @@ export function buildContextPack(
     `- 当前节点: ${node.id}${node.artifact !== undefined ? `（产物: ${node.artifact}）` : ""}`,
     `- 已完成节点: ${snapshot.workflow.exited.join(" → ") || "（无）"}`,
     `- 快照指纹: ${snapshot.snapshot_id}（事件 seq ≤ ${snapshot.event_seq}）`,
+    ...(snapshot.workflow_revision !== undefined ? [`- 执行版本: ${snapshot.workflow_revision}`] : []),
     ``,
     `## 任务`,
     instructions,

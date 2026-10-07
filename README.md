@@ -171,6 +171,10 @@ POST /doctor
 
 写命令必须携带 `Idempotency-Key`。错误统一返回 `{ code, message, details, request_id }`。启动 run 可指定 `{ sdlc_id, sdlc_version }`；归档版本禁止启动新 run。
 
+每次运行固定 `workflow_revision`，由完整工作流定义与发布名称/版本派生。同一发布版本重新启动会断点续跑，不同版本（即使定义相同）或不同发布名称不会继承旧节点、worker 或审批事实。取消只影响对应执行版本，旧审批不能批准当前版本。启动绑定先写 `workflow.run.started`，删除派生索引后可恢复当前 SDLC 版本与进度。
+
+旧数据没有执行版本时，server 不猜测归属或自动恢复；重新启动指定发布版本会创建新的绑定并重新核验，原事件与文档保留。已发布文件被外部修改后，原 run 拒绝恢复，应发布新版本再启动。库调用省略执行版本时仍可使用无版本兼容模式，与 server 的版本事实分离。详见 [ADR-0034](./docs/adr/ADR-0034-workflow-execution-revisions.md)。
+
 审批 `approval_id` 是当前 `gate.waiting` 的事件 ULID。依据变化后旧审批返回 409，重新获取审批列表后确认新版本；未变化的审批重启后保持 ID。已落盘选择会按等待事件与检查指纹恢复消费，不要求重复选择。
 
 ## 独立 Context Session Agent
@@ -210,7 +214,7 @@ curl -X POST http://127.0.0.1:7250/api/v1/requirements/REQ-001/coordination \
 - [文档入口](./docs/INDEX.md)：当前实现、协议、ADR 和设计归档的阅读路径。
 - [当前实现架构](./docs/current-architecture.md)：server、console、数据布局和运行路径。
 - [核心协议速查](./docs/protocol.md)：事件、账本、workflow、gate 和 voting 的实现契约。
-- [ADR 目录](./docs/adr/)：架构决策记录，当前包含 ADR-0001 ~ ADR-0033。
+- [ADR 目录](./docs/adr/)：架构决策记录，当前包含 ADR-0001 ~ ADR-0034。
 - [安全与权限模型](./docs/09-security.md)
 - [路线图](./docs/10-roadmap.md)
 - [风险与开放问题](./docs/11-risks.md)

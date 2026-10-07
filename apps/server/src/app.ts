@@ -146,11 +146,11 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
   });
 
   // ---- 辅助：需求绑定的工作流定义（用于完成态/时间线投影） -------------------
-  const defFor = async (reqId: string): Promise<WorkflowDef | null> => {
-    const latest = index.latestRun(reqId);
+  const defFor = async (reqId: string): Promise<{ def: WorkflowDef; workflow_revision: string } | null> => {
+    const latest = await runs.latestRun(reqId);
     try {
       const versioned = await sdlcs.get(latest?.sdlc_id ?? DEFAULT_SDLC_ID, latest?.sdlc_version);
-      return versioned.def;
+      return { def: versioned.def, workflow_revision: versioned.workflow_revision };
     } catch {
       return null;
     }
@@ -213,9 +213,10 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
     const approvals: DashboardView["pending_approvals"] = [];
     const ids = await sessions.listIds();
     for (const reqId of ids) {
-      const summary = await sessions.summarize(reqId, runs.isActive(reqId), await defFor(reqId));
+      const binding = await defFor(reqId);
+      const summary = await sessions.summarize(reqId, runs.isActive(reqId), binding?.def ?? null, binding?.workflow_revision);
       byStatus[summary.status] += 1;
-      approvals.push(...(await sessions.listApprovals(reqId)));
+      if (binding !== null) approvals.push(...(await sessions.listApprovals(reqId, { workflow_id: binding.def.metadata.id, workflow_revision: binding.workflow_revision })));
     }
     const failedRuns = runs.listRuns().filter((run) => run.status === "failed").slice(0, 20);
     return {
@@ -231,7 +232,8 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
   app.get("/api/v1/requirements", async (req) => {
     const out = [];
     for (const reqId of await sessions.listIds()) {
-      out.push(await sessions.summarize(reqId, runs.isActive(reqId), await defFor(reqId)));
+      const binding = await defFor(reqId);
+      out.push(await sessions.summarize(reqId, runs.isActive(reqId), binding?.def ?? null, binding?.workflow_revision));
     }
     return { request_id: requestId(req), requirements: out };
   });
@@ -247,7 +249,8 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
 
   app.get("/api/v1/requirements/:req_id", async (req) => {
     const { req_id: reqId } = req.params as { req_id: string };
-    const detail = await sessions.detail(reqId, runs.isActive(reqId), await defFor(reqId));
+    const binding = await defFor(reqId);
+    const detail = await sessions.detail(reqId, runs.isActive(reqId), binding?.def ?? null, binding?.workflow_revision);
     detail.active_run = runs.activeRunId(reqId) !== null ? await runs.getRun(runs.activeRunId(reqId) ?? "") : null;
     return { request_id: requestId(req), requirement: detail };
   });
@@ -260,14 +263,14 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
 
   app.get("/api/v1/requirements/:req_id/timeline", async (req) => {
     const { req_id: reqId } = req.params as { req_id: string };
-    const def = await defFor(reqId);
-    const nodes = await sessions.timeline(reqId, def);
-    const latest = index.latestRun(reqId);
+    const binding = await defFor(reqId);
+    const nodes = await sessions.timeline(reqId, binding?.def ?? null, binding?.workflow_revision);
+    const latest = await runs.latestRun(reqId);
     return {
       request_id: requestId(req),
       timeline: {
         req_id: reqId,
-        sdlc_id: latest?.sdlc_id ?? def?.metadata.id ?? DEFAULT_SDLC_ID,
+        sdlc_id: latest?.sdlc_id ?? binding?.def.metadata.id ?? DEFAULT_SDLC_ID,
         sdlc_version: latest?.sdlc_version ?? null,
         run: latest !== null ? await runs.getRun(latest.run_id) : null,
         nodes,
@@ -277,7 +280,8 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
 
   app.get("/api/v1/requirements/:req_id/approvals", async (req) => {
     const { req_id: reqId } = req.params as { req_id: string };
-    return { request_id: requestId(req), approvals: await sessions.listApprovals(reqId) };
+    const binding = await defFor(reqId);
+    return { request_id: requestId(req), approvals: binding === null ? [] : await sessions.listApprovals(reqId, { workflow_id: binding.def.metadata.id, workflow_revision: binding.workflow_revision }) };
   });
 
   app.get("/api/v1/requirements/:req_id/votes", async (req) => {

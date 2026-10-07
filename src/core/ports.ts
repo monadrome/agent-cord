@@ -96,6 +96,8 @@ export interface VoteExecutor {
 
 export interface CheckerContext {
   session_dir: string;
+  workflow_id?: string;
+  workflow_revision?: string;
   anchors: Anchor[];
   payload: Record<string, unknown>;
   /** gate YAML `checks[].with` 的透传参数（ADR-0024）；未声明时缺省 {} */
@@ -122,6 +124,7 @@ export interface CheckerRegistry {
 /** 门禁等待人工时由宿主提供的选择题通道（M2: CLI；M3: 飞书） */
 export interface HumanGateContext {
   workflow_id: string;
+  workflow_revision?: string;
   node_id: string;
   gate_id: string;
   waiting_event_id: string;
@@ -145,6 +148,7 @@ export interface WorkflowExecutor {
 
 export interface NodeRunContext {
   workflow_id: string;
+  workflow_revision?: string;
   node_id: string;
   /** run 取消信号（ADR-0025）：abort 后执行体应尽快收束（杀 agent 子进程、落 cancelled 终态） */
   signal?: AbortSignal;
@@ -178,6 +182,7 @@ export interface NodeRunner {
 export interface CoordinationInput {
   round_id: string;
   agent: string;
+  workflow_revision?: string;
   timeout_ms?: number;
   signal?: AbortSignal;
 }

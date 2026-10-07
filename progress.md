@@ -30,6 +30,13 @@
 - 完整验收证据 `/tmp/cord-stage14-preview-r3/browser-result.json` 与 coordination-desktop/mobile/stale/adopted.png；保留可直接采用的离线预览 `http://127.0.0.1:7300/#/requirements/REQ-COORDINATION/coordination`，工作区 `/tmp/cord-stage14-preview-final`，preview-result.json 证明 current/adoptable/health/doctor 均为 true。
 - 阶段 14 已实现并验证，进入本地提交与推送；持续目标下一步优先检查 SDLC 发布版本进度隔离，随后继续共享幂等边界与真实需求 dogfooding。
 - 功能提交 `2f9823e`，推送成功（origin/exp/impl：`2559083` → `2f9823e`）；阶段 11–13 的积压提交一并同步。实际验收 SQLite run=completed 且持久化协调绑定正确，预览 health 仍为 true。
+- 开始阶段 15：核验当前提交与工作树，定位 workflow_id 单独过滤的跨 SDLC 版本问题，准备同定义不同发布版本、审批/取消/快照与索引恢复的真实回归。
+- ADR-0034 先行；workflow_revision 覆盖完整定义与发布绑定，贯穿 executor/worker/gate/checker/snapshot/协调/投影。新增 workflow.run.started 事实与可空索引列，当前版本按因果启动事实定位。
+- 7 个新反例全部复现；实现后首轮全量 505/507，两个旧中断 fixture 缺新绑定被正确拒绝，已更新新协议窗口。45 个相关用例 / 4 文件及 build/typecheck/diff 通过，进入实际 HTTP 验收。
+- 最终 510 测试 / 44 文件、`npm run typecheck`、`npm run build:all`、`git diff --check` 全通过；核心 hash/reducer 仍保持纯函数，版本身份由新的纯 scope helper 派生。
+- 实际 HTTP 首轮等待旧 run ID 超时；事件与 SQLite 证明新恢复尝试已完成，改为核验当前绑定/完成态后第二轮完整通过。证据 `/tmp/cord-stage15-preview-r2/smoke-result.json`。
+- Playwright 1440/390/320 无溢出、pageerror=0，选择 v2、协调采用、对应版本人工 gate、completed 闭环通过，doctor=true。browser-result.json 与 version-1440.png / version-390.png 保留证据。
+- 可采用的离线预览 `http://127.0.0.1:7302/#/requirements/REQ-VERSION-DEMO/coordination`，工作区 `/tmp/cord-stage15-preview-r2`；旧无版本数据保留审计但不自动猜测归属，重新 start 指定版本重新核验。阶段 15 进入提交与推送。
 
 ## 2026-09-25
 
