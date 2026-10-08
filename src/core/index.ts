@@ -6,6 +6,7 @@ export {
   ActorSchema,
   AgentTaskCompletedPayloadSchema,
   AgentTaskStartedPayloadSchema,
+  VerificationCompletedPayloadSchema,
   AnchorSchema,
   CliMessageReceivedPayloadSchema,
   ConfidenceSourceSchema,

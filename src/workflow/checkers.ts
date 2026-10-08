@@ -31,6 +31,7 @@ export const BUILTIN_CHECKER_NAMES = [
   "doc-has-section",
   "anchors-min-count",
   "event-emitted",
+  "verification-passed",
 ] as const;
 export type BuiltinCheckerName = (typeof BUILTIN_CHECKER_NAMES)[number];
 
@@ -52,6 +53,7 @@ export function createBuiltinRegistry(options: BuiltinRegistryOptions = {}): Che
     createDocHasSectionChecker(),
     createAnchorsMinCountChecker(),
     createEventEmittedChecker(),
+    createVerificationPassedChecker(),
   ]) {
     checkers.set(checker.name, checker);
   }
@@ -316,6 +318,11 @@ const EventEmittedParams = z.object({
   within_node: z.boolean().default(false),
 });
 
+const VerificationPassedParams = z.object({
+  verification_id: z.string().min(1).max(200),
+  within_node: z.boolean().default(true),
+});
+
 async function readEventsForCheck(ctx: CheckerContext): Promise<EventEnvelope[]> {
   if (ctx.session !== undefined) return ctx.session.events.readOrdered();
   const text = await readFile(join(ctx.session_dir, "events.jsonl"), "utf8");
@@ -365,6 +372,54 @@ export function createEventEmittedChecker(): Checker {
       }
       const last = hits[hits.length - 1];
       return pass(`事件 ${type} 已出现 ${hits.length} 次（最近 seq=${last?.seq ?? "?"}）`);
+    },
+  };
+}
+
+/**
+ * 机器验证结果：只接受宿主写入的 verification.completed，且必须绑定当前门禁输入指纹。
+ * 失败、超时、取消和旧 hash 均 fail-closed；同 verification_id 的最后一条事实胜出。
+ */
+export function createVerificationPassedChecker(): Checker {
+  return {
+    name: "verification-passed",
+    async check(ctx: CheckerContext): Promise<GateResult> {
+      const parsed = parseParams("verification-passed", VerificationPassedParams, ctx);
+      if (!parsed.ok) return parsed.result;
+      if (ctx.input_hash === undefined) return block("缺少当前门禁输入指纹，不能验证机器结果（fail-closed）");
+      if (ctx.workflow_id === undefined || ctx.node_id === undefined) {
+        return block("机器验证必须绑定 workflow_id 与 node_id（fail-closed）");
+      }
+      const workflow_id = ctx.workflow_id;
+      const node_id = ctx.node_id;
+      let events: EventEnvelope[];
+      try {
+        events = await readEventsForCheck(ctx);
+      } catch (err) {
+        return block(`读取事件流失败，fail-closed：${message(err)}`);
+      }
+      const hits = events.filter((event) => {
+        if (event.type !== "verification.completed") return false;
+        const payload = event.payload;
+        if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return false;
+        const value = payload as Record<string, unknown>;
+        return matchesWorkflowScope(value, { workflow_id, workflow_revision: ctx.workflow_revision })
+          && value["node_id"] === node_id
+          && value["verification_id"] === parsed.params.verification_id
+          && (!parsed.params.within_node || event.correlation_id === node_id);
+      });
+      const latest = hits.at(-1);
+      if (latest === undefined) {
+        return block(`未找到当前节点的机器验证结果：${parsed.params.verification_id}`);
+      }
+      const payload = latest.payload as Record<string, unknown>;
+      if (payload["input_hash"] !== ctx.input_hash) {
+        return block(`机器验证结果已过期：input_hash 不匹配（verification_id=${parsed.params.verification_id}）`);
+      }
+      if (payload["status"] !== "passed") {
+        return block(`机器验证未通过：${parsed.params.verification_id}=${String(payload["status"])}`);
+      }
+      return pass(`机器验证通过：${parsed.params.verification_id}（seq=${latest.seq}）`, ctx.anchors);
     },
   };
 }

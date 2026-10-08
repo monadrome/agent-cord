@@ -103,6 +103,15 @@ export class RunService {
     return this.active.get(reqId)?.run_id ?? null;
   }
 
+  /** 取当前 run 固定的 agent 配置身份；verification context 不得读取热重载后的 resolver。 */
+  configurationHashFor(reqId: string, agentName: string): string | null {
+    const resolver = this.active.get(reqId)?.driverResolver
+      ?? this.options.driverResolverForRun?.()
+      ?? this.options.driverResolver;
+    if (resolver === undefined) return null;
+    return resolver(agentName).configuration_hash ?? null;
+  }
+
   /** 当前绑定按启动事实的因果顺序确定；没有新协议事实时只读旧操作登记。 */
   async latestRun(req_id: string): Promise<RunRow | null> {
     for (const event of [...await this.sessions.readEvents(req_id)].reverse()) {

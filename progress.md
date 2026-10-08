@@ -80,6 +80,21 @@
 - 未记录真实会话正文、凭据或运行目录；调用均未修改当前仓库。
 - 真实证据记录于 `docs/research/2026-10-08-real-agent-driver-smoke.md`；完整开发 Draft 的人工 gate 仍保持未决。
 
+## 阶段 20：结构化机器验证证据（已实现并验证）
+
+- [x] 新增 `verification.completed` 事件与 payload 契约，摘要 hash 不携带长日志
+- [x] 新增带当前 `input_hash` 的 `verification-passed` fail-closed checker
+- [x] gate 求值向 checker 透传当前输入指纹，旧结果不能复用
+- [x] 新增 verification context/read 与 idempotent record REST API
+- [x] 新增机器验证 SDLC 示例，覆盖成功、幂等重放和输入变化 409
+- [x] 同步 ADR、协议、示例和测试
+
+### 阶段 20 验证记录
+
+- 定向 28 个测试通过：checker scope/hash/状态边界，以及 REST 等待人工 gate → 提交机器结果 → 自动放行 verify 节点的闭环。
+- 机器验证 REST 不写 stdout/stderr 正文；输入指纹在服务端重算，旧 hash 在事件写入前返回 409。
+- 全量 577 测试 / 52 文件、typecheck、build:all、diff 检查通过；真实开发 Draft 人工 gate 仍保持未决。
+
 ## 2026-09-25
 
 - 按交接文档 `/tmp/agent-cord-handoff.KcQZOB/KIMI_HANDOFF.md` 执行实现；保留工作区未提交改动（事件协议增强 + merge driver）。

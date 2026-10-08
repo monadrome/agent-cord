@@ -282,6 +282,22 @@ export class SessionService {
     return afterSeq === undefined ? events : events.filter((event) => event.seq > afterSeq);
   }
 
+  /** 记录宿主/CI 的机器验证事实；stdout/stderr 正文不进入事件流。 */
+  async recordVerification(reqId: string, payload: Record<string, unknown>): Promise<EventEnvelope> {
+    const handle = await this.open(reqId);
+    const nodeId = typeof payload["node_id"] === "string" ? payload["node_id"] : null;
+    return handle.events.append({
+      event_id: newEventUlid(),
+      session_id: reqId,
+      type: "verification.completed",
+      schema_version: "1",
+      actor: { kind: "system", id: "verification-api" },
+      correlation_id: nodeId,
+      payload,
+      source: { adapter: "verification-api" },
+    });
+  }
+
   /** 审批列表：事件流投影 + approval_id 编码 */
   async listApprovals(reqId: string, scope?: WorkflowScope): Promise<ApprovalItem[]> {
     const handle = await this.open(reqId);

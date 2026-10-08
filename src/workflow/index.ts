@@ -17,6 +17,7 @@ export {
   createFileNonemptyChecker,
   createLedgerHasConfirmedChecker,
   createVoteConfirmedChecker,
+  createVerificationPassedChecker,
   findUnknownCheckers,
   type BuiltinCheckerName,
   type BuiltinRegistryOptions,

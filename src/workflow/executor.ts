@@ -509,7 +509,8 @@ export interface GateEvaluation {
 
 /** gate 的唯一求值入口；server 校验审批时复用，不复制放行状态机。 */
 export async function evaluateGate(gate: GateDef, registry: CheckerRegistry, ctx: CheckerContext, input_hash?: string): Promise<GateEvaluation> {
-  const outcomes = await runChecks(gate, registry, ctx);
+  const checkContext = input_hash === undefined ? ctx : { ...ctx, input_hash };
+  const outcomes = await runChecks(gate, registry, checkContext);
   const anchors = dedupeAnchors(outcomes.flatMap((check) => check.result.anchors));
   const confidence = outcomes.length === 0 ? 0 : Math.min(...outcomes.map((check) => check.result.confidence));
   const reason = outcomes.map((check) => `${check.ref}=${check.result.result}（${check.result.reason}）`).join("；");
@@ -532,7 +533,8 @@ async function runGateOnce(run: GateRun): Promise<GateOutcome> {
     phase: run.gate.attach.when,
   };
 
-  const evaluation = await evaluateGate(run.gate, run.registry, run.ctx, await run.inputHash?.());
+  const input_hash = await run.inputHash?.();
+  const evaluation = await evaluateGate(run.gate, run.registry, run.ctx, input_hash);
   const { anchors, confidence, reason, result, evaluation_hash } = evaluation;
   const summaries = evaluation.checks;
   if (run.pending !== undefined && run.pending.evaluation_hash !== evaluation_hash) {

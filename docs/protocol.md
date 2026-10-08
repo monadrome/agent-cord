@@ -27,6 +27,7 @@
 | `workflow.node.*` | workflow 节点进入和退出 |
 | `workflow.run.*` | 发布绑定启动（started，ADR-0034）与取消（cancelled，ADR-0025） |
 | `agent.task.*` | 节点执行体的 agent 任务（started / completed；中间流式输出不入流） |
+| `verification.completed` | 宿主/CI 机器验证结果（带输入与输出摘要 hash） |
 | `coordinator.round.*` | 独立协调轮次（requested / started / completed / cancel_requested）与人工采用（adopted） |
 | `human.*` | 人工选择记录 |
 
@@ -45,6 +46,8 @@ ADR-0037 增 Codex item.error/warning 非终态通知的 metadata 映射；顶�
 ADR-0039 将 Codex item.file_change 的 started/completed 保持为 tool_use（input=changes，raw 保留 status），不能拼入产物正文或报告 fallback。工具通知不代替 artifact 前后证据，超时任务的部分文件不能当作完成；恢复仍经新快照和已有 executor，不手工追加成功事实。
 
 ACP 驱动在 `session/new` 或 `session/load` 成功后，为通知、工具、权限、错误和终态事件统一回填当前 `session_id`；`result`/`error` 的 data 保留同一回执。握手或建会话前失败可没有会话身份，不能据此伪造可恢复会话。
+
+ADR-0040 的 `verification.completed` 只记录 `verification_id`、状态、`input_hash`、`command_hash`、退出码、耗时和 stdout/stderr hash；REST 先提供当前 verification context，提交时重算输入 hash。`verification-passed` 只接受当前 workflow scope、节点和输入指纹的最新 `passed` 事件，旧结果或缺少上下文一律 block。
 
 ADR-0030 增加 `execution_input_hash`（agent started/completed）：覆盖完整 workflow、节点、需求文档 hash、账本摘要、已退出进度和上下文预算，排除事件序号/时间戳。可写当前 artifact 以 completed 后态验证，不把自身写入作为输入变化。`snapshot_id` 继续记录完整 provenance，两者作用不同。
 
@@ -91,7 +94,7 @@ checker 结果是 `pass`、`block` 或 `warn`。未知 checker、抛错和非法
 
 `ledger-has-confirmed` 从当前 session 事件投影判定；默认无 session 目录路径严格读取 events.jsonl，不回退旧 ledger.yaml（ADR-0029）。只有无冲突的 confirmed 条目可放行，非法 entry_id、坏事件、外部 session 事件和读故障均 block。显式 readLedger adapter 继续支持，宿主负责提供最新投影，返回值经 schema 验证。
 
-`checks` 项可带 `with` 参数（ADR-0024），透传为 `CheckerContext.params`；参数非法由 checker 按 `block` 处理，不用缺省值猜。内置 checker：`anchors-present`、`ledger-has-confirmed`、`vote-confirmed`，以及参数化的 `file-exists {path}`、`file-nonempty {path, min_bytes?}`、`doc-has-section {path, heading}`、`anchors-min-count {min}`、`event-emitted {type, within_node?}`。文件类 path 一律限制在 session 目录内。
+`checks` 项可带 `with` 参数（ADR-0024），透传为 `CheckerContext.params`；参数非法由 checker 按 `block` 处理，不用缺省值猜。内置 checker：`anchors-present`、`ledger-has-confirmed`、`vote-confirmed`、`verification-passed {verification_id, within_node?}`，以及参数化的 `file-exists {path}`、`file-nonempty {path, min_bytes?}`、`doc-has-section {path, heading}`、`anchors-min-count {min}`、`event-emitted {type, within_node?}`。文件类 path 一律限制在 session 目录内。gate 求值会把当前 `input_hash` 透传给 checker，机器验证不得复用旧输入。
 
 ADR-0036 将文档访问集中到 core/session-files：规范相对路径、session 根为普通目录、路径段无符号链接、叶文件为 nlink=1 的普通文件；禁止事实/管理路径。file-exists 使用 no-follow 描述符只读元信息，不加载正文；内容 checker 使用同一描述符边界读取 UTF-8。缺失或无法验证均 block，无有效证据锚点，修复后可重新求值。coordinator 旧 helper 路径保留 re-export。
 

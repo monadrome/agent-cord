@@ -298,6 +298,7 @@ export const EVENT_TYPES = [
   "workflow.run.started",
   "agent.task.started",
   "agent.task.completed",
+  "verification.completed",
   "coordinator.round.started",
   "coordinator.round.requested",
   "coordinator.round.completed",
@@ -528,6 +529,23 @@ export const AgentTaskCompletedPayloadSchema = z.looseObject({
   snapshot_event_chain_hash: z.string().length(64).optional(),
 });
 
+/** `verification.completed`：宿主/CI 写入的机器验证结果，不接受 agent 正文冒充。 */
+export const VerificationCompletedPayloadSchema = z.looseObject({
+  workflow_id: z.string().min(1),
+  workflow_revision: z.string().length(64).optional(),
+  run_id: z.string().regex(ULID_RE),
+  node_id: z.string().min(1),
+  verification_id: z.string().min(1).max(200),
+  input_hash: z.string().length(64),
+  command_hash: z.string().length(64),
+  status: z.enum(["passed", "failed", "timeout", "cancelled"]),
+  exit_code: z.number().int().nullable().optional(),
+  duration_ms: z.number().int().nonnegative().optional(),
+  stdout_hash: z.string().length(64).optional(),
+  stderr_hash: z.string().length(64).optional(),
+  summary: z.string().max(2_000).optional(),
+});
+
 /** `workflow.run.cancelled`：run 取消（ADR-0025）。取消是事实：落盘后执行器在节点边界止步 */
 export const WorkflowRunCancelledPayloadSchema = z.looseObject({
   workflow_id: z.string().min(1),
@@ -601,6 +619,7 @@ export const EVENT_PAYLOAD_SCHEMAS: Partial<Record<EventType, z.ZodType>> = {
   "workflow.run.started": WorkflowRunStartedPayloadSchema,
   "agent.task.started": AgentTaskStartedPayloadSchema,
   "agent.task.completed": AgentTaskCompletedPayloadSchema,
+  "verification.completed": VerificationCompletedPayloadSchema,
   "coordinator.round.started": CoordinatorRoundStartedPayloadSchema,
   "coordinator.round.requested": CoordinatorRoundRequestedPayloadSchema,
   "coordinator.round.completed": CoordinatorRoundCompletedPayloadSchema,

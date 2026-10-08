@@ -35,4 +35,14 @@ describe("Agent 接入示例", () => {
     for (const node of def.spec.nodes) if (node.run !== undefined) expect(registry.resolve(node.run.agent).configuration_hash).toMatch(/^[0-9a-f]{64}$/);
     expect(def.spec.nodes.find((node) => node.id === "verify")?.gates.some((gate) => gate.pass.human_confirm)).toBe(true);
   });
+  it("机器验证示例引用结构化 verification checker 并保留人工 intake gate", async () => {
+    const def = parseWorkflow(await readFile(new URL("../../examples/machine-verification-sdlc.yaml", import.meta.url), "utf8"));
+    expect(topologicalOrder(def)).toEqual(["intake", "verify"]);
+    expect(findUnknownCheckers(def, createBuiltinRegistry())).toEqual([]);
+    expect(def.spec.nodes.find((node) => node.id === "verify")?.gates[0]?.checks[0]).toMatchObject({
+      ref: "verification-passed",
+      with: { verification_id: "unit-tests" },
+    });
+    expect(def.spec.nodes.find((node) => node.id === "intake")?.gates[0]?.pass.human_confirm).toBe(true);
+  });
 });

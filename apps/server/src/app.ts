@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import { ulid } from "ulid";
-import { runDoctor, runInit, type WorkflowDef } from "agent-cord";
+import { readApprovalContextHash, runDoctor, runInit, type WorkflowDef } from "agent-cord";
 import {
   CreateRequirementInputSchema,
   DecideApprovalInputSchema,
@@ -17,6 +17,7 @@ import {
   SaveDraftInputSchema,
   SNAPSHOT_DOC_NAMES,
   StartRunInputSchema,
+  RecordVerificationInputSchema,
   StartCoordinationInputSchema,
   AdoptCoordinationInputSchema,
   UpdateDocInputSchema,
@@ -24,8 +25,9 @@ import {
   type DashboardView,
   type RequirementStatus,
   type SnapshotDocName,
+  type VerificationContextView,
 } from "./contracts.js";
-import { ApiError, badRequest, notFound, parseOrThrow } from "./errors.js";
+import { ApiError, badRequest, conflict, notFound, parseOrThrow } from "./errors.js";
 import { IndexStore } from "./services/index-store.js";
 import { DEFAULT_SDLC_ID, SdlcService } from "./services/sdlc-service.js";
 import { listSdlcTemplates } from "./services/sdlc-templates.js";
@@ -124,6 +126,41 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
     } catch {
       return null;
     }
+  };
+
+  const verificationContext = async (reqId: string, runId: string, nodeId: string): Promise<VerificationContextView> => {
+    const run = await runs.getRun(runId);
+    if (run.req_id !== reqId) throw notFound(`run ${runId} 不属于需求 ${reqId}`);
+    if (run.status !== "running" && run.status !== "waiting_human") {
+      throw conflict(`run ${runId} 当前状态为 ${run.status}，不能获取机器验证上下文`);
+    }
+    const versioned = await sdlcs.get(run.sdlc_id, run.sdlc_version);
+    const node = versioned.def.spec.nodes.find((item) => item.id === nodeId);
+    if (node === undefined) throw notFound(`workflow 中不存在节点 ${nodeId}`);
+    let configuration_hash: string | null = null;
+    if (node.run !== undefined) {
+      try {
+        configuration_hash = runs.configurationHashFor(reqId, node.run.agent);
+      } catch (error) {
+        throw conflict(`无法解析节点 ${nodeId} 的 agent 配置：${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    const session = await sessions.open(reqId);
+    const input_hash = await readApprovalContextHash(
+      versioned.def,
+      node,
+      session,
+      configuration_hash,
+      versioned.workflow_revision,
+    );
+    return {
+      run_id: runId,
+      req_id: reqId,
+      workflow_id: versioned.def.metadata.id,
+      workflow_revision: versioned.workflow_revision,
+      node_id: nodeId,
+      input_hash,
+    };
   };
 
   // ---- 健康 / doctor -------------------------------------------------------
@@ -273,6 +310,27 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
   app.get("/api/v1/runs/:run_id", async (req) => {
     const { run_id: runId } = req.params as { run_id: string };
     return { request_id: requestId(req), run: await runs.getRun(runId) };
+  });
+
+  // ---- 机器验证事实（ADR-0040） -------------------------------------------
+  app.get("/api/v1/requirements/:req_id/runs/:run_id/nodes/:node_id/verification-context", async (req) => {
+    const { req_id: reqId, run_id: runId, node_id: nodeId } = req.params as { req_id: string; run_id: string; node_id: string };
+    return { request_id: requestId(req), verification: await verificationContext(reqId, runId, nodeId) };
+  });
+  app.post("/api/v1/requirements/:req_id/runs/:run_id/verifications", { config: { idempotency: true } }, async (req) => {
+    const { req_id: reqId, run_id: runId } = req.params as { req_id: string; run_id: string };
+    const input = parseOrThrow(RecordVerificationInputSchema, req.body);
+    if (input.run_id !== runId) throw badRequest("请求体 run_id 必须与路径一致");
+    const context = await verificationContext(reqId, runId, input.node_id);
+    if (input.input_hash !== context.input_hash) {
+      throw conflict("机器验证输入已变化，请重新获取 verification-context 后重跑");
+    }
+    const event = await sessions.recordVerification(reqId, {
+      ...input,
+      workflow_id: context.workflow_id,
+      workflow_revision: context.workflow_revision,
+    });
+    return { request_id: requestId(req), event_id: event.event_id, verification: { ...input, workflow_id: context.workflow_id, workflow_revision: context.workflow_revision } };
   });
 
   // ---- 命令：取消 run（ADR-0025）-------------------------------------------

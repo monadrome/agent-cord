@@ -157,6 +157,33 @@ export const StartRunInputSchema = z.object({
 });
 export type StartRunInput = z.infer<typeof StartRunInputSchema>;
 
+const HashSchema = z.string().regex(/^[0-9a-f]{64}$/, "必须是小写 SHA-256");
+
+/** 机器验证只提交摘要与状态，不把 stdout/stderr 正文写入事件流。 */
+export const RecordVerificationInputSchema = z.strictObject({
+  run_id: z.string().min(1),
+  node_id: z.string().min(1).max(200),
+  verification_id: z.string().min(1).max(200),
+  input_hash: HashSchema,
+  command_hash: HashSchema,
+  status: z.enum(["passed", "failed", "timeout", "cancelled"]),
+  exit_code: z.number().int().nullable().optional(),
+  duration_ms: z.number().int().nonnegative().optional(),
+  stdout_hash: HashSchema.optional(),
+  stderr_hash: HashSchema.optional(),
+  summary: z.string().max(2_000).optional(),
+});
+export type RecordVerificationInput = z.infer<typeof RecordVerificationInputSchema>;
+
+export interface VerificationContextView {
+  run_id: string;
+  req_id: string;
+  workflow_id: string;
+  workflow_revision: string;
+  node_id: string;
+  input_hash: string;
+}
+
 /** ADR-0032：独立协调轮次，输出只有经宿主验证的 Draft 提议。 */
 export const StartCoordinationInputSchema = z.strictObject({
   agent: z.string().trim().min(1).max(200),

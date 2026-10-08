@@ -23,6 +23,7 @@ import {
   createExecutor,
   createFileExistsChecker,
   createFileNonemptyChecker,
+  createVerificationPassedChecker,
   type WorkflowDef,
 } from "../../src/index.js";
 
@@ -160,7 +161,7 @@ describe("anchors-min-count", () => {
 
 const EMPTY_LEDGER: Ledger = { reducer_version: "test", input_hash: "0", output_hash: "0", entries: [] };
 
-function makeEnvelope(type: string, correlationId: string | null, seq: number): EventEnvelope {
+function makeEnvelope(type: string, correlationId: string | null, seq: number, payload: Record<string, unknown> = {}): EventEnvelope {
   return EventEnvelopeSchema.parse({
     event_id: `01ARZ3NDEKTSV4RRFFQ69G5F${String(seq).padStart(2, "0")}`,
     session_id: "REQ-T",
@@ -171,7 +172,7 @@ function makeEnvelope(type: string, correlationId: string | null, seq: number): 
     timestamp: new Date().toISOString(),
     actor: { kind: "system", id: "test" },
     correlation_id: correlationId,
-    payload: {},
+    payload,
     source: { adapter: "test" },
   });
 }
@@ -245,6 +246,44 @@ describe("event-emitted", () => {
     );
     expect(result.result).toBe("block");
     expect(result.reason).toContain("node_id");
+  });
+});
+
+describe("verification-passed", () => {
+  const input_hash = "a".repeat(64);
+  const command_hash = "b".repeat(64);
+  const verification = (status: string, hash = input_hash): EventEnvelope => makeEnvelope(
+    "verification.completed",
+    "verify",
+    1,
+    { workflow_id: "wf", node_id: "verify", verification_id: "unit-tests", input_hash: hash, command_hash, status },
+  );
+
+  it("只接受当前输入指纹且状态为 passed 的宿主事实", async () => {
+    const result = await createVerificationPassedChecker().check(ctx(
+      { verification_id: "unit-tests" },
+      { session: fakeSessionWithEvents([verification("passed")]), workflow_id: "wf", node_id: "verify", input_hash },
+    ));
+    expect(result.result).toBe("pass");
+  });
+
+  it("旧 hash、失败结果和缺少上下文均 fail-closed", async () => {
+    const checker = createVerificationPassedChecker();
+    const stale = await checker.check(ctx(
+      { verification_id: "unit-tests" },
+      { session: fakeSessionWithEvents([verification("passed", "c".repeat(64))]), workflow_id: "wf", node_id: "verify", input_hash },
+    ));
+    expect(stale.result).toBe("block");
+    const failed = await checker.check(ctx(
+      { verification_id: "unit-tests" },
+      { session: fakeSessionWithEvents([verification("failed")]), workflow_id: "wf", node_id: "verify", input_hash },
+    ));
+    expect(failed.result).toBe("block");
+    const missing = await checker.check(ctx(
+      { verification_id: "unit-tests" },
+      { session: fakeSessionWithEvents([verification("passed")]), workflow_id: "wf", node_id: "verify" },
+    ));
+    expect(missing.result).toBe("block");
   });
 });
 

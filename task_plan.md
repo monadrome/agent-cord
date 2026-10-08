@@ -330,6 +330,20 @@
 - 冒烟成功只证明本机 CLI/ACP 组合可启动和收束，不等于模型质量、异构盲评或人工 gate 已验证。
 - 阶段 18 的真实开发 Draft 仍停在人工审批，不自动批准、不合入。
 
+## 阶段 20：结构化机器验证证据（已完成）
+
+- [x] 固化 `verification.completed` 事件与摘要 hash 契约
+- [x] 将当前 gate 输入指纹透传给 checker，增加 `verification-passed`
+- [x] 提供 context/read 与幂等 record REST API，输入变化 fail-closed
+- [x] 增加可复用机器验证 SDLC 示例和 REST/执行器回归
+- [x] 完成 ADR、协议、类型检查和定向测试
+
+### 阶段 20 边界
+
+- 机器命令由宿主、CI 或外部插件执行；agent 输出和任意命令参数不作为验证事实写入事件。
+- 事件只保存状态、输入/命令/输出摘要 hash、退出码、耗时和短摘要；长日志留在外部系统。
+- verification 结果必须绑定当前 workflow scope、节点和 gate 输入 hash；需求或账本变化后旧结果返回 409 或被 checker 阻断。
+
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
 - [x] 核验当前分支与阶段 10；上一轮实现和远端同步属于已验证进展
