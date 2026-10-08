@@ -51,6 +51,8 @@ ADR-0040 的 `verification.completed` 只记录 `verification_id`、`run_id`、�
 
 验证 gate 配置 `on_fail: escalate` 时可作为外部验证等待点；验证事件成功落盘后 server 仅唤醒同一 run 的挂起 gate，executor 重新求值，不能生成人工决策或直接推进其他节点。若事件先落盘后进程重启，run recovery 会根据 `run_id` 验证事实恢复同一 run 再求值。
 
+CI 在重启之后提交也通过串行 recovery 恢复原 run，不创建新运行身份；唤醒仅匹配当前节点/gate 引用的 verification ID。Promise 登记后再读持久化证据覆盖早到结果，已被当前审批消费的验证事实不在每次重启时重复启动 executor。机器通过但配置 human_confirm=true 的 gate 继续等待人，重启后的选择同样消费原 run。
+
 ADR-0030 增加 `execution_input_hash`（agent started/completed）：覆盖完整 workflow、节点、需求文档 hash、账本摘要、已退出进度和上下文预算，排除事件序号/时间戳。可写当前 artifact 以 completed 后态验证，不把自身写入作为输入变化。`snapshot_id` 继续记录完整 provenance，两者作用不同。
 
 ADR-0031 增加 driver 可选 `configuration_hash` 与任务事件 `agent_configuration_hash`，内置 headless/ACP 从固定有效启动参数派生，全部 env 排除。该身份纳入 execution_input_hash（内部域 v2）和节点审批上下文；同名模型/角色参数变更后，未退出节点重新执行并重新审批。外部 driver 未提供身份时仍支持，但宿主需提供可靠身份才能覆盖其配置变化。

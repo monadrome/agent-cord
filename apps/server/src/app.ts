@@ -330,7 +330,7 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
       workflow_id: context.workflow_id,
       workflow_revision: context.workflow_revision,
     });
-    runs.recheck(runId);
+    await runs.recheck(runId, input.node_id, input.verification_id);
     return { request_id: requestId(req), event_id: event.event_id, verification: { ...input, workflow_id: context.workflow_id, workflow_revision: context.workflow_revision } };
   });
 

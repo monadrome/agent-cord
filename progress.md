@@ -129,6 +129,14 @@
 - [x] 重启后恢复 executor 并重新求值 pending verification gate
 - [x] 覆盖验证事实先落盘、server 重启、同一 run 完成路径
 
+## 阶段 26：验证唤醒与恢复时序（已实现并验证）
+
+- 三个新 REST 反例复现：重启后提交无人唤醒、结果在 ask 建立前到达丢失、历史验证反复恢复人工终审。
+- 已修复引用 ID 范围、恢复串行化、Promise 建立后重检；重启后的人工选择保留原 run 的机器证据。
+- 验证/审批/执行版本定向 34 测试通过，typecheck 通过；新增失败后恢复与取消后的迟到拒绝。
+- 实际宿主 HTTP 验收完成：clone 基线 6c5e345，真实 hash/scope 离线命令退出 0，server 重启后提交恢复原 run，停在人工 gate，再次重启审批 ID 保持，human.decision=0，doctor=true。运行数据和命令日志仅在临时目录。
+- 最终全量 586 测试 / 52 文件、build:all、typecheck、diff 检查通过；真实 clone 命令独立为 13/13。公开验收记录为 docs/research/2026-10-08-host-verification-recovery.md。
+
 ## 阶段 22：机器验证 run 级隔离（已实现并验证）
 
 - [x] 将 `run_id` 注入 workflow CheckerContext

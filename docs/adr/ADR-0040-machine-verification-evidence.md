@@ -19,6 +19,7 @@
 4. REST 写入口使用统一 `Idempotency-Key`；同键重放返回同一事件结果。事件事实仍是唯一来源，控制台可通过普通事件流观察。
 5. 验证 gate 可使用 `on_fail: escalate` 作为外部验证等待点；验证事件成功落盘后，server 只唤醒同一 run 的挂起 gate 进行重检，不直接放行或写人工决策。
 6. 若验证事实已落盘后进程重启，run recovery 识别同一 `run_id` 的验证事件并恢复 executor，再次求值 pending gate。
+7. 重启后才提交的验证结果也恢复原 run；恢复串行化且不重新登记 run。重检仅针对当前节点中引用该 verification ID 的 gate，无关验证不改变人工审批。挂起 Promise 建立后再次核验持久化证据，避免结果早到时丢失唤醒。
 
 ## 取舍
 

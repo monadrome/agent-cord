@@ -124,6 +124,14 @@
 - workspace doctor 的 merge driver 检查不同于 session doctor，临时 git 仓库仍需注册本地 merge driver；完成该初始化后 HTTP/浏览器验收与 workspace doctor 全通过。
 - 读错误后的 UI 不能解锁编辑或显示“已与磁盘一致”，真实 404 才进入新文档状态；浏览器已验证错误、缺失、保存与恢复，控制台仍只展示 server 投影。
 
+## 实现校准（2026-10-08，验证等待与恢复时序）
+
+- 阶段 25 只验证结果先落盘再重启；重启之后才收到 CI 结果时没有挂起 Promise，旧 recheck 返回 false，run 永久等待。
+- 按 run_id 无条件唤醒会刷新无关审批；gate.waiting 已落盘但 ask 尚未登记的窗口会丢失唤醒。
+- 任何历史验证都触发 recovery 会重新启动已消费机器结果的人工终审；审批通过 start 创建新 run 则使原 run 的机器证据失效。
+- 三个新增 REST 反例先全部复现。按引用 ID 重检、串行恢复原 run、挂起后持久化证据重检，以及比较 evaluation_hash 后再恢复，修复了这些时序。
+- 独立 clone 的真实宿主命令通过 HTTP 写入状态和输出 hash；server 先重启再收到结果，仍恢复同一 run，机器通过后停在人工 gate，再次重启保留审批 ID，无人工决定，doctor=true。
+
 ## 实现校准（2026-10-07，只读 worker 报告通道）
 
 - settleArtifact 在 readonly 时立即返回 none，worker 即使返回完整 findings 也不能写报告文件；报告 gate 只能看到旧文件/占位，阻断独立评审接入。

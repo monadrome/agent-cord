@@ -17,10 +17,12 @@ import {
   CoordinatorRoundAdoptedPayloadSchema,
   CoordinatorRoundRequestedPayloadSchema,
   WorkflowRunStartedPayloadSchema,
+  VerificationCompletedPayloadSchema,
   matchesWorkflowScope,
   type AgentDriver,
   type Anchor,
   type EventEnvelope,
+  type GateDef,
   type HumanGate,
   type HumanGateAnswer,
   type SessionHandle,
@@ -40,6 +42,7 @@ interface PendingAsk {
   question: string;
   options: string[];
   waiting_event_id: string;
+  verification_ids: string[];
   resolve: (choice: HumanGateAnswer) => void;
 }
 
@@ -88,6 +91,7 @@ export class RunService {
   /** 无在途执行器时的人工决策暂存：恢复执行器重新提问时优先消费 */
   private readonly decided = new Map<string, string>();
   private readonly decision_queue = new Map<string, Promise<unknown>>();
+  private recovery_queue: Promise<unknown> = Promise.resolve();
 
   constructor(sessions: SessionService, sdlcs: SdlcService, index: IndexStore, options: RunServiceOptions = {}) {
     this.sessions = sessions;
@@ -104,13 +108,17 @@ export class RunService {
     return this.active.get(reqId)?.run_id ?? null;
   }
 
-  /** 机器验证事实落盘后唤醒同一 run 的挂起 gate，交给 executor 重新求值。 */
-  recheck(runId: string): boolean {
-    const pending = [...this.pendingAsks.entries()].find(([, ask]) => ask.run_id === runId);
-    if (pending === undefined) return false;
+  /** 验证事实只唤醒引用它的 gate；重启后的等待恢复原 run，不另建身份。 */
+  async recheck(runId: string, node_id: string, verification_id: string): Promise<void> {
+    const run = this.index.getRun(runId);
+    if (run === null) throw notFound(`run 不存在：${runId}`);
+    if (!this.active.has(run.req_id)) await this.recover(runId);
+    const pending = [...this.pendingAsks.entries()].find(([, ask]) =>
+      ask.run_id === runId && ask.node_id === node_id && ask.verification_ids.includes(verification_id),
+    );
+    if (pending === undefined) return;
     this.pendingAsks.delete(pending[0]);
     pending[1].resolve({ kind: "recheck" });
-    return true;
   }
 
   /** 取当前 run 固定的 agent 配置身份；verification context 不得读取热重载后的 resolver。 */
@@ -341,18 +349,24 @@ export class RunService {
       this.pendingAsks.delete(fullKey);
       pending.resolve(choice);
     } else {
-      // 无在途执行器（如 server 重启后）：暂存决策并恢复 run，执行器重新提问即消费
+      // 原 run 的机器证据与审批必须保持同一身份。
       this.decided.set(fullKey, choice);
       if (!this.active.has(reqId)) {
         const latest = await this.latestRun(reqId);
-        await this.start(reqId, latest?.sdlc_id, latest?.sdlc_version);
+        if (latest !== null) await this.recover(latest.run_id);
       }
     }
     return { event_id: event.event_id };
   }
 
   /** 启动时恢复：登记为 running 但进程已死的 run，按事件流投影修正或续跑（ADR-0021 注意点 4） */
-  async recover(): Promise<string[]> {
+  recover(run_id?: string): Promise<string[]> {
+    const operation = this.recovery_queue.catch(() => undefined).then(() => this.recoverCurrent(run_id));
+    this.recovery_queue = operation.catch(() => undefined);
+    return operation;
+  }
+
+  private async recoverCurrent(run_id?: string): Promise<string[]> {
     // 启动绑定是事实；索引可删除，不能因此回退默认 SDLC 或失去当前版本。
     for (const req_id of await this.sessions.listIds()) {
       for (const event of await this.sessions.readEvents(req_id)) {
@@ -366,6 +380,8 @@ export class RunService {
     }
     const resumed: string[] = [];
     for (const run of this.index.listRuns()) {
+      if (run_id !== undefined && run.run_id !== run_id) continue;
+      if (this.active.has(run.req_id)) continue;
       if (run.status !== "running" && run.status !== "waiting_human") continue;
       const session = await this.sessions.open(run.req_id);
       const events = await session.events.readOrdered();
@@ -409,11 +425,25 @@ export class RunService {
           event.type === "human.decision.recorded" && asRecord(event.payload)?.["waiting_event_id"] === waiting.waiting_event_id,
         ),
       );
-      // 外部机器验证可能在进程退出前落盘但尚未产生人工决策；恢复时重新启动
-      // 同一 run，让 executor 重新检查 verification-passed，而不是永久停在 waiting_human。
-      const recorded_verification = events.some((event) =>
-        event.type === "verification.completed" && asRecord(event.payload)?.["run_id"] === run.run_id,
-      );
+      let recorded_verification = false;
+      if (is_current) for (const waiting of scanPendingApprovals(events, scope).values()) {
+        const node = versioned.def.spec.nodes.find((item) => item.id === waiting.node_id);
+        const gate = node?.gates.find((item) => item.id === waiting.gate_id);
+        if (node === undefined || gate === undefined) continue;
+        const ids = verificationIds(gate);
+        const has_result = events.some((event) => {
+          if (event.type !== "verification.completed") return false;
+          const parsed = VerificationCompletedPayloadSchema.safeParse(event.payload);
+          return parsed.success && matchesWorkflowScope(parsed.data, scope) && parsed.data.run_id === run.run_id
+            && parsed.data.node_id === node.id && ids.includes(parsed.data.verification_id);
+        });
+        if (!has_result) continue;
+        const evaluated = await this.evaluateRunGate(session, run, versioned.def, node, gate);
+        if (evaluated.evaluation_hash !== waiting.evaluation_hash) {
+          recorded_verification = true;
+          break;
+        }
+      }
       if (!is_current) {
         if (finalStatus !== null) this.index.finishRun(run.run_id, finalStatus, new Date().toISOString(), null);
         continue;
@@ -423,6 +453,8 @@ export class RunService {
         this.index.finishRun(run.run_id, finalStatus, new Date().toISOString(), null);
         continue;
       }
+      const latest = await this.latestRun(run.req_id);
+      if (latest?.run_id !== run.run_id || (latest.status !== "running" && latest.status !== "waiting_human") || this.active.has(run.req_id)) continue;
       this.launch(session, run, versioned.def, new AbortController());
       resumed.push(`${run.req_id}(${run.run_id})`);
     }
@@ -482,7 +514,7 @@ export class RunService {
 
   /** 在后台推进执行器；结束时按事件流投影登记终态并重建账本 */
   private launch(session: SessionHandle, run: RunRow, def: WorkflowDef, controller: AbortController): void {
-    const humanGate = this.createHumanGate(session, run.run_id);
+    const humanGate = this.createHumanGate(session, run, def);
     const { workspaceRoot } = this.options;
     const driverResolver = this.options.driverResolverForRun?.() ?? this.options.driverResolver;
     const executor = createExecutor({
@@ -528,7 +560,7 @@ export class RunService {
    * HumanGate 桥：执行器先落 gate.waiting 事件再调 ask —— ask 时扫事件流找到
    * 当前未决 gate 作为定位键；有暂存决策立即消费，否则挂起 promise 等 REST 决策。
    */
-  private createHumanGate(session: SessionHandle, run_id: string): HumanGate {
+  private createHumanGate(session: SessionHandle, run: RunRow, def: WorkflowDef): HumanGate {
     return {
       ask: async (question: string, options: string[], context): Promise<HumanGateAnswer> => {
         const events = await session.events.readOrdered();
@@ -554,20 +586,50 @@ export class RunService {
         });
         const chosen = asRecord(recorded?.payload)?.["chosen"];
         if (typeof chosen === "string" && options.includes(chosen)) return chosen;
-        return new Promise<HumanGateAnswer>((resolve) => {
-          this.pendingAsks.set(fullKey, {
+        const node = def.spec.nodes.find((item) => item.id === current.node_id);
+        const gate = node?.gates.find((item) => item.id === current.gate_id);
+        const verification_ids = gate === undefined ? [] : verificationIds(gate);
+        let pending_ask!: PendingAsk;
+        const answer = new Promise<HumanGateAnswer>((resolve) => {
+          pending_ask = {
             req_id: session.req_id,
-            run_id,
+            run_id: run.run_id,
             node_id: current.node_id,
             gate_id: current.gate_id,
             waiting_event_id: current.waiting_event_id,
+            verification_ids,
             question,
             options,
             resolve,
-          });
+          };
+          this.pendingAsks.set(fullKey, pending_ask);
         });
+        if (node !== undefined && gate !== undefined && verification_ids.length > 0) {
+          // 先登记挂起者再读事实：早到的结果由本次重检发现，晚到的结果由 recheck 唤醒。
+          try {
+            const evaluated = await this.evaluateRunGate(session, run, def, node, gate);
+            if (evaluated.evaluation_hash !== current.evaluation_hash && this.pendingAsks.get(fullKey) === pending_ask) {
+              this.pendingAsks.delete(fullKey);
+              pending_ask.resolve({ kind: "recheck" });
+            }
+          } catch (error) {
+            if (this.pendingAsks.get(fullKey) === pending_ask) this.pendingAsks.delete(fullKey);
+            throw error;
+          }
+        }
+        return answer;
       },
     };
+  }
+
+  private async evaluateRunGate(session: SessionHandle, run: RunRow, def: WorkflowDef, node: WorkflowDef["spec"]["nodes"][number], gate: GateDef) {
+    const anchors = nodeAnchors(session.req_id, node.artifact);
+    const configuration_hash = node.run === undefined ? null : this.configurationHashFor(session.req_id, node.run.agent);
+    const input_hash = await readApprovalContextHash(def, node, session, configuration_hash, run.workflow_revision ?? undefined);
+    return evaluateGate(gate, createBuiltinRegistry(), {
+      session_dir: session.dir, session, node_id: node.id, run_id: run.run_id,
+      workflow_id: def.metadata.id, workflow_revision: run.workflow_revision ?? undefined, anchors, payload: { anchors },
+    }, input_hash);
   }
 
   async getRun(runId: string): Promise<RunInfo> {
@@ -579,6 +641,11 @@ export class RunService {
   listRuns(reqId?: string): RunInfo[] {
     return this.index.listRuns(reqId).map(runRowToInfo);
   }
+}
+
+function verificationIds(gate: GateDef): string[] {
+  return gate.checks.flatMap((check) => check.ref === "verification-passed" && typeof check.with?.["verification_id"] === "string"
+    ? [check.with["verification_id"]] : []);
 }
 
 /** 节点证据锚点：优先节点产物文档，否则需求 PRD（anchors-present 的事实来源） */

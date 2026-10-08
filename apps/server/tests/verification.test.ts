@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import YAML from "yaml";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp, type BuiltServer } from "@agent-cord/server";
 
 let root: string;
@@ -30,7 +30,7 @@ async function waitFor(check: () => Promise<boolean>, timeoutMs = 10_000): Promi
   }
 }
 
-function workflowYaml(): string {
+function workflowYaml(human_confirm = false): string {
   return YAML.stringify({
     apiVersion: "agent-cord.dev/v1alpha1",
     kind: "Workflow",
@@ -56,7 +56,7 @@ function workflowYaml(): string {
             role: {},
             attach: { node: "verify", when: "post" },
             checks: [{ ref: "verification-passed", with: { verification_id: "unit-tests" } }],
-            pass: { require: "all", human_confirm: false },
+            pass: { require: "all", human_confirm },
             on_fail: "escalate",
           }],
         },
@@ -65,25 +65,46 @@ function workflowYaml(): string {
   });
 }
 
-beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "cord-verification-"));
+async function listen(): Promise<void> {
   server = await buildApp({ root });
   await server.app.listen({ port: 0, host: "127.0.0.1" });
   const address = server.app.server.address();
   if (address === null || typeof address === "string") throw new Error("无法获取监听端口");
   base = `http://127.0.0.1:${address.port}`;
+}
+
+beforeEach(async () => {
+  root = await mkdtemp(join(tmpdir(), "cord-verification-"));
+  await listen();
 });
 
 afterEach(async () => {
+  for (const run of server.runs.listRuns()) {
+    if (server.runs.activeRunId(run.req_id) === run.run_id) await server.runs.cancel(run.run_id);
+  }
   await server.app.close();
   server.index.close();
+  vi.restoreAllMocks();
   await rm(root, { recursive: true, force: true });
 });
 
-async function setupRun(): Promise<{ runId: string; approvalId: string }> {
+async function setupRun(options: { human_confirm?: boolean; before_ask?: () => Promise<void> } = {}): Promise<{ runId: string; approvalId: string }> {
   const created = await api("POST", "/api/v1/requirements", { req_id: "REQ-VERIFY", title: "机器验证", prd: "# PRD\n\n目标：验证机器证据。" }, "create");
   expect(created.status).toBe(201);
-  const published = await api("POST", "/api/v1/sdlcs/machine-verification/versions/publish", { yaml: workflowYaml() }, "publish");
+  if (options.before_ask !== undefined) {
+    const session = await server.sessions.open("REQ-VERIFY");
+    const append = session.events.append.bind(session.events);
+    let paused = false;
+    vi.spyOn(session.events, "append").mockImplementation(async (draft) => {
+      const event = await append(draft);
+      if (!paused && draft.type === "gate.waiting") {
+        paused = true;
+        await options.before_ask!();
+      }
+      return event;
+    });
+  }
+  const published = await api("POST", "/api/v1/sdlcs/machine-verification/versions/publish", { yaml: workflowYaml(options.human_confirm) }, "publish");
   expect(published.status).toBe(201);
   const started = await api("POST", "/api/v1/requirements/REQ-VERIFY/runs", { sdlc_id: "machine-verification", sdlc_version: 1 }, "run");
   expect(started.status).toBe(202);
@@ -94,6 +115,22 @@ async function setupRun(): Promise<{ runId: string; approvalId: string }> {
     return approval !== undefined;
   });
   return { runId: started.body.run.run_id, approvalId: approval.approval_id };
+}
+
+async function restart(): Promise<void> {
+  await server.app.close();
+  server.index.close();
+  await listen();
+}
+
+async function submitVerification(run_id: string, key: string, status = "passed") {
+  const context = await api("GET", `/api/v1/requirements/REQ-VERIFY/runs/${run_id}/nodes/verify/verification-context`);
+  expect(context.status).toBe(200);
+  return api("POST", `/api/v1/requirements/REQ-VERIFY/runs/${run_id}/verifications`, {
+    run_id, node_id: "verify", verification_id: "unit-tests",
+    input_hash: context.body.verification.input_hash, command_hash: "d".repeat(64), status,
+    exit_code: status === "passed" ? 0 : 1,
+  }, key);
 }
 
 describe("结构化机器验证事实", () => {
@@ -167,5 +204,127 @@ describe("结构化机器验证事实", () => {
     await waitFor(async () => (await server.runs.getRun(runId)).status === "completed");
     const events = await server.sessions.readEvents("REQ-VERIFY");
     expect(events.some((event) => event.type === "gate.resolved" && (event.payload as any).node_id === "verify")).toBe(true);
+  });
+
+  it("重启后 CI 才提交验证，恢复原 run 且并发提交不重复启动 executor", async () => {
+    const { runId } = await setupRun();
+    await restart();
+    expect(server.runs.isActive("REQ-VERIFY")).toBe(false);
+    const responses = await Promise.all([
+      submitVerification(runId, "after-restart-a"),
+      submitVerification(runId, "after-restart-b"),
+    ]);
+    expect(responses.map((response) => response.status)).toEqual([200, 200]);
+    await waitFor(async () => (await server.runs.getRun(runId)).status === "completed");
+    expect(server.runs.listRuns("REQ-VERIFY").map((run) => run.run_id)).toEqual([runId]);
+    const events = await server.sessions.readEvents("REQ-VERIFY");
+    expect(events.filter((event) => event.type === "workflow.node.entered" && (event.payload as any).node_id === "verify")).toHaveLength(2);
+    expect(events.filter((event) => event.type === "workflow.node.exited" && (event.payload as any).node_id === "verify")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "human.decision.recorded")).toHaveLength(0);
+  });
+
+  it("结果在 gate.waiting 落盘后、挂起 Promise 建立前到达也可唤醒", async () => {
+    let release!: () => void;
+    const barrier = new Promise<void>((resolve) => { release = resolve; });
+    const { runId } = await setupRun({ before_ask: () => barrier });
+    try {
+      expect((await submitVerification(runId, "before-ask")).status).toBe(200);
+    } finally {
+      release();
+    }
+    await waitFor(async () => (await server.runs.getRun(runId)).status === "completed");
+    expect((await server.sessions.readEvents("REQ-VERIFY")).filter((event) => event.type === "human.decision.recorded")).toHaveLength(0);
+  });
+
+  it("机器通过后仍需人工终审，重启不因已消费验证重新生成审批", async () => {
+    const { runId, approvalId } = await setupRun({ human_confirm: true });
+    expect((await submitVerification(runId, "human-required")).status).toBe(200);
+    let current: any;
+    await waitFor(async () => {
+      current = (await api("GET", "/api/v1/requirements/REQ-VERIFY/approvals")).body.approvals[0];
+      return current?.kind === "human_confirm";
+    });
+    expect(current.approval_id).not.toBe(approvalId);
+    await restart();
+    expect(server.runs.isActive("REQ-VERIFY")).toBe(false);
+    expect((await api("GET", "/api/v1/requirements/REQ-VERIFY/approvals")).body.approvals[0].approval_id).toBe(current.approval_id);
+    expect((await api("POST", `/api/v1/requirements/REQ-VERIFY/approvals/${current.approval_id}/decide`, { choice: "确认放行" }, "human-decision")).status).toBe(200);
+    await waitFor(async () => (await server.runs.getRun(runId)).status === "completed");
+    expect((await server.sessions.readEvents("REQ-VERIFY")).filter((event) => event.type === "human.decision.recorded")).toHaveLength(1);
+  });
+
+  it("同 run 的无关验证不会使当前机器等待或人工审批失效", async () => {
+    const { runId, approvalId } = await setupRun();
+    const context = await api("GET", `/api/v1/requirements/REQ-VERIFY/runs/${runId}/nodes/verify/verification-context`);
+    const response = await api("POST", `/api/v1/requirements/REQ-VERIFY/runs/${runId}/verifications`, {
+      run_id: runId, node_id: "verify", verification_id: "unrelated-lint",
+      input_hash: context.body.verification.input_hash, command_hash: "e".repeat(64), status: "passed", exit_code: 0,
+    }, "unrelated");
+    expect(response.status).toBe(200);
+    expect((await server.sessions.listApprovals("REQ-VERIFY")).map((approval) => approval.approval_id)).toEqual([approvalId]);
+    expect((await server.sessions.readEvents("REQ-VERIFY")).filter((event) => event.type === "gate.invalidated")).toHaveLength(0);
+    expect((await submitVerification(runId, "actual-unit-tests")).status).toBe(200);
+    await waitFor(async () => (await server.runs.getRun(runId)).status === "completed");
+  });
+
+  it("失败结果经重检仍等待，重启不重复消费，新的通过结果可恢复", async () => {
+    const { runId, approvalId } = await setupRun();
+    expect((await submitVerification(runId, "failed-tests", "failed")).status).toBe(200);
+    let failed_approval: any;
+    await waitFor(async () => {
+      failed_approval = (await server.sessions.listApprovals("REQ-VERIFY"))[0];
+      return failed_approval?.approval_id !== approvalId && failed_approval?.reason.includes("=failed");
+    });
+    await restart();
+    expect(server.runs.isActive("REQ-VERIFY")).toBe(false);
+    expect((await server.sessions.listApprovals("REQ-VERIFY"))[0]?.approval_id).toBe(failed_approval.approval_id);
+    expect((await submitVerification(runId, "fixed-tests")).status).toBe(200);
+    await waitFor(async () => (await server.runs.getRun(runId)).status === "completed");
+    const events = await server.sessions.readEvents("REQ-VERIFY");
+    expect(events.filter((event) => event.type === "human.decision.recorded")).toHaveLength(0);
+    expect(events.filter((event) => event.type === "verification.completed").map((event) => (event.payload as any).status)).toEqual(["failed", "passed"]);
+  });
+
+  it("重启后取消等待中的 run，迟到的验证不得写入或恢复 executor", async () => {
+    const { runId } = await setupRun();
+    await restart();
+    const context = await api("GET", `/api/v1/requirements/REQ-VERIFY/runs/${runId}/nodes/verify/verification-context`);
+    expect((await api("POST", `/api/v1/runs/${runId}/cancel`, { reason: "拒绝本轮验证" }, "cancel-wait")).status).toBe(200);
+    expect((await api("POST", `/api/v1/requirements/REQ-VERIFY/runs/${runId}/verifications`, {
+      run_id: runId, node_id: "verify", verification_id: "unit-tests",
+      input_hash: context.body.verification.input_hash, command_hash: "e".repeat(64), status: "passed", exit_code: 0,
+    }, "after-cancel")).status).toBe(409);
+    expect(server.runs.isActive("REQ-VERIFY")).toBe(false);
+    expect((await server.runs.getRun(runId)).status).toBe("cancelled");
+    expect((await server.sessions.readEvents("REQ-VERIFY")).filter((event) => event.type === "verification.completed")).toHaveLength(0);
+  });
+
+  it("验证提交恢复期间取消，启动前读取最新状态且不复活 run", async () => {
+    const { runId } = await setupRun();
+    await restart();
+    let at_launch!: () => void;
+    const reached = new Promise<void>((resolve) => { at_launch = resolve; });
+    let release!: () => void;
+    const barrier = new Promise<void>((resolve) => { release = resolve; });
+    const latest = server.runs.latestRun.bind(server.runs);
+    let calls = 0;
+    vi.spyOn(server.runs, "latestRun").mockImplementation(async (req_id) => {
+      if (++calls === 2) {
+        at_launch();
+        await barrier;
+      }
+      return latest(req_id);
+    });
+    const submission = submitVerification(runId, "cancel-during-recovery");
+    try {
+      await reached;
+      expect((await api("POST", `/api/v1/runs/${runId}/cancel`, { reason: "恢复期间取消" }, "cancel-recovery")).status).toBe(200);
+    } finally {
+      release();
+    }
+    expect((await submission).status).toBe(200);
+    expect(server.runs.isActive("REQ-VERIFY")).toBe(false);
+    expect((await server.runs.getRun(runId)).status).toBe("cancelled");
+    expect((await server.sessions.readEvents("REQ-VERIFY")).filter((event) => event.type === "workflow.node.entered" && (event.payload as any).node_id === "verify")).toHaveLength(1);
   });
 });
