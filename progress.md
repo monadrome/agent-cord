@@ -10,6 +10,7 @@
 - 真实 Claude 第二轮同样 ok/current，引用三个 B 尾部标记；重启不变有效、尾部更新使旧轮次失效，新会话 ID 不同。无工具/worker/人工决定/节点退出，审批 ID 不变，原文保持不变，doctor=true。实际证据仅在隔离临时目录，公开研究记录同步。
 - 原真实 Draft 实时核验仍 health=true、审批 1、人工决定 0、done 未退出。阶段 32 进入差异审查、提交与有界推送。
 - 已启动只读查看预览 `http://127.0.0.1:7309/#/requirements/REQ-CONTEXT-COVERAGE/coordination`；实时 HTTP 核验最新 B 轮 current=true、旧 A 轮 false、人工待审数 1、人工决定 0。
+- 功能提交 `e5b11da`；有界 HTTP/1.1 推送返回 curl 28（低于 1 bytes/sec 持续 15 秒）、sideband 断连及退出码 1，伴随 Everything up-to-date 不视为成功。远端核验因 10 秒低速失败，保留本地提交待后续同步；持续目标保持 active。
 
 ## 2026-10-08（阶段 31）
 
