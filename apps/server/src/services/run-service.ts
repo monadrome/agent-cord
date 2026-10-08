@@ -95,6 +95,7 @@ export class RunService {
   private readonly decided = new Map<string, string>();
   private readonly decision_queue = new Map<string, Promise<unknown>>();
   private recovery_queue: Promise<unknown> = Promise.resolve();
+  private closing = false;
 
   constructor(sessions: SessionService, sdlcs: SdlcService, index: IndexStore, options: RunServiceOptions = {}) {
     this.sessions = sessions;
@@ -111,8 +112,18 @@ export class RunService {
     return this.active.get(reqId)?.run_id ?? null;
   }
 
+  /** 关闭仅收束执行体，不改变用户取消/人工决定事实，终态由重启恢复判定。 */
+  async close(): Promise<void> {
+    this.closing = true;
+    const active = [...this.active.values()];
+    for (const run of active) run.controller.abort();
+    await Promise.all(active.map((run) => run.promise));
+    await this.recovery_queue.catch(() => undefined);
+  }
+
   /** 验证事实只唤醒引用它的 gate；重启后的等待恢复原 run，不另建身份。 */
   async recheck(runId: string, node_id: string, verification_id: string): Promise<void> {
+    if (this.closing) return;
     const run = this.index.getRun(runId);
     if (run === null) throw notFound(`run 不存在：${runId}`);
     if (!this.active.has(run.req_id)) await this.recover(runId);
@@ -166,6 +177,7 @@ export class RunService {
 
   /** 启动（或恢复）某需求的 run；绑定具体 SDLC 版本（ADR-0022 决策 4） */
   async start(reqId: string, sdlcId?: string, sdlcVersion?: number, guard?: RunStartGuard): Promise<RunInfo> {
+    if (this.closing) throw conflict("服务正在关闭，不能启动 run");
     if (this.active.has(reqId)) {
       throw conflict(`需求 ${reqId} 已有在途 run（${this.active.get(reqId)?.run_id}），等待其结束或人工处理`);
     }
@@ -276,6 +288,7 @@ export class RunService {
    * 返回写入的事件 id。
    */
   decide(reqId: string, approvalId: string, choice: string): Promise<{ event_id: string }> {
+    if (this.closing) return Promise.reject(conflict("服务正在关闭，不能提交人工决定"));
     const prior = this.decision_queue.get(reqId) ?? Promise.resolve();
     const operation = prior.catch(() => undefined).then(() => this.decideCurrent(reqId, approvalId, choice));
     this.decision_queue.set(reqId, operation);
@@ -378,6 +391,7 @@ export class RunService {
 
   /** 启动时恢复：登记为 running 但进程已死的 run，按事件流投影修正或续跑（ADR-0021 注意点 4） */
   recover(run_id?: string): Promise<string[]> {
+    if (this.closing) return Promise.resolve([]);
     const operation = this.recovery_queue.catch(() => undefined).then(() => this.recoverCurrent(run_id));
     this.recovery_queue = operation.catch(() => undefined);
     return operation;
@@ -397,6 +411,7 @@ export class RunService {
     }
     const resumed: string[] = [];
     for (const run of this.index.listRuns()) {
+      if (this.closing) break;
       if (run_id !== undefined && run.run_id !== run_id) continue;
       if (this.active.has(run.req_id)) continue;
       if (run.status !== "running" && run.status !== "waiting_human") continue;
@@ -437,6 +452,7 @@ export class RunService {
         }
       }
       const finalStatus = this.computeFinalStatus(events, versioned.def, run.run_id, run.workflow_revision);
+      if (this.closing) break;
       const recorded_decision = [...scanPendingApprovals(events, scope).values()].some((waiting) =>
         waiting.workflow_id === versioned.def.metadata.id && events.some((event) =>
           event.type === "human.decision.recorded" && asRecord(event.payload)?.["waiting_event_id"] === waiting.waiting_event_id,
@@ -491,6 +507,7 @@ export class RunService {
 
   /** 终态登记：索引是派生簿记，关闭后（进程退出窗口）登记失败不影响事件流事实 */
   private safeFinish(runId: string, status: RunStatus, error: string | null): void {
+    if (this.closing) return;
     try {
       this.index.finishRun(runId, status, new Date().toISOString(), error);
     } catch {
@@ -542,6 +559,7 @@ export class RunService {
 
   /** 在后台推进执行器；结束时按事件流投影登记终态并重建账本 */
   private launch(session: SessionHandle, run: RunRow, def: WorkflowDef, controller: AbortController): void {
+    if (this.closing) return;
     const humanGate = this.createHumanGate(session, run, def);
     const { workspaceRoot } = this.options;
     const driverResolver = this.options.driverResolverForRun?.() ?? this.options.driverResolver;
@@ -559,6 +577,7 @@ export class RunService {
             nodeRunner: createNodeRunner(def, {
               resolveDriver: driverResolver,
               workspaceRoot,
+              read_source_hash: async (node) => (await readVerificationSource(workspaceRoot, verificationSourceInputs(node))).source_hash,
             }),
           }
         : {}),
@@ -592,6 +611,7 @@ export class RunService {
     return {
       ask: async (question: string, options: string[], context): Promise<HumanGateAnswer> => {
         const events = await session.events.readOrdered();
+        if (this.closing) return { kind: "recheck" };
         const pending = scanPendingApprovals(events);
         const current = context === undefined ? [...pending.values()].find((info) => info.question === question) :
           [...pending.values()].find((info) => info.waiting_event_id === context.waiting_event_id);

@@ -13,9 +13,11 @@ export function executionInputHash(
   snapshot: RequirementSnapshot,
   max_pack_chars = 60_000,
   agent_configuration_hash: string | null = null,
+  source_hash: string | null = null,
 ): string {
   return sha256Hex(canonicalJson({
-    domain: "cord.execution-input.v2",
+    domain: source_hash === null ? "cord.execution-input.v2" : "cord.execution-input.v3",
+    ...(source_hash === null ? {} : { source_hash }),
     agent_configuration_hash,
     workflow: def,
     ...(snapshot.workflow_revision !== undefined ? { workflow_revision: snapshot.workflow_revision } : {}),

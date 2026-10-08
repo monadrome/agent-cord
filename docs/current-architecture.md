@@ -85,6 +85,8 @@ Workflow 定义是 `agent-cord.dev/v1alpha1 / Workflow` YAML。加载时检查 s
 
 worker 权限与产物通道可分别声明：readonly+output=text 让 worker 只读核验，返回完整报告，由 coordinator 原子代写节点 artifact；旧 readonly/auto 行为不变。文本模式观察到 artifact 变化即失败并保留当前文件，不把外部写入当成功。checkpoint 将报告视为输出，验证其完成后 hash 与写入证据，后置 gate/人工审批继续控制推进（ADR-0038）。examples/development-sdlc.yaml 提供计划/实现/只读评审/人工终审的隔离开发 Draft 流程。
 
+只读 worker 声明验证 inputs 时，宿主把同一源码摘要注入协调器；执行身份和任务 source_hash 共同保证未退出报告仍对应当前代码。写回前重新扫描摘要，在途变化或读失败记 failed/snapshot，不能把旧结论代写成新报告。可写 worker 的源码产出不应用此只读规则（ADR-0042）。
+
 真实隔离检出已验证计划、实现 Draft、超时后的同版本恢复、只读报告写回与人工 gate 挂起；宿主新增目标57/完整库615通过，模型只读环境的测试临时目录写限制在报告中保留，不把报告生成ok当作测试通过。详情见 [真实开发验收](./research/2026-10-07-development-draft-workflow.md)。机器验证事实已可通过 `verification.completed` + 当前输入 hash 接入 gate；人工批准/合入与异构模型验证仍未完成。
 
 每个节点边界检查取消信号：run 取消先落 `workflow.run.cancelled`（事实），再 abort 执行器——信号经 NodeRunContext → AgentTask 透传到 driver，driver 杀进程树并关闭事件流；人工 gate 挂起处与 abort 竞速，取消不落 `gate.resolved` 假判定。取消后该 run 的未决 gate 从审批投影移除，重新 start 即断点续跑。

@@ -3,7 +3,7 @@
  * 人工挂起唤醒 / agent 子进程收束；幂等重取消；取消后审批失效；重启 run 可恢复。
  * fake agent = tests/driver/fixtures/fake-cli.mjs（--sleep 模拟长时间任务，不打网络）。
  */
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -94,6 +94,31 @@ afterEach(async () => {
 });
 
 describe("run 取消（ADR-0025）", () => {
+  it("server 关闭时清理活跃 worker，保留未完成 run 且不写用户取消事实", async () => {
+    const pid_file = join(root, "agent.pid");
+    await writeFile(join(root, "cord", "agents.yaml"), JSON.stringify({ agents: {
+      slow: { kind: "headless", bin: process.execPath, args: [fixture, "--mode", "claude", "--sleep", "60000", "--pid-file", pid_file, "{{prompt}}"] },
+    } }));
+    await server.agents.reload();
+    await server.sessions.create("REQ-SHUTDOWN", "关闭 worker", "# PRD\n关闭时保留可恢复事实。");
+    await server.sdlcs.publish("slow-sdlc", SLOW_AGENT_SDLC);
+    const run = await server.runs.start("REQ-SHUTDOWN", "slow-sdlc", 1);
+    let pid: number | undefined;
+    await waitFor(async () => {
+      try { pid = Number(await readFile(pid_file, "utf8")); return Number.isInteger(pid) && pid > 0; }
+      catch { return false; }
+    });
+    await server.app.close();
+    expect(server.runs.isActive("REQ-SHUTDOWN")).toBe(false);
+    expect(() => process.kill(pid!, 0)).toThrow();
+    const events = await server.sessions.readEvents("REQ-SHUTDOWN");
+    expect(events.filter((event) => event.type === "workflow.run.cancelled")).toHaveLength(0);
+    expect(events.filter((event) => event.type === "human.decision.recorded")).toHaveLength(0);
+    expect(events.filter((event) => event.type === "agent.task.completed").at(-1)?.payload).toMatchObject({ status: "cancelled" });
+    expect((await server.runs.getRun(run.run_id)).status).toBe("running");
+    expect(events.some((event) => event.type === "workflow.node.exited" && (event.payload as any).node_id === "done")).toBe(false);
+  });
+
   it("取消等待人工的 run：事件落盘、终态 cancelled、审批失效、重取消幂等", async () => {
     // 默认 simple-sdlc 跑到 review 人工 gate
     await api("POST", "/api/v1/requirements", {

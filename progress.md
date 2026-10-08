@@ -148,6 +148,16 @@
 - 新增启动失败反例定位到声明源码缺失令 recovery 抛错；保留该 run 等待、健康服务可用且审批/提交 409，修复后重新验证恢复。
 - 最终全量 619 测试 / 53 文件、build:all、typecheck 和 diff 检查通过；本轮没有修改控制台，不需要重跑 UI 截图。公开记录 docs/research/2026-10-08-verification-source-identity.md。
 
+## 阶段 28：只读 worker 源码新鲜度（已实现并验证）
+
+- ADR-0042 先行，6 个核心反例先复现旧评审复用、在途报告写回及不可读摘要未阻断。
+- 已增加只读源码摘要钩子、绑定时 v3 执行身份和任务 source_hash，恢复重新核验摘要与 provenance，写回前重检；可写节点和无绑定节点保持原规则。
+- 核心/server 定向 14 用例通过，包含真实子进程的同源码复用、源码变化重启、在途变化不写报告与恢复。typecheck 和根构建通过。
+- 补充取消期间重检、任意异常 fail-closed、缺失 source provenance 拒绝和人工等待期间源码变更再评审回归。
+- 首轮全量 631/632 通过，源码缺失重启用例暴露 app.close 未收束旧 runner 的竞态；独立关闭回归先复现活跃 map 保持 true。新增 RunService.close 与 onClose 桥接，等待执行体收束且不把关闭记为用户取消，相关 36 定向测试通过。
+- 活跃 fixture worker 的 PID 回收测试通过。冷重启用例的代码变更改在 app.close 完成之后执行，避免混用关闭前的 live 输入变化与冷恢复时序；在途变化仍由独立失败/恢复用例覆盖。
+- 最终全量 634 测试 / 54 文件、build:all、typecheck、diff 检查通过。10 个核心源码新鲜度回归与真实 fixture 子进程覆盖恢复、失败、取消和关闭；本轮没有调用新模型或处理真实人工审批。
+
 ## 阶段 22：机器验证 run 级隔离（已实现并验证）
 
 - [x] 将 `run_id` 注入 workflow CheckerContext

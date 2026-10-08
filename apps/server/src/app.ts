@@ -91,7 +91,10 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
   await runInit(root);
   await sdlcs.ensureDefaults();
   await coordination.recover();
-  app.addHook("onClose", () => coordination.close());
+  app.addHook("onClose", async () => {
+    await runs.close();
+    await coordination.close();
+  });
   const resumed = await runs.recover();
   if (resumed.length > 0) app.log.info(`恢复未完成的 run：${resumed.join(", ")}`);
 

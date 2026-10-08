@@ -16,6 +16,8 @@
 
 验证 checker 的 `with.inputs` 声明工作区相对文件/目录，例如 `[src, apps, tests, package.json]`。同节点取输入并集，context 返回 `source_inputs/source_hash`；文件内容、增删、类型和权限变化都会改变 `input_hash`。先取 context，再执行测试，再提交原 hash；不得在测试后取新 hash 冒称测试针对新代码。目录内的 `.git`、`cord`、`.index`、`.sdlc`、`node_modules` 和 `dist` 排除；直接声明这些路径、链接、硬链接、缺失文件或超限范围拒绝。依赖版本应声明 lockfile。未声明 inputs 只验证文档/流程，不证明代码相同。
 
+readonly worker 也绑定同节点声明范围的 source_hash：源码不变的报告可恢复复用，源码变化后重新派发评审；运行期间源码变化时报告不写回，保留失败事实再基于新输入恢复。可写实现 worker 的正常代码产出不应用这个只读规则。未声明范围的只读节点仍只有文档/配置身份。
+
 ```bash
 curl -X POST http://127.0.0.1:7250/api/v1/sdlcs/agent-example/versions/publish \
   -H 'Idempotency-Key: publish-agent-example-1' -H 'Content-Type: application/json' \

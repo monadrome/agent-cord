@@ -59,6 +59,8 @@ export interface CoordinatorOptions {
   maxPackChars?: number;
   /** agent.task.completed.text 上限（默认 32KB，防事件流膨胀） */
   maxResultChars?: number;
+  /** ADR-0042：宿主声明的只读源码摘要；可写节点不读取此钩子。 */
+  read_source_hash?: (node: WorkflowNode) => Promise<string | null>;
 }
 
 interface ArtifactSettle {
@@ -119,6 +121,14 @@ function truncate(text: string, maxChars: number): string {
 }
 
 export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions): NodeRunner {
+  const read_source_hash = async (node: WorkflowNode): Promise<string | null> => {
+    if (node.run?.readonly !== true || options.read_source_hash === undefined) return null;
+    const hash = await options.read_source_hash(node);
+    if (hash !== null && (typeof hash !== "string" || !/^[0-9a-f]{64}$/.test(hash))) {
+      throw new SessionFileError("worker 源码摘要必须是小写 SHA-256 或 null");
+    }
+    return hash;
+  };
   const append = async (
     session: SessionHandle,
     type: "agent.task.started" | "agent.task.completed",
@@ -149,7 +159,9 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
         files: [...def.spec.nodes, node].flatMap((item) => item.artifact === undefined ? [] : [item.artifact]),
       });
       const driver = options.resolveDriver(node.run?.agent ?? "");
-      if (executionInputHash(def, node, snapshot, options.maxPackChars, driver.configuration_hash ?? null) !== payload["execution_input_hash"]) return false;
+      const source_hash = await read_source_hash(node);
+      if (source_hash !== null && payload["source_hash"] !== source_hash) return false;
+      if (executionInputHash(def, node, snapshot, options.maxPackChars, driver.configuration_hash ?? null, source_hash) !== payload["execution_input_hash"]) return false;
       if (node.artifact !== undefined) {
         const current = snapshot.docs.find((doc) => doc.file === node.artifact);
         if (payload["artifact_after_hash"] !== current?.content_hash) return false;
@@ -208,6 +220,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
     let snapshotFields: Record<string, unknown> = {};
     let artifact_fields: Record<string, unknown> = {};
     let artifact_before_hash: string | null = null;
+    let source_hash: string | null = null;
     const complete = async (
       status: NodeRunStatus,
       fields: Record<string, unknown>,
@@ -263,6 +276,8 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
         snapshot_event_seq: snapshot.event_seq,
         snapshot_event_chain_hash: snapshot.event_chain_hash,
       };
+      source_hash = await read_source_hash(node);
+      if (source_hash !== null) snapshotFields["source_hash"] = source_hash;
       if (node.artifact !== undefined) {
         artifact_before_hash = snapshot.docs.find((doc) => doc.file === node.artifact)?.content_hash ?? null;
         artifact_fields = { artifact_before_hash };
@@ -270,6 +285,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
       prompt = buildContextPack(def, node, snapshot, {
         ...(options.maxPackChars !== undefined ? { maxPackChars: options.maxPackChars } : {}),
       });
+      if (source_hash !== null) prompt += `\n\n## 源码输入身份\nsource_hash: ${source_hash}\n报告必须依据本次只读源码输入；完成后协调层会重新核验源码摘要。`;
       if (previousError !== null) {
         prompt += `\n\n## 上次尝试失败（第 ${attempt - 1} 次）\n${truncate(previousError, 2_000)}\n请避开同一失败模式。`;
       }
@@ -298,7 +314,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
       return complete("failed", { error: `驱动解析失败：${reason}`, text: "", failure_stage: "configuration", retryable: false });
     }
 
-    snapshotFields["execution_input_hash"] = executionInputHash(def, node, snapshot!, options.maxPackChars, driver.configuration_hash ?? null);
+    snapshotFields["execution_input_hash"] = executionInputHash(def, node, snapshot!, options.maxPackChars, driver.configuration_hash ?? null, source_hash);
     if (driver.configuration_hash !== undefined) snapshotFields["agent_configuration_hash"] = driver.configuration_hash;
     await started(driver.name);
 
@@ -374,6 +390,28 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
         failure_stage: "driver",
         retryable: true,
       });
+    }
+
+    if (source_hash !== null) {
+      let source_failure: { error: unknown } | null = null;
+      try {
+        if (await read_source_hash(node) !== source_hash) {
+          throw new SessionFileError("worker 执行期间声明源码已变化，报告不得作为当前产物写回，请基于新输入重新执行");
+        }
+      } catch (error) { source_failure = { error }; }
+      if (ctx.signal?.aborted) {
+        return complete("cancelled", { error: "源码重检期间 run 已取消", text: truncate(text, options.maxResultChars ?? DEFAULT_MAX_RESULT_CHARS),
+          artifact: node.artifact ?? null, artifact_written: false, written_by: "none", agent_session_id: agentSessionId, usage, retryable: false });
+      }
+      if (source_failure !== null) {
+        const error = source_failure.error;
+        return complete("failed", {
+          error: `源码输入重检失败：${error instanceof Error ? error.message : String(error)}`,
+          text: truncate(text, options.maxResultChars ?? DEFAULT_MAX_RESULT_CHARS),
+          artifact: node.artifact ?? null, artifact_written: false, written_by: "none", agent_session_id: agentSessionId, usage,
+          failure_stage: "snapshot", retryable: !(error instanceof SessionFileError),
+        });
+      }
     }
 
     // 4. artifact 写回校验（双通道）

@@ -469,6 +469,8 @@ export const AgentTaskStartedPayloadSchema = z.looseObject({
   output: z.enum(["auto", "text"]).optional(),
   execution_input_hash: z.string().length(64).optional(),
   agent_configuration_hash: z.string().length(64).optional(),
+  /** ADR-0042：只读 worker 声明的源码输入摘要。 */
+  source_hash: z.string().length(64).optional(),
   /** ADR-0029：派发时 artifact 的完整内容 hash，不存在为 null */
   artifact_before_hash: z.string().length(64).nullable().optional(),
   prompt_excerpt: z.string().optional(),
@@ -502,6 +504,7 @@ export const AgentTaskCompletedPayloadSchema = z.looseObject({
   output: z.enum(["auto", "text"]).optional(),
   execution_input_hash: z.string().length(64).optional(),
   agent_configuration_hash: z.string().length(64).optional(),
+  source_hash: z.string().length(64).optional(),
   status: z.enum(["ok", "failed", "timeout", "cancelled"]),
   /** ADR-0028：失败阶段与本次失败是否允许节点内重试 */
   failure_stage: z.enum(["snapshot", "configuration", "driver", "artifact"]).optional(),
