@@ -98,6 +98,8 @@ export interface CheckerContext {
   session_dir: string;
   workflow_id?: string;
   workflow_revision?: string;
+  /** 当前 workflow run 身份；机器验证事实不得跨 run 复用。 */
+  run_id?: string;
   /** 当前门禁输入指纹；机器验证 checker 用它拒绝过期结果。 */
   input_hash?: string;
   anchors: Anchor[];

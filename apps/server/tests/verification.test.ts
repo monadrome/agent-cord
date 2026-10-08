@@ -126,6 +126,7 @@ describe("结构化机器验证事实", () => {
     expect(events.body.events.filter((event: any) => event.type === "verification.completed")).toHaveLength(1);
     const resolved = events.body.events.find((event: any) => event.type === "gate.resolved" && event.payload.node_id === "verify");
     expect(resolved.payload.checks[0]).toMatchObject({ ref: "verification-passed", result: "pass" });
+    expect(events.body.events.find((event: any) => event.type === "verification.completed").payload.run_id).toBe(runId);
   });
 
   it("需求输入变化后拒绝旧 verification hash，且不写入事实", async () => {

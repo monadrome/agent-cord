@@ -471,6 +471,7 @@ export class RunService {
     const { workspaceRoot } = this.options;
     const driverResolver = this.options.driverResolverForRun?.() ?? this.options.driverResolver;
     const executor = createExecutor({
+      run_id: run.run_id,
       workflow_revision: run.workflow_revision ?? undefined,
       humanGate,
       gateInputHash: (node) => readApprovalContextHash(def, node, session,

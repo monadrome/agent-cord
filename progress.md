@@ -109,6 +109,13 @@
 - 两轮 `input_hash`、`snapshot_id`、`agent_session_id` 均不同；事件流没有 `workflow.node.*` 或 `agent.task.*`。
 - 真实证据记录于 `docs/research/2026-10-08-real-claude-acp-coordination.md`；开发 Draft 的人工 gate、人工批准、合入和异构评审仍未完成。
 
+## 阶段 22：机器验证 run 级隔离（已实现并验证）
+
+- [x] 将 `run_id` 注入 workflow CheckerContext
+- [x] `verification-passed` 强制匹配当前 run，拒绝同输入旧 run 事实
+- [x] 补充核心 checker 与 server 事件回归
+- [x] 同步 ADR-0040 和协议说明
+
 ## 2026-09-25
 
 - 按交接文档 `/tmp/agent-cord-handoff.KcQZOB/KIMI_HANDOFF.md` 执行实现；保留工作区未提交改动（事件协议增强 + merge driver）。

@@ -71,6 +71,8 @@ export class WorkflowCycleError extends WorkflowDefinitionError {
 export interface ExecutorOptions {
   /** ADR-0034：宿主固定的执行版本；缺省为无版本兼容模式。 */
   workflow_revision?: string;
+  /** 当前 workflow run 身份；验证 checker 用于隔离同输入的不同 run。 */
+  run_id?: string;
   /** 门禁等待人工时的选择题通道（M2: CLI；M3: 飞书） */
   humanGate: HumanGate;
   /** 固定注册表（跨 session 复用）；未提供时按 `registryFor` / 内置注册表构造 */
@@ -130,6 +132,7 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
           const ctx: CheckerContext = {
             session_dir: session.dir,
             ...scope,
+            ...(options.run_id !== undefined ? { run_id: options.run_id } : {}),
             anchors: extractAnchors(payload),
             payload,
             node_id: nodeId,

@@ -15,7 +15,7 @@
 
 1. 宿主或 CI 通过 REST 获取指定 run/node 的当前 verification context，再提交验证摘要。服务端重算当前 `input_hash`；提交携带旧指纹时返回 409，不写入事件。
 2. 事件只保存验证 ID、状态、命令摘要 hash、输入 hash、退出码、耗时、stdout/stderr hash 和短摘要；不保存输出正文、凭据或任意命令参数。
-3. checker 只接受当前 workflow scope、当前节点、指定 verification ID、最新状态为 `passed` 且 `input_hash` 与当前 gate 输入指纹相同的事件。缺少输入指纹、读失败、旧结果和失败状态均 block。
+3. checker 只接受当前 workflow scope、当前 run、当前节点、指定 verification ID、最新状态为 `passed` 且 `input_hash` 与当前 gate 输入指纹相同的事件。缺少 run/input 指纹、读失败、旧结果和失败状态均 block。
 4. REST 写入口使用统一 `Idempotency-Key`；同键重放返回同一事件结果。事件事实仍是唯一来源，控制台可通过普通事件流观察。
 
 ## 取舍
@@ -27,4 +27,4 @@
 - `src/core/schema.ts` 固化事件类型和 payload。
 - `src/workflow/checkers.ts` 实现 hash 绑定的 fail-closed checker。
 - `apps/server/src/app.ts` 提供 context/read 与 idempotent record REST API。
-- `apps/server/tests/verification.test.ts` 覆盖成功消费、幂等重放和输入变化 409。
+- `apps/server/tests/verification.test.ts` 覆盖成功消费、幂等重放和输入变化 409；workflow checker 回归覆盖不同 run 的同输入事实不能复用。

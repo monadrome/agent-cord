@@ -387,11 +387,12 @@ export function createVerificationPassedChecker(): Checker {
       const parsed = parseParams("verification-passed", VerificationPassedParams, ctx);
       if (!parsed.ok) return parsed.result;
       if (ctx.input_hash === undefined) return block("缺少当前门禁输入指纹，不能验证机器结果（fail-closed）");
-      if (ctx.workflow_id === undefined || ctx.node_id === undefined) {
-        return block("机器验证必须绑定 workflow_id 与 node_id（fail-closed）");
+      if (ctx.workflow_id === undefined || ctx.node_id === undefined || ctx.run_id === undefined) {
+        return block("机器验证必须绑定 workflow_id、run_id 与 node_id（fail-closed）");
       }
       const workflow_id = ctx.workflow_id;
       const node_id = ctx.node_id;
+      const run_id = ctx.run_id;
       let events: EventEnvelope[];
       try {
         events = await readEventsForCheck(ctx);
@@ -405,6 +406,7 @@ export function createVerificationPassedChecker(): Checker {
         const value = payload as Record<string, unknown>;
         return matchesWorkflowScope(value, { workflow_id, workflow_revision: ctx.workflow_revision })
           && value["node_id"] === node_id
+          && value["run_id"] === run_id
           && value["verification_id"] === parsed.params.verification_id
           && (!parsed.params.within_node || event.correlation_id === node_id);
       });

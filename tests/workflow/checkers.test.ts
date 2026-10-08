@@ -256,13 +256,13 @@ describe("verification-passed", () => {
     "verification.completed",
     "verify",
     1,
-    { workflow_id: "wf", node_id: "verify", verification_id: "unit-tests", input_hash: hash, command_hash, status },
+    { workflow_id: "wf", run_id: "01ARZ3NDEKTSV4RRFFQ69G5F01", node_id: "verify", verification_id: "unit-tests", input_hash: hash, command_hash, status },
   );
 
   it("只接受当前输入指纹且状态为 passed 的宿主事实", async () => {
     const result = await createVerificationPassedChecker().check(ctx(
       { verification_id: "unit-tests" },
-      { session: fakeSessionWithEvents([verification("passed")]), workflow_id: "wf", node_id: "verify", input_hash },
+      { session: fakeSessionWithEvents([verification("passed")]), workflow_id: "wf", run_id: "01ARZ3NDEKTSV4RRFFQ69G5F01", node_id: "verify", input_hash },
     ));
     expect(result.result).toBe("pass");
   });
@@ -271,19 +271,27 @@ describe("verification-passed", () => {
     const checker = createVerificationPassedChecker();
     const stale = await checker.check(ctx(
       { verification_id: "unit-tests" },
-      { session: fakeSessionWithEvents([verification("passed", "c".repeat(64))]), workflow_id: "wf", node_id: "verify", input_hash },
+      { session: fakeSessionWithEvents([verification("passed", "c".repeat(64))]), workflow_id: "wf", run_id: "01ARZ3NDEKTSV4RRFFQ69G5F01", node_id: "verify", input_hash },
     ));
     expect(stale.result).toBe("block");
     const failed = await checker.check(ctx(
       { verification_id: "unit-tests" },
-      { session: fakeSessionWithEvents([verification("failed")]), workflow_id: "wf", node_id: "verify", input_hash },
+      { session: fakeSessionWithEvents([verification("failed")]), workflow_id: "wf", run_id: "01ARZ3NDEKTSV4RRFFQ69G5F01", node_id: "verify", input_hash },
     ));
     expect(failed.result).toBe("block");
     const missing = await checker.check(ctx(
       { verification_id: "unit-tests" },
-      { session: fakeSessionWithEvents([verification("passed")]), workflow_id: "wf", node_id: "verify" },
+      { session: fakeSessionWithEvents([verification("passed")]), workflow_id: "wf", run_id: "01ARZ3NDEKTSV4RRFFQ69G5F01", node_id: "verify" },
     ));
     expect(missing.result).toBe("block");
+  });
+
+  it("不同 run 的同输入验证事实不能复用", async () => {
+    const result = await createVerificationPassedChecker().check(ctx(
+      { verification_id: "unit-tests" },
+      { session: fakeSessionWithEvents([verification("passed")]), workflow_id: "wf", run_id: "01ARZ3NDEKTSV4RRFFQ69G5F02", node_id: "verify", input_hash },
+    ));
+    expect(result.result).toBe("block");
   });
 });
 
