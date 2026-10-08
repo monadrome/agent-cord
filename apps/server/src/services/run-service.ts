@@ -14,6 +14,8 @@ import {
   createBuiltinRegistry,
   evaluateGate,
   readApprovalContextHash,
+  canonicalJson,
+  sha256Hex,
   CoordinatorRoundAdoptedPayloadSchema,
   CoordinatorRoundRequestedPayloadSchema,
   WorkflowRunStartedPayloadSchema,
@@ -33,6 +35,7 @@ import { conflict, notFound } from "../errors.js";
 import { runRowToInfo, type IndexStore, type RunRow } from "./index-store.js";
 import { decodeApprovalId, scanPendingApprovals, type SessionService } from "./session-service.js";
 import { DEFAULT_SDLC_ID, type SdlcService } from "./sdlc-service.js";
+import { readVerificationSource, verificationSourceInputs, VerificationInputError } from "./verification-inputs.js";
 
 interface PendingAsk {
   req_id: string;
@@ -128,6 +131,23 @@ export class RunService {
       ?? this.options.driverResolver;
     if (resolver === undefined) return null;
     return resolver(agentName).configuration_hash ?? null;
+  }
+
+  /** 验证 context、gate、人工审批与恢复共用同一输入身份。 */
+  async readNodeInput(def: WorkflowDef, node: WorkflowDef["spec"]["nodes"][number], session: SessionHandle, configuration_hash: string | null, workflow_revision?: string) {
+    const inputs = verificationSourceInputs(node);
+    if (inputs.length > 0 && this.options.workspaceRoot === undefined) throw new VerificationInputError("声明源码输入需要验证工作区根目录");
+    let source;
+    try { source = await readVerificationSource(this.options.workspaceRoot ?? "", inputs); }
+    catch (error) {
+      if (error instanceof VerificationInputError) throw error;
+      throw new VerificationInputError("无法读取声明的验证输入，请检查工作区文件与访问权限");
+    }
+    const context_hash = await readApprovalContextHash(def, node, session, configuration_hash, workflow_revision);
+    const input_hash = source.source_hash === null ? context_hash : sha256Hex(canonicalJson({
+      domain: "cord.verification-input.v1", context_hash, ...source,
+    }));
+    return { input_hash, ...source };
   }
 
   /** 当前绑定按启动事实的因果顺序确定；没有新协议事实时只读旧操作登记。 */
@@ -295,10 +315,7 @@ export class RunService {
     if (node === undefined || gate === undefined) throw conflict("绑定流程中找不到当前审批，拒绝记录决策");
     let current_hash: string;
     try {
-      const anchors = nodeAnchors(reqId, node.artifact);
-      const resolver = this.active.get(reqId)?.driverResolver ?? this.options.driverResolverForRun?.() ?? this.options.driverResolver;
-      const config_hash = node.run !== undefined ? resolver?.(node.run.agent).configuration_hash ?? null : null;
-      const evaluated = await evaluateGate(gate, createBuiltinRegistry(), { session_dir: session.dir, session, node_id: node.id, anchors, payload: { anchors }, workflow_id: waiting.workflow_id, workflow_revision: waiting.workflow_revision, run_id: latest.run_id }, await readApprovalContextHash(versioned.def, node, session, config_hash, waiting.workflow_revision));
+      const evaluated = await this.evaluateRunGate(session, latest, versioned.def, node, gate);
       current_hash = evaluated.evaluation_hash;
     } catch {
       throw conflict("无法验证当前审批依据，拒绝记录放行，请先修复输入");
@@ -426,6 +443,7 @@ export class RunService {
         ),
       );
       let recorded_verification = false;
+      let verification_unavailable = false;
       if (is_current) for (const waiting of scanPendingApprovals(events, scope).values()) {
         const node = versioned.def.spec.nodes.find((item) => item.id === waiting.node_id);
         const gate = node?.gates.find((item) => item.id === waiting.gate_id);
@@ -438,14 +456,24 @@ export class RunService {
             && parsed.data.node_id === node.id && ids.includes(parsed.data.verification_id);
         });
         if (!has_result) continue;
-        const evaluated = await this.evaluateRunGate(session, run, versioned.def, node, gate);
-        if (evaluated.evaluation_hash !== waiting.evaluation_hash) {
-          recorded_verification = true;
+        try {
+          const evaluated = await this.evaluateRunGate(session, run, versioned.def, node, gate);
+          if (evaluated.evaluation_hash !== waiting.evaluation_hash) {
+            recorded_verification = true;
+            break;
+          }
+        } catch (error) {
+          if (!(error instanceof VerificationInputError)) throw error;
+          verification_unavailable = true;
           break;
         }
       }
       if (!is_current) {
         if (finalStatus !== null) this.index.finishRun(run.run_id, finalStatus, new Date().toISOString(), null);
+        continue;
+      }
+      if (verification_unavailable) {
+        this.index.setRunStatus(run.run_id, "waiting_human");
         continue;
       }
       if (run.status === "waiting_human" && !recorded_decision && !recorded_verification) continue;
@@ -521,8 +549,8 @@ export class RunService {
       run_id: run.run_id,
       workflow_revision: run.workflow_revision ?? undefined,
       humanGate,
-      gateInputHash: (node) => readApprovalContextHash(def, node, session,
-        node.run !== undefined ? driverResolver?.(node.run.agent).configuration_hash ?? null : null, run.workflow_revision ?? undefined),
+      gateInputHash: async (node) => (await this.readNodeInput(def, node, session,
+        node.run !== undefined ? driverResolver?.(node.run.agent).configuration_hash ?? null : null, run.workflow_revision ?? undefined)).input_hash,
       payloadFor: (node) => ({ anchors: nodeAnchors(session.req_id, node.artifact) }),
       signal: controller.signal,
       // ADR-0023：节点声明 run 时由协调 agent 派发 worker；未配置 resolver 时执行器记 notes 跳过
@@ -625,7 +653,7 @@ export class RunService {
   private async evaluateRunGate(session: SessionHandle, run: RunRow, def: WorkflowDef, node: WorkflowDef["spec"]["nodes"][number], gate: GateDef) {
     const anchors = nodeAnchors(session.req_id, node.artifact);
     const configuration_hash = node.run === undefined ? null : this.configurationHashFor(session.req_id, node.run.agent);
-    const input_hash = await readApprovalContextHash(def, node, session, configuration_hash, run.workflow_revision ?? undefined);
+    const { input_hash } = await this.readNodeInput(def, node, session, configuration_hash, run.workflow_revision ?? undefined);
     return evaluateGate(gate, createBuiltinRegistry(), {
       session_dir: session.dir, session, node_id: node.id, run_id: run.run_id,
       workflow_id: def.metadata.id, workflow_revision: run.workflow_revision ?? undefined, anchors, payload: { anchors },

@@ -137,6 +137,17 @@
 - 实际宿主 HTTP 验收完成：clone 基线 6c5e345，真实 hash/scope 离线命令退出 0，server 重启后提交恢复原 run，停在人工 gate，再次重启审批 ID 保持，human.decision=0，doctor=true。运行数据和命令日志仅在临时目录。
 - 最终全量 586 测试 / 52 文件、build:all、typecheck、diff 检查通过；真实 clone 命令独立为 13/13。公开验收记录为 docs/research/2026-10-08-host-verification-recovery.md。
 
+## 阶段 27：验证源码输入身份（已实现并验证）
+
+- 四个真实 REST 反例先复现：代码修改、增删后 input_hash 不变，重启后的旧人工审批仍返回 200。
+- ADR-0041 先行；新增 verification-inputs 清单，显式文件/目录范围取并集，字节 hash/类型/权限/目录清单组合 source_hash，统一 REST/gate/人工审批/recovery 输入函数。
+- 源码正文不进入事件；缺失/链接/硬链接/保留路径/IO/扫描变动/数量与字节上限 fail-closed，依赖和构建目录排除。默认未声明 inputs 保持文档范围兼容。
+- 65 个源码边界/REST/checker 用例通过，根构建和 typecheck 通过。新增测试首次对 ESM fs namespace spy 被拒，改用仓库已有 vi.mock 注入后通过。
+- 开发与机器验证示例声明源码/测试/依赖清单输入；最终人工 gate 重检机器结果，防止前置机器 gate 通过后代码变化。
+- 真实宿主 clone（基线 8b673de）13/13 目标测试通过，新增源码后旧结果 409，恢复原清单后成功提交并停在人工 gate；原 run/审批保持、human.decision=0、doctor=true。
+- 新增启动失败反例定位到声明源码缺失令 recovery 抛错；保留该 run 等待、健康服务可用且审批/提交 409，修复后重新验证恢复。
+- 最终全量 619 测试 / 53 文件、build:all、typecheck 和 diff 检查通过；本轮没有修改控制台，不需要重跑 UI 截图。公开记录 docs/research/2026-10-08-verification-source-identity.md。
+
 ## 阶段 22：机器验证 run 级隔离（已实现并验证）
 
 - [x] 将 `run_id` 注入 workflow CheckerContext

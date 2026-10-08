@@ -124,6 +124,14 @@
 - workspace doctor 的 merge driver 检查不同于 session doctor，临时 git 仓库仍需注册本地 merge driver；完成该初始化后 HTTP/浏览器验收与 workspace doctor 全通过。
 - 读错误后的 UI 不能解锁编辑或显示“已与磁盘一致”，真实 404 才进入新文档状态；浏览器已验证错误、缺失、保存与恢复，控制台仍只展示 server 投影。
 
+## 实现校准（2026-10-08，验证源码输入身份）
+
+- 当前 readApprovalContextHash 不覆盖源码；四个 REST 反例先证明代码改动/增删不改变验证 hash，重启后旧人工选择仍可放行。
+- verification-passed 可声明 inputs；节点全部验证范围取并集，目录清单与文件字节/type/mode 形成 source_hash，统一提交、gate、人审和恢复身份，不把正文放进事件。
+- 扫描用 no-follow 文件描述符流式计算字节 hash，限制条目、深度、单文件及总大小；读取前后元信息和结束时目录清单重检。该便携校验不是跨进程原子文件树事务。
+- 实际独立 clone 的 13 测试通过，新增源码后提交旧 hash 为 409；恢复文件集合后原 hash 可用，原 run 进入人工终审且再次重启审批不变。
+- 重启时声明源码缺失曾阻断 buildApp；局部 VerificationInputError 改为该 run 保持等待、REST 409，修复输入并重验后恢复，健康服务持续可用。
+
 ## 实现校准（2026-10-08，验证等待与恢复时序）
 
 - 阶段 25 只验证结果先落盘再重启；重启之后才收到 CI 结果时没有挂起 Promise，旧 recheck 返回 false，run 永久等待。

@@ -20,6 +20,8 @@
 
 宿主验证恢复：[2026-10-08 宿主机器验证](./2026-10-08-host-verification-recovery.md)，记录真实命令、重启后提交、原 run 恢复和未决人工终审。
 
+源码身份验证：[2026-10-08 源码验证输入](./2026-10-08-verification-source-identity.md)，记录源码范围摘要、代码增删后旧结果 409、人工审批失效和修复恢复。
+
 | # | 文件 | 主题 | 核心结论 |
 |---|---|---|---|
 | 01 | [2026-09-24-01-orchestration-workflow-engines.md](./2026-09-24-01-orchestration-workflow-engines.md) | 多 agent 编排与工作流引擎 | 无引擎满足「YAML 图 + gate + 审批暂停 + git/文件为唯一 SSOT」的组合；允许外部状态源的仅 4 个（Vercel Workflow SDK 的 World 适配器最彻底）。编排内核自研，gate 状态机可用 XState v5；Inngest（SSPL）、Restate（BSL）许可排除 |

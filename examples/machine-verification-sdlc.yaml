@@ -21,6 +21,8 @@ spec:
           attach: { node: verify, when: post }
           checks:
             - ref: verification-passed
-              with: { verification_id: unit-tests }
+              with:
+                verification_id: unit-tests
+                inputs: [src, apps, tests, package.json, package-lock.json, tsconfig.json, vitest.config.ts]
           pass: { require: all, human_confirm: false }
           on_fail: escalate

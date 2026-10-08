@@ -293,6 +293,15 @@ describe("verification-passed", () => {
     ));
     expect(result.result).toBe("block");
   });
+
+  it("显式空输入范围不能静默降级为无源码验证", async () => {
+    const result = await createVerificationPassedChecker().check(ctx(
+      { verification_id: "unit-tests", inputs: [] },
+      { session: fakeSessionWithEvents([verification("passed")]), workflow_id: "wf", run_id: "01ARZ3NDEKTSV4RRFFQ69G5F01", node_id: "verify", input_hash },
+    ));
+    expect(result.result).toBe("block");
+    expect(result.reason).toContain("参数非法");
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -537,6 +537,8 @@ export const VerificationCompletedPayloadSchema = z.looseObject({
   node_id: z.string().min(1),
   verification_id: z.string().min(1).max(200),
   input_hash: z.string().length(64),
+  /** ADR-0041：由宿主计算的声明源码输入摘要，不保存源码正文。 */
+  source_hash: z.string().length(64).optional(),
   command_hash: z.string().length(64),
   status: z.enum(["passed", "failed", "timeout", "cancelled"]),
   exit_code: z.number().int().nullable().optional(),

@@ -321,6 +321,8 @@ const EventEmittedParams = z.object({
 const VerificationPassedParams = z.object({
   verification_id: z.string().min(1).max(200),
   within_node: z.boolean().default(true),
+  /** ADR-0041：宿主纳入 input_hash 的工作区文件/目录范围。 */
+  inputs: z.array(z.string().min(1).max(500)).min(1).max(64).optional(),
 });
 
 async function readEventsForCheck(ctx: CheckerContext): Promise<EventEnvelope[]> {

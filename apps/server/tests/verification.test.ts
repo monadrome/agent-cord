@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import YAML from "yaml";
@@ -30,7 +30,7 @@ async function waitFor(check: () => Promise<boolean>, timeoutMs = 10_000): Promi
   }
 }
 
-function workflowYaml(human_confirm = false): string {
+function workflowYaml(human_confirm = false, inputs?: string[]): string {
   return YAML.stringify({
     apiVersion: "agent-cord.dev/v1alpha1",
     kind: "Workflow",
@@ -55,7 +55,7 @@ function workflowYaml(human_confirm = false): string {
             id: "machine-evidence",
             role: {},
             attach: { node: "verify", when: "post" },
-            checks: [{ ref: "verification-passed", with: { verification_id: "unit-tests" } }],
+            checks: [{ ref: "verification-passed", with: { verification_id: "unit-tests", ...(inputs === undefined ? {} : { inputs }) } }],
             pass: { require: "all", human_confirm },
             on_fail: "escalate",
           }],
@@ -88,7 +88,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-async function setupRun(options: { human_confirm?: boolean; before_ask?: () => Promise<void> } = {}): Promise<{ runId: string; approvalId: string }> {
+async function setupRun(options: { human_confirm?: boolean; inputs?: string[]; before_ask?: () => Promise<void> } = {}): Promise<{ runId: string; approvalId: string }> {
   const created = await api("POST", "/api/v1/requirements", { req_id: "REQ-VERIFY", title: "机器验证", prd: "# PRD\n\n目标：验证机器证据。" }, "create");
   expect(created.status).toBe(201);
   if (options.before_ask !== undefined) {
@@ -104,7 +104,7 @@ async function setupRun(options: { human_confirm?: boolean; before_ask?: () => P
       return event;
     });
   }
-  const published = await api("POST", "/api/v1/sdlcs/machine-verification/versions/publish", { yaml: workflowYaml(options.human_confirm) }, "publish");
+  const published = await api("POST", "/api/v1/sdlcs/machine-verification/versions/publish", { yaml: workflowYaml(options.human_confirm, options.inputs) }, "publish");
   expect(published.status).toBe(201);
   const started = await api("POST", "/api/v1/requirements/REQ-VERIFY/runs", { sdlc_id: "machine-verification", sdlc_version: 1 }, "run");
   expect(started.status).toBe(202);
@@ -134,6 +134,105 @@ async function submitVerification(run_id: string, key: string, status = "passed"
 }
 
 describe("结构化机器验证事实", () => {
+  it("源码范围出现非法链接后 fail-closed，修复后仍可提交", async () => {
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src", "draft.ts"), "export const draft = 1;\n");
+    const { runId } = await setupRun({ inputs: ["src"] });
+    const url = `/api/v1/requirements/REQ-VERIFY/runs/${runId}/nodes/verify/verification-context`;
+    const first = await api("GET", url);
+    await rm(join(root, "src", "draft.ts"));
+    await writeFile(join(root, "outside.ts"), "PRIVATE_SOURCE_CONTENT");
+    await symlink(join(root, "outside.ts"), join(root, "src", "draft.ts"));
+    const rejected = await api("GET", url);
+    expect(rejected.status).toBe(409);
+    expect(JSON.stringify(rejected.body)).not.toContain("PRIVATE_SOURCE_CONTENT");
+    expect((await api("POST", `/api/v1/requirements/REQ-VERIFY/runs/${runId}/verifications`, {
+      run_id: runId, node_id: "verify", verification_id: "unit-tests", input_hash: first.body.verification.input_hash,
+      command_hash: "b".repeat(64), status: "passed", exit_code: 0,
+    }, "linked-source")).status).toBe(409);
+    expect((await server.sessions.readEvents("REQ-VERIFY")).filter((event) => event.type === "verification.completed")).toHaveLength(0);
+    await rm(join(root, "src", "draft.ts"));
+    await writeFile(join(root, "src", "draft.ts"), "export const draft = 1;\n");
+    expect((await submitVerification(runId, "fixed-source")).status).toBe(200);
+    await waitFor(async () => (await server.runs.getRun(runId)).status === "completed");
+  });
+
+  it("已通过的源码在重启时不可读，server 保持可用且 run 不推进", async () => {
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src", "draft.ts"), "export const draft = 1;\n");
+    const { runId } = await setupRun({ inputs: ["src"], human_confirm: true });
+    expect((await submitVerification(runId, "before-missing")).status).toBe(200);
+    await waitFor(async () => (await server.sessions.listApprovals("REQ-VERIFY"))[0]?.kind === "human_confirm");
+    await rm(join(root, "src"), { recursive: true });
+    await restart();
+    expect((await api("GET", "/api/v1/health")).body.ok).toBe(true);
+    expect(server.runs.isActive("REQ-VERIFY")).toBe(false);
+    expect((await server.runs.getRun(runId)).status).toBe("waiting_human");
+    expect((await api("GET", `/api/v1/requirements/REQ-VERIFY/runs/${runId}/nodes/verify/verification-context`)).status).toBe(409);
+    const approval = (await server.sessions.listApprovals("REQ-VERIFY"))[0]!;
+    expect((await api("POST", `/api/v1/requirements/REQ-VERIFY/approvals/${approval.approval_id}/decide`, { choice: "确认放行" }, "missing-source-decision")).status).toBe(409);
+    expect((await server.sessions.readEvents("REQ-VERIFY")).filter((event) => event.type === "human.decision.recorded")).toHaveLength(0);
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src", "draft.ts"), "export const draft = 1;\n");
+    expect((await submitVerification(runId, "after-restored")).status).toBe(200);
+    let restored: any;
+    await waitFor(async () => {
+      restored = (await server.sessions.listApprovals("REQ-VERIFY"))[0];
+      return restored?.kind === "human_confirm" && restored?.approval_id !== approval.approval_id;
+    });
+    expect((await api("POST", `/api/v1/requirements/REQ-VERIFY/approvals/${restored.approval_id}/decide`, { choice: "确认放行" }, "restored-source-decision")).status).toBe(200);
+    await waitFor(async () => (await server.runs.getRun(runId)).status === "completed");
+  });
+
+  it.each(["edit", "add", "delete"])("声明的代码目录发生 %s 后拒绝旧测试结果，重新验证可恢复", async (change) => {
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src", "draft.ts"), "export const draft = 1;\n");
+    const { runId } = await setupRun({ inputs: ["src"] });
+    const url = `/api/v1/requirements/REQ-VERIFY/runs/${runId}/nodes/verify/verification-context`;
+    const first = await api("GET", url);
+    if (change === "edit") await writeFile(join(root, "src", "draft.ts"), "export const draft = 2;\n");
+    if (change === "add") await writeFile(join(root, "src", "new.ts"), "export const added = true;\n");
+    if (change === "delete") await rm(join(root, "src", "draft.ts"));
+    const current = await api("GET", url);
+    expect(current.status).toBe(200);
+    expect(current.body.verification.input_hash).not.toBe(first.body.verification.input_hash);
+    expect(current.body.verification.source_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(current.body.verification.source_inputs).toEqual(["src"]);
+    expect((await api("POST", `/api/v1/requirements/REQ-VERIFY/runs/${runId}/verifications`, {
+      run_id: runId, node_id: "verify", verification_id: "unit-tests", status: "passed", exit_code: 0,
+      command_hash: "b".repeat(64), input_hash: first.body.verification.input_hash,
+    }, "old-code")).status).toBe(409);
+    expect((await submitVerification(runId, "current-code")).status).toBe(200);
+    await waitFor(async () => (await server.runs.getRun(runId)).status === "completed");
+    const result = (await server.sessions.readEvents("REQ-VERIFY")).find((event) => event.type === "verification.completed");
+    expect((result?.payload as any).source_hash).toBe(current.body.verification.source_hash);
+    expect(JSON.stringify(result)).not.toContain("export const");
+  });
+
+  it("机器通过后代码改变，人工审批和重启恢复都不得继续使用旧结果", async () => {
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src", "draft.ts"), "export const draft = 1;\n");
+    const { runId } = await setupRun({ inputs: ["src"], human_confirm: true });
+    expect((await submitVerification(runId, "source-reviewed")).status).toBe(200);
+    let approval: any;
+    await waitFor(async () => {
+      approval = (await server.sessions.listApprovals("REQ-VERIFY"))[0];
+      return approval?.kind === "human_confirm";
+    });
+    await writeFile(join(root, "src", "draft.ts"), "export const draft = 2;\n");
+    await restart();
+    expect((await api("POST", `/api/v1/requirements/REQ-VERIFY/approvals/${approval.approval_id}/decide`, { choice: "确认放行" }, "old-source-approval")).status).toBe(409);
+    expect((await server.sessions.readEvents("REQ-VERIFY")).filter((event) => event.type === "human.decision.recorded")).toHaveLength(0);
+    let replacement: any;
+    await waitFor(async () => {
+      replacement = (await server.sessions.listApprovals("REQ-VERIFY"))[0];
+      return replacement?.kind === "escalation";
+    });
+    expect(replacement.approval_id).not.toBe(approval.approval_id);
+    expect((await submitVerification(runId, "new-source-reviewed")).status).toBe(200);
+    await waitFor(async () => (server.sessions.listApprovals("REQ-VERIFY")).then((items) => items[0]?.kind === "human_confirm"));
+  });
+
   it("上下文 hash 绑定当前输入，结果经 gate 消费并支持幂等重放", async () => {
     const { runId, approvalId } = await setupRun();
     expect(approvalId).toBeTruthy();

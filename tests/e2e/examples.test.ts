@@ -34,6 +34,11 @@ describe("Agent 接入示例", () => {
     expect(def.spec.nodes.find((node) => node.id === "implement")?.run?.readonly).toBe(false);
     for (const node of def.spec.nodes) if (node.run !== undefined) expect(registry.resolve(node.run.agent).configuration_hash).toMatch(/^[0-9a-f]{64}$/);
     expect(def.spec.nodes.find((node) => node.id === "verify")?.gates.some((gate) => gate.pass.human_confirm)).toBe(true);
+    expect(def.spec.nodes.find((node) => node.id === "verify")?.gates[0]).toMatchObject({
+      id: "host-tests", on_fail: "escalate", checks: [{ ref: "verification-passed", with: { verification_id: "offline-tests", inputs: expect.arrayContaining(["src", "tests", "apps"]) } }],
+    });
+    expect(def.spec.nodes.find((node) => node.id === "verify")?.gates.find((gate) => gate.id === "human-review")?.checks)
+      .toContainEqual({ ref: "verification-passed", with: { verification_id: "offline-tests" } });
   });
   it("机器验证示例引用结构化 verification checker 并保留人工 intake gate", async () => {
     const def = parseWorkflow(await readFile(new URL("../../examples/machine-verification-sdlc.yaml", import.meta.url), "utf8"));

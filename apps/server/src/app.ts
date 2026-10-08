@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import { ulid } from "ulid";
-import { readApprovalContextHash, runDoctor, runInit, type WorkflowDef } from "agent-cord";
+import { runDoctor, runInit, type WorkflowDef } from "agent-cord";
 import {
   CreateRequirementInputSchema,
   DecideApprovalInputSchema,
@@ -36,6 +36,7 @@ import { SessionService, toLedgerView } from "./services/session-service.js";
 import { AgentService } from "./services/agent-service.js";
 import { CoordinationService } from "./services/coordination-service.js";
 import { installIdempotency } from "./services/idempotency.js";
+import { VerificationInputError } from "./services/verification-inputs.js";
 
 export interface ServerOptions {
   /** 工作区根（内含 cord/；缺省自动初始化 cord/） */
@@ -146,20 +147,20 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
       }
     }
     const session = await sessions.open(reqId);
-    const input_hash = await readApprovalContextHash(
-      versioned.def,
-      node,
-      session,
-      configuration_hash,
-      versioned.workflow_revision,
-    );
+    let identity;
+    try {
+      identity = await runs.readNodeInput(versioned.def, node, session, configuration_hash, versioned.workflow_revision);
+    } catch (error) {
+      if (error instanceof VerificationInputError) throw conflict(error.message);
+      throw error;
+    }
     return {
       run_id: runId,
       req_id: reqId,
       workflow_id: versioned.def.metadata.id,
       workflow_revision: versioned.workflow_revision,
       node_id: nodeId,
-      input_hash,
+      ...identity,
     };
   };
 
@@ -327,11 +328,12 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
     }
     const event = await sessions.recordVerification(reqId, {
       ...input,
+      ...(context.source_hash === null ? {} : { source_hash: context.source_hash }),
       workflow_id: context.workflow_id,
       workflow_revision: context.workflow_revision,
     });
     await runs.recheck(runId, input.node_id, input.verification_id);
-    return { request_id: requestId(req), event_id: event.event_id, verification: { ...input, workflow_id: context.workflow_id, workflow_revision: context.workflow_revision } };
+    return { request_id: requestId(req), event_id: event.event_id, verification: { ...input, source_hash: context.source_hash, workflow_id: context.workflow_id, workflow_revision: context.workflow_revision } };
   });
 
   // ---- 命令：取消 run（ADR-0025）-------------------------------------------

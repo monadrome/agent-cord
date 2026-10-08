@@ -49,6 +49,8 @@ ACP 驱动在 `session/new` 或 `session/load` 成功后，为通知、工具、
 
 ADR-0040 的 `verification.completed` 只记录 `verification_id`、`run_id`、状态、`input_hash`、`command_hash`、退出码、耗时和 stdout/stderr hash；REST 先提供当前 verification context，提交时重算输入 hash。`verification-passed` 只接受当前 workflow scope、当前 run、节点和输入指纹的最新 `passed` 事件，旧结果或缺少上下文一律 block。
 
+ADR-0041 增加 `verification-passed.with.inputs` 工作区相对文件/目录范围，同节点取并集。REST context 返回 source_inputs/source_hash，将确定性文件清单、字节内容 hash、类型与权限纳入 input_hash；提交、gate、人工审批和恢复共用同一身份。事件的可选 source_hash 由 server 计算，不接受客户端源码正文。链接/硬链接/越界/声明缺失/IO 失败和超限拒绝；上限为 10,000 项、单文件 16 MiB、总共 64 MiB、递归深度 32。递归排除管理、依赖与 dist 目录。未声明范围保留文档范围兼容语义；此身份不证明未声明的代码、工具链或外部依赖相同。
+
 验证 gate 配置 `on_fail: escalate` 时可作为外部验证等待点；验证事件成功落盘后 server 仅唤醒同一 run 的挂起 gate，executor 重新求值，不能生成人工决策或直接推进其他节点。若事件先落盘后进程重启，run recovery 会根据 `run_id` 验证事实恢复同一 run 再求值。
 
 CI 在重启之后提交也通过串行 recovery 恢复原 run，不创建新运行身份；唤醒仅匹配当前节点/gate 引用的 verification ID。Promise 登记后再读持久化证据覆盖早到结果，已被当前审批消费的验证事实不在每次重启时重复启动 executor。机器通过但配置 human_confirm=true 的 gate 继续等待人，重启后的选择同样消费原 run。

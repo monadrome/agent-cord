@@ -62,15 +62,27 @@ spec:
           不修改文件、不合入、不批准门禁。在最终回复给出完整 Markdown 报告，含证据与结论小节；
           无法核验时明确说明，不用上游报告代替独立证据。
       gates:
+        - id: host-tests
+          role: {}
+          attach: { node: verify, when: post }
+          checks:
+            - ref: verification-passed
+              with:
+                verification_id: offline-tests
+                inputs: [src, apps, tests, package.json, package-lock.json, tsconfig.json, vitest.config.ts]
+          pass: { require: all, human_confirm: false }
+          on_fail: escalate
         - id: human-review
           role: { approvers: [local-human] }
           attach: { node: verify, when: post }
           checks:
+            - ref: verification-passed
+              with: { verification_id: offline-tests }
             - ref: file-nonempty
               with: { path: findings.md, min_bytes: 40 }
             - ref: doc-has-section
               with: { path: findings.md, heading: 结论 }
           pass: { require: all, human_confirm: true }
-          on_fail: block
+          on_fail: escalate
     - id: done
       depends_on: [verify]

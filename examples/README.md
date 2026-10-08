@@ -8,9 +8,13 @@
 
 `development-sdlc.yaml` 扩展为五节点：需求检查 → 只读计划 → 可写实现 Draft → 只读评审报告 → 人工终审。必须运行在独立检出/隔离工作区；示例本身不会创建 OS 隔离。实现 worker 可修改工作区，禁止提交、推送和合入；评审 worker 使用新会话，只读核验代码和测试，报告由协调层写入 findings.md。默认 Codex 角色别名仍可能使用同模型，这不等价于异构盲评；需要异构时替换评审 driver，并实际核验模型与权限。
 
+评审报告完成后，`host-tests` gate 等待宿主提交 `offline-tests` 事实；最终 `human-review` 再检查同一验证结果，避免机器 gate 通过后代码变化仍可批准。宿主按当前上下文执行命令并提交结果，人工终审保持独立。
+
 `machine-verification-sdlc.yaml` 展示宿主/CI 机器验证门禁：流程在验证 gate 处等待（`on_fail: escalate`），先获取 `GET /api/v1/requirements/:req_id/runs/:run_id/nodes/:node_id/verification-context`，在隔离工作区执行检查，再用 `POST /api/v1/requirements/:req_id/runs/:run_id/verifications` 提交状态与摘要 hash。服务端会重算输入指纹，输入变化返回 409；事实落盘后只唤醒同一 run 重检，`verification-passed` 只消费当前 scope、run、节点和 hash 的 `passed` 事实。
 
 只读计划/评审声明 `run: {readonly: true, output: text}` 和节点 artifact。worker 返回完整 Markdown，coordinator 通过共享文件边界代写 Draft；空内容、只有协议 metadata、产物冲突、失败或取消不能生成成功报告。后置文件 gate 和人工审核依然生效；不声明 output 的旧 readonly 节点仍不写产物。
+
+验证 checker 的 `with.inputs` 声明工作区相对文件/目录，例如 `[src, apps, tests, package.json]`。同节点取输入并集，context 返回 `source_inputs/source_hash`；文件内容、增删、类型和权限变化都会改变 `input_hash`。先取 context，再执行测试，再提交原 hash；不得在测试后取新 hash 冒称测试针对新代码。目录内的 `.git`、`cord`、`.index`、`.sdlc`、`node_modules` 和 `dist` 排除；直接声明这些路径、链接、硬链接、缺失文件或超限范围拒绝。依赖版本应声明 lockfile。未声明 inputs 只验证文档/流程，不证明代码相同。
 
 ```bash
 curl -X POST http://127.0.0.1:7250/api/v1/sdlcs/agent-example/versions/publish \

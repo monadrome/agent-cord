@@ -182,6 +182,8 @@ export interface VerificationContextView {
   workflow_revision: string;
   node_id: string;
   input_hash: string;
+  source_inputs: string[];
+  source_hash: string | null;
 }
 
 /** ADR-0032：独立协调轮次，输出只有经宿主验证的 Draft 提议。 */
