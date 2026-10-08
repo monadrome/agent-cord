@@ -409,12 +409,17 @@ export class RunService {
           event.type === "human.decision.recorded" && asRecord(event.payload)?.["waiting_event_id"] === waiting.waiting_event_id,
         ),
       );
+      // 外部机器验证可能在进程退出前落盘但尚未产生人工决策；恢复时重新启动
+      // 同一 run，让 executor 重新检查 verification-passed，而不是永久停在 waiting_human。
+      const recorded_verification = events.some((event) =>
+        event.type === "verification.completed" && asRecord(event.payload)?.["run_id"] === run.run_id,
+      );
       if (!is_current) {
         if (finalStatus !== null) this.index.finishRun(run.run_id, finalStatus, new Date().toISOString(), null);
         continue;
       }
-      if (run.status === "waiting_human" && !recorded_decision) continue;
-      if (finalStatus !== null && !(finalStatus === "waiting_human" && recorded_decision)) {
+      if (run.status === "waiting_human" && !recorded_decision && !recorded_verification) continue;
+      if (finalStatus !== null && !(finalStatus === "waiting_human" && (recorded_decision || recorded_verification))) {
         this.index.finishRun(run.run_id, finalStatus, new Date().toISOString(), null);
         continue;
       }

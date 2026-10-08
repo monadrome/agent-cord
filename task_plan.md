@@ -385,8 +385,14 @@
 
 ### 阶段 24 边界
 
-- 只有当前进程仍持有挂起 run 时自动重检；重启恢复仍需现有 run recovery/重新发起流程。
+- 当前进程内验证事实立即唤醒挂起 run；若事实先落盘后进程重启，run recovery 会按同一 run 恢复 executor 并重检。
 - 验证事件不产生 `human.decision.recorded`，也不绕过人工 gate。
+
+## 阶段 25：机器验证重启恢复（已完成）
+
+- [x] recovery 识别同一 run 的已落盘验证事实
+- [x] 重启后恢复 pending gate 并消费当前验证结果
+- [x] 增加 server restart 回归，保留 run/input hash 隔离
 
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 

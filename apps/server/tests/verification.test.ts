@@ -146,4 +146,26 @@ describe("结构化机器验证事实", () => {
     expect(events.body.events.some((event: any) => event.type === "verification.completed")).toBe(false);
     await api("POST", `/api/v1/runs/${runId}/cancel`, { reason: "test cleanup" }, "cancel");
   });
+
+  it("验证事实在 server 重启前落盘时，恢复同一 run 并重检 gate", async () => {
+    const { runId } = await setupRun();
+    const context = await api("GET", `/api/v1/requirements/REQ-VERIFY/runs/${runId}/nodes/verify/verification-context`);
+    const versioned = await server.sdlcs.get("machine-verification", 1);
+    await server.sessions.recordVerification("REQ-VERIFY", {
+      run_id: runId,
+      node_id: "verify",
+      verification_id: "unit-tests",
+      input_hash: context.body.verification.input_hash,
+      command_hash: "c".repeat(64),
+      status: "passed",
+      workflow_id: versioned.def.metadata.id,
+      workflow_revision: versioned.workflow_revision,
+    });
+    await server.app.close();
+    server.index.close();
+    server = await buildApp({ root });
+    await waitFor(async () => (await server.runs.getRun(runId)).status === "completed");
+    const events = await server.sessions.readEvents("REQ-VERIFY");
+    expect(events.some((event) => event.type === "gate.resolved" && (event.payload as any).node_id === "verify")).toBe(true);
+  });
 });

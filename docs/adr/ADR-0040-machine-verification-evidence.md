@@ -18,6 +18,7 @@
 3. checker 只接受当前 workflow scope、当前 run、当前节点、指定 verification ID、最新状态为 `passed` 且 `input_hash` 与当前 gate 输入指纹相同的事件。缺少 run/input 指纹、读失败、旧结果和失败状态均 block。
 4. REST 写入口使用统一 `Idempotency-Key`；同键重放返回同一事件结果。事件事实仍是唯一来源，控制台可通过普通事件流观察。
 5. 验证 gate 可使用 `on_fail: escalate` 作为外部验证等待点；验证事件成功落盘后，server 只唤醒同一 run 的挂起 gate 进行重检，不直接放行或写人工决策。
+6. 若验证事实已落盘后进程重启，run recovery 识别同一 `run_id` 的验证事件并恢复 executor，再次求值 pending gate。
 
 ## 取舍
 

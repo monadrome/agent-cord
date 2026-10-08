@@ -123,6 +123,12 @@
 - [x] 更新机器验证示例为真实 CI/宿主等待流程
 - [x] 覆盖验证事件、重检、完成和过期 hash 失败路径
 
+## 阶段 25：机器验证重启恢复（已实现并验证）
+
+- [x] recovery 识别已落盘的同一 run `verification.completed`
+- [x] 重启后恢复 executor 并重新求值 pending verification gate
+- [x] 覆盖验证事实先落盘、server 重启、同一 run 完成路径
+
 ## 阶段 22：机器验证 run 级隔离（已实现并验证）
 
 - [x] 将 `run_id` 注入 workflow CheckerContext

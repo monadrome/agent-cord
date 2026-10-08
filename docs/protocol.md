@@ -49,7 +49,7 @@ ACP 驱动在 `session/new` 或 `session/load` 成功后，为通知、工具、
 
 ADR-0040 的 `verification.completed` 只记录 `verification_id`、`run_id`、状态、`input_hash`、`command_hash`、退出码、耗时和 stdout/stderr hash；REST 先提供当前 verification context，提交时重算输入 hash。`verification-passed` 只接受当前 workflow scope、当前 run、节点和输入指纹的最新 `passed` 事件，旧结果或缺少上下文一律 block。
 
-验证 gate 配置 `on_fail: escalate` 时可作为外部验证等待点；验证事件成功落盘后 server 仅唤醒同一 run 的挂起 gate，executor 重新求值，不能生成人工决策或直接推进其他节点。
+验证 gate 配置 `on_fail: escalate` 时可作为外部验证等待点；验证事件成功落盘后 server 仅唤醒同一 run 的挂起 gate，executor 重新求值，不能生成人工决策或直接推进其他节点。若事件先落盘后进程重启，run recovery 会根据 `run_id` 验证事实恢复同一 run 再求值。
 
 ADR-0030 增加 `execution_input_hash`（agent started/completed）：覆盖完整 workflow、节点、需求文档 hash、账本摘要、已退出进度和上下文预算，排除事件序号/时间戳。可写当前 artifact 以 completed 后态验证，不把自身写入作为输入变化。`snapshot_id` 继续记录完整 provenance，两者作用不同。
 
