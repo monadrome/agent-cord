@@ -17,6 +17,7 @@
 2. 事件只保存验证 ID、状态、命令摘要 hash、输入 hash、退出码、耗时、stdout/stderr hash 和短摘要；不保存输出正文、凭据或任意命令参数。
 3. checker 只接受当前 workflow scope、当前 run、当前节点、指定 verification ID、最新状态为 `passed` 且 `input_hash` 与当前 gate 输入指纹相同的事件。缺少 run/input 指纹、读失败、旧结果和失败状态均 block。
 4. REST 写入口使用统一 `Idempotency-Key`；同键重放返回同一事件结果。事件事实仍是唯一来源，控制台可通过普通事件流观察。
+5. 验证 gate 可使用 `on_fail: escalate` 作为外部验证等待点；验证事件成功落盘后，server 只唤醒同一 run 的挂起 gate 进行重检，不直接放行或写人工决策。
 
 ## 取舍
 

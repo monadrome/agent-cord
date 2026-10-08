@@ -11,7 +11,7 @@ spec:
           role: {}
           attach: { node: intake, when: post }
           checks: [{ ref: file-nonempty, with: { path: prd.md, min_bytes: 20 } }]
-          pass: { require: all, human_confirm: true }
+          pass: { require: all, human_confirm: false }
           on_fail: block
     - id: verify
       depends_on: [intake]
@@ -23,4 +23,4 @@ spec:
             - ref: verification-passed
               with: { verification_id: unit-tests }
           pass: { require: all, human_confirm: false }
-          on_fail: block
+          on_fail: escalate

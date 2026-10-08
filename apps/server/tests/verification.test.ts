@@ -44,7 +44,7 @@ function workflowYaml(): string {
             role: {},
             attach: { node: "intake", when: "post" },
             checks: [{ ref: "file-nonempty", with: { path: "prd.md" } }],
-            pass: { require: "all", human_confirm: true },
+            pass: { require: "all", human_confirm: false },
             on_fail: "block",
           }],
         },
@@ -57,7 +57,7 @@ function workflowYaml(): string {
             attach: { node: "verify", when: "post" },
             checks: [{ ref: "verification-passed", with: { verification_id: "unit-tests" } }],
             pass: { require: "all", human_confirm: false },
-            on_fail: "block",
+            on_fail: "escalate",
           }],
         },
       ],
@@ -99,6 +99,7 @@ async function setupRun(): Promise<{ runId: string; approvalId: string }> {
 describe("结构化机器验证事实", () => {
   it("上下文 hash 绑定当前输入，结果经 gate 消费并支持幂等重放", async () => {
     const { runId, approvalId } = await setupRun();
+    expect(approvalId).toBeTruthy();
     const context = await api("GET", `/api/v1/requirements/REQ-VERIFY/runs/${runId}/nodes/verify/verification-context`);
     expect(context.status).toBe(200);
     expect(context.body.verification.node_id).toBe("verify");
@@ -119,8 +120,6 @@ describe("结构化机器验证事实", () => {
     expect(replay.status).toBe(200);
     expect(replay.body.event_id).toBe(recorded.body.event_id);
 
-    const decided = await api("POST", `/api/v1/requirements/REQ-VERIFY/approvals/${approvalId}/decide`, { choice: "确认放行" }, "decide");
-    expect(decided.status).toBe(200);
     await waitFor(async () => (await api("GET", `/api/v1/runs/${runId}`)).body.run.status === "completed");
     const events = await api("GET", "/api/v1/requirements/REQ-VERIFY/events");
     expect(events.body.events.filter((event: any) => event.type === "verification.completed")).toHaveLength(1);

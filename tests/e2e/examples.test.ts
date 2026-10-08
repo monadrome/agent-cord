@@ -43,6 +43,7 @@ describe("Agent 接入示例", () => {
       ref: "verification-passed",
       with: { verification_id: "unit-tests" },
     });
-    expect(def.spec.nodes.find((node) => node.id === "intake")?.gates[0]?.pass.human_confirm).toBe(true);
+    expect(def.spec.nodes.find((node) => node.id === "intake")?.gates[0]?.pass.human_confirm).toBe(false);
+    expect(def.spec.nodes.find((node) => node.id === "verify")?.gates[0]?.on_fail).toBe("escalate");
   });
 });

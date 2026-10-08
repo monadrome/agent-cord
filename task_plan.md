@@ -376,6 +376,18 @@
 - 页面展示验证事实，不替代 `verification-passed` checker，也不允许前端直接放行 gate。
 - 本机未安装 Playwright 依赖，本轮以 console typecheck、Vitest 和生产构建验证；此前版本的浏览器验收证据仍保留。
 
+## 阶段 24：外部机器验证等待与自动重检（已完成）
+
+- [x] 将验证 gate 配置为外部事实等待点
+- [x] 记录验证事实后唤醒同一 run 的挂起 gate
+- [x] 重检仍经 `verification-passed` 与当前 run/input hash，不直接放行
+- [x] 更新示例和 REST/server 回归
+
+### 阶段 24 边界
+
+- 只有当前进程仍持有挂起 run 时自动重检；重启恢复仍需现有 run recovery/重新发起流程。
+- 验证事件不产生 `human.decision.recorded`，也不绕过人工 gate。
+
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
 - [x] 核验当前分支与阶段 10；上一轮实现和远端同步属于已验证进展

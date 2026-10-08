@@ -34,6 +34,7 @@ import { DEFAULT_SDLC_ID, type SdlcService } from "./sdlc-service.js";
 
 interface PendingAsk {
   req_id: string;
+  run_id: string;
   node_id: string;
   gate_id: string;
   question: string;
@@ -101,6 +102,15 @@ export class RunService {
 
   activeRunId(reqId: string): string | null {
     return this.active.get(reqId)?.run_id ?? null;
+  }
+
+  /** 机器验证事实落盘后唤醒同一 run 的挂起 gate，交给 executor 重新求值。 */
+  recheck(runId: string): boolean {
+    const pending = [...this.pendingAsks.entries()].find(([, ask]) => ask.run_id === runId);
+    if (pending === undefined) return false;
+    this.pendingAsks.delete(pending[0]);
+    pending[1].resolve({ kind: "recheck" });
+    return true;
   }
 
   /** 取当前 run 固定的 agent 配置身份；verification context 不得读取热重载后的 resolver。 */
@@ -280,7 +290,7 @@ export class RunService {
       const anchors = nodeAnchors(reqId, node.artifact);
       const resolver = this.active.get(reqId)?.driverResolver ?? this.options.driverResolverForRun?.() ?? this.options.driverResolver;
       const config_hash = node.run !== undefined ? resolver?.(node.run.agent).configuration_hash ?? null : null;
-      const evaluated = await evaluateGate(gate, createBuiltinRegistry(), { session_dir: session.dir, session, node_id: node.id, anchors, payload: { anchors }, workflow_id: waiting.workflow_id, workflow_revision: waiting.workflow_revision }, await readApprovalContextHash(versioned.def, node, session, config_hash, waiting.workflow_revision));
+      const evaluated = await evaluateGate(gate, createBuiltinRegistry(), { session_dir: session.dir, session, node_id: node.id, anchors, payload: { anchors }, workflow_id: waiting.workflow_id, workflow_revision: waiting.workflow_revision, run_id: latest.run_id }, await readApprovalContextHash(versioned.def, node, session, config_hash, waiting.workflow_revision));
       current_hash = evaluated.evaluation_hash;
     } catch {
       throw conflict("无法验证当前审批依据，拒绝记录放行，请先修复输入");
@@ -467,7 +477,7 @@ export class RunService {
 
   /** 在后台推进执行器；结束时按事件流投影登记终态并重建账本 */
   private launch(session: SessionHandle, run: RunRow, def: WorkflowDef, controller: AbortController): void {
-    const humanGate = this.createHumanGate(session);
+    const humanGate = this.createHumanGate(session, run.run_id);
     const { workspaceRoot } = this.options;
     const driverResolver = this.options.driverResolverForRun?.() ?? this.options.driverResolver;
     const executor = createExecutor({
@@ -513,7 +523,7 @@ export class RunService {
    * HumanGate 桥：执行器先落 gate.waiting 事件再调 ask —— ask 时扫事件流找到
    * 当前未决 gate 作为定位键；有暂存决策立即消费，否则挂起 promise 等 REST 决策。
    */
-  private createHumanGate(session: SessionHandle): HumanGate {
+  private createHumanGate(session: SessionHandle, run_id: string): HumanGate {
     return {
       ask: async (question: string, options: string[], context): Promise<HumanGateAnswer> => {
         const events = await session.events.readOrdered();
@@ -542,6 +552,7 @@ export class RunService {
         return new Promise<HumanGateAnswer>((resolve) => {
           this.pendingAsks.set(fullKey, {
             req_id: session.req_id,
+            run_id,
             node_id: current.node_id,
             gate_id: current.gate_id,
             waiting_event_id: current.waiting_event_id,

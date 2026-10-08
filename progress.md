@@ -116,6 +116,13 @@
 - [x] 同步当前架构 API 说明
 - [x] console typecheck、定向测试、build:all 和 diff check 通过
 
+## 阶段 24：外部机器验证等待与自动重检（已实现并验证）
+
+- [x] 允许验证 gate 使用 `on_fail: escalate` 等待外部验证事实
+- [x] 验证事实落盘后只唤醒同一 run 的挂起 gate，触发 executor 重检
+- [x] 更新机器验证示例为真实 CI/宿主等待流程
+- [x] 覆盖验证事件、重检、完成和过期 hash 失败路径
+
 ## 阶段 22：机器验证 run 级隔离（已实现并验证）
 
 - [x] 将 `run_id` 注入 workflow CheckerContext
