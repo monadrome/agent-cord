@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp, type BuiltServer } from "@agent-cord/server";
 import type { CoordinationRoundView } from "@agent-cord/server/contracts";
 import { canonicalJson, sha256Hex, readSnapshot, EVENT_PAYLOAD_SCHEMAS, type EventType } from "agent-cord";
+import { readCoordinationExecutionContext } from "../src/services/execution-context.js";
 
 const fixture = join(dirname(fileURLToPath(import.meta.url)), "../../../tests/driver/fixtures/fake-cli.mjs");
 const acp_fixture = join(dirname(fileURLToPath(import.meta.url)), "../../../tests/driver/fixtures/fake-acp-agent.mjs");
@@ -100,6 +101,100 @@ async function source_round(key = ulid()): Promise<CoordinationRoundView> {
   expect(response.status).toBe(202);
   return done(response.body.round.round_id);
 }
+
+describe("协调执行观察", () => {
+  const waiting = { ...proposal, next_action: { kind: "wait", reason: "等待当前 worker 执行结论", evidence: [{ source: "workflow", id: "intake" }] } };
+  async function prepare(worker_sleep = 0) {
+    await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: {
+      coordinator: { kind: "headless", bin: process.execPath, args: [fixture, "--mode", "claude", "--result-text", JSON.stringify(waiting), "{{prompt}}"] },
+      worker: { kind: "headless", bin: process.execPath, args: [fixture, "--mode", worker_sleep > 0 ? "claude" : "fail", "--sleep", String(worker_sleep), "{{prompt}}"] },
+    } }));
+    await server.agents.reload();
+    await server.sdlcs.publish("task-context", YAML.stringify({ apiVersion: "agent-cord.dev/v1alpha1", kind: "Workflow", metadata: { id: "task-context" }, spec: { nodes: [
+      { id: "intake", artifact: "plan.md", run: { agent: "worker", readonly: false }, gates: [{ id: "human-plan", role: {}, attach: { node: "intake", when: "post" },
+        checks: [{ ref: "file-nonempty", with: { path: "plan.md" } }], pass: { require: "all", human_confirm: true }, on_fail: "block" }] },
+    ] } }));
+    const result = await request("POST", "/api/v1/requirements/REQ-CONTEXT/runs", { sdlc_id: "task-context", sdlc_version: 1 }, "worker-run");
+    expect(result.status).toBe(202);
+    return result.body.run.run_id as string;
+  }
+  const coordinate = async () => {
+    const response = await start(ulid(), { sdlc_id: "task-context", sdlc_version: 1 });
+    expect(response.status).toBe(202);
+    return done(response.body.round.round_id);
+  };
+  async function failed() {
+    const run_id = await prepare();
+    await wait_for(async () => (await server.runs.getRun(run_id)).status === "failed" && !server.runs.isActive("REQ-CONTEXT"));
+    return run_id;
+  }
+
+  it("真实 worker 失败状态进入协调 prompt，任务变化使旧轮次失效且可恢复", async () => {
+    const run_id = await failed();
+    const worker = server.agents.resolver()("coordinator");
+    const original = worker.run.bind(worker);
+    const prompts: string[] = [];
+    vi.spyOn(worker, "run").mockImplementation(async function* (task) { prompts.push(task.prompt); yield* original(task); });
+    const first = await coordinate();
+    expect(first).toMatchObject({ status: "ok", current: true });
+    expect(first.execution_context_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(prompts[0]).toContain('"status":"failed"');
+    const session = await server.sessions.open("REQ-CONTEXT");
+    const binding = await server.sdlcs.get("task-context", 1);
+    const task = (await server.sessions.readEvents("REQ-CONTEXT")).find((event) => event.type === "agent.task.completed")!;
+    expect(task.payload["run_id"]).toBe(run_id);
+    await session.events.append({ event_id: ulid(), session_id: session.req_id, type: "agent.task.completed", schema_version: "1", actor: { kind: "agent", id: "fixture" }, correlation_id: "intake",
+      payload: { ...(task.payload as Record<string, unknown>), status: "timeout", text: "PRIVATE_TASK_TEXT", error: "PRIVATE_TASK_ERROR" }, source: { adapter: "fixture" } });
+    expect(await server.coordination.get("REQ-CONTEXT", first.round_id)).toMatchObject({ current: false, adoptable: false });
+    const second = await coordinate();
+    expect(second).toMatchObject({ status: "ok", current: true });
+    expect(second.execution_context_hash).not.toBe(first.execution_context_hash);
+    expect(prompts[1]).toContain('"status":"timeout"');
+    expect(prompts[1]).not.toContain("PRIVATE_TASK_");
+    expect((await readCoordinationExecutionContext(binding.def, session, binding.workflow_revision, server.runs)).run?.active).toBe(false);
+    expect((await server.sessions.readEvents("REQ-CONTEXT")).filter((event) => event.type === "human.decision.recorded" || event.type === "workflow.node.exited")).toHaveLength(0);
+  });
+
+  it("当前任务可以作为来源，旧任务被替换后不再是合法来源，重启保留观察摘要", async () => {
+    await failed();
+    const session = await server.sessions.open("REQ-CONTEXT");
+    const task = (await server.sessions.readEvents("REQ-CONTEXT")).find((event) => event.type === "agent.task.completed")!;
+    await config(JSON.stringify({ ...waiting, next_action: { ...waiting.next_action, evidence: [{ source: "agent_task", id: task.event_id }] } }));
+    await server.agents.reload();
+    const round = await coordinate();
+    expect(round).toMatchObject({ status: "ok", current: true });
+    await restart();
+    expect(await server.coordination.get("REQ-CONTEXT", round.round_id)).toMatchObject({ current: true, execution_context_hash: round.execution_context_hash });
+    const restored = await server.sessions.open("REQ-CONTEXT");
+    await restored.events.append({ event_id: ulid(), session_id: restored.req_id, type: "agent.task.completed", schema_version: "1", actor: { kind: "agent", id: "fixture" }, correlation_id: "intake",
+      payload: task.payload, source: { adapter: "fixture" } });
+    expect(await coordinate()).toMatchObject({ status: "failed", failure_stage: "output", proposal: null });
+  });
+
+  it("仅任务观察在途变化导致 stale，新一轮重新采集可恢复", async () => {
+    await failed();
+    await config(JSON.stringify(waiting), 300); await server.agents.reload();
+    const response = await start(ulid(), { sdlc_id: "task-context", sdlc_version: 1 });
+    const round_id = response.body.round.round_id;
+    await wait_for(async () => (await server.sessions.readEvents("REQ-CONTEXT")).some((event) => event.type === "coordinator.round.started" && event.payload["round_id"] === round_id));
+    const session = await server.sessions.open("REQ-CONTEXT");
+    const task = (await server.sessions.readEvents("REQ-CONTEXT")).find((event) => event.type === "agent.task.completed")!;
+    await session.events.append({ event_id: ulid(), session_id: session.req_id, type: "agent.task.completed", schema_version: "1", actor: { kind: "agent", id: "fixture" }, correlation_id: "intake",
+      payload: task.payload, source: { adapter: "fixture" } });
+    expect(await done(round_id)).toMatchObject({ status: "stale", proposal: null });
+    expect(await coordinate()).toMatchObject({ status: "ok", current: true });
+  });
+
+  it("活动 run 不接受 advance，等待提议可用，停止后新一轮可提议重试", async () => {
+    const run_id = await prepare(60_000);
+    await wait_for(async () => (await server.sessions.readEvents("REQ-CONTEXT")).some((event) => event.type === "agent.task.started"));
+    expect(await coordinate()).toMatchObject({ status: "ok", current: true, adoptable: false });
+    await config(JSON.stringify(proposal)); await server.agents.reload();
+    expect(await coordinate()).toMatchObject({ status: "failed", proposal: null, failure_stage: "output" });
+    await server.runs.cancel(run_id);
+    expect(await coordinate()).toMatchObject({ status: "ok", current: true, adoptable: true });
+  });
+});
 
 describe("协调事件完整性", () => {
   it("坏事实流中的明确取消仍收束真实子进程，报告 409，修复后可读取真实取消终态", async () => {
@@ -465,7 +560,7 @@ describe("协调提议受控采用", () => {
     expect((await server.sessions.readEvents("REQ-CONTEXT")).some((event) => event.type === "coordinator.round.adopted")).toBe(false);
   });
 
-  it("采用事件追加失败不派发节点，登记 failed 并释放槽位，修复后可再次采用", async () => {
+  it("采用事件追加失败不派发节点，登记 failed 并释放槽位，修复后重新协调再采用", async () => {
     const round = await valid_round();
     const session = await server.sessions.open("REQ-CONTEXT");
     const real_append = session.events.append.bind(session.events);
@@ -475,7 +570,10 @@ describe("协调提议受控采用", () => {
     expect(server.runs.isActive("REQ-CONTEXT")).toBe(false);
     expect((await server.sessions.readEvents("REQ-CONTEXT")).some((event) => event.type === "workflow.node.entered" || event.type === "coordinator.round.adopted")).toBe(false);
     mock.mockRestore();
-    expect((await adopt(round.round_id)).status).toBe(202);
+    expect(await server.coordination.get("REQ-CONTEXT", round.round_id)).toMatchObject({ current: false, adoptable: false });
+    expect((await adopt(round.round_id)).status).toBe(409);
+    const refreshed = await valid_round();
+    expect((await adopt(refreshed.round_id)).status).toBe(202);
   });
 
   it("归档版本阻止采用，历史输入身份仍有效", async () => {

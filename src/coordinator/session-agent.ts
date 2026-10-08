@@ -3,7 +3,8 @@ import { z } from "zod";
 import { ulid } from "ulid";
 import { canonicalJson, sha256Hex } from "../core/hash.js";
 import type { AgentDriver, ContextSessionAgent, CoordinationInput, CoordinationResult, SessionHandle } from "../core/ports.js";
-import { AgentUsagePayloadSchema, CoordinationProposalSchema, CoordinationVerificationsSchema, type CoordinationVerification, type CoordinationProposal, type CoordinationStatus, type WorkflowDef } from "../core/schema.js";
+import { AgentUsagePayloadSchema, CoordinationProposalSchema, CoordinationVerificationsSchema, CoordinationExecutionContextSchema,
+  type CoordinationExecutionContext, type CoordinationVerification, type CoordinationProposal, type CoordinationStatus, type WorkflowDef } from "../core/schema.js";
 import { DEFAULT_TASK_TIMEOUT_MS } from "../driver/headless.js";
 import { topologicalOrder } from "../workflow/executor.js";
 import type { RequirementSnapshot } from "./snapshot.js";
@@ -26,12 +27,15 @@ export interface ContextSessionAgentOptions {
   read_source_hash?: (def: WorkflowDef) => Promise<string | null>;
   /** ADR-0044：宿主投影当前流程声明的验证结果与新鲜度，不携带日志。 */
   read_verifications?: (def: WorkflowDef, session: SessionHandle, workflow_revision?: string) => Promise<CoordinationVerification[]>;
+  /** ADR-0048：当前 run 与 worker 状态，不携带任务正文或错误日志。 */
+  read_execution_context?: (def: WorkflowDef, session: SessionHandle, workflow_revision?: string) => Promise<CoordinationExecutionContext>;
 }
 
 /** 轮次自己的事件不会改变输入；文档、账本、进度与人工等待会改变。 */
-export function coordinationInputHash(def: WorkflowDef, snapshot: RequirementSnapshot, configuration_hash: string | null, max_prompt_chars = DEFAULT_MAX_PROMPT_CHARS, source_hash: string | null = null, verifications: readonly CoordinationVerification[] = []): string {
+export function coordinationInputHash(def: WorkflowDef, snapshot: RequirementSnapshot, configuration_hash: string | null, max_prompt_chars = DEFAULT_MAX_PROMPT_CHARS, source_hash: string | null = null, verifications: readonly CoordinationVerification[] = [], execution_context?: CoordinationExecutionContext): string {
   return sha256Hex(canonicalJson({
-    domain: "cord.coordination-input.v4", context_policy: COORDINATION_CONTEXT_POLICY, workflow: def, configuration_hash, max_prompt_chars,
+    domain: execution_context === undefined ? "cord.coordination-input.v4" : "cord.coordination-input.v5", context_policy: COORDINATION_CONTEXT_POLICY, workflow: def, configuration_hash, max_prompt_chars,
+    ...(execution_context === undefined ? {} : { execution_context }),
     ...(source_hash === null ? {} : { source_hash }),
     ...(verifications.length === 0 ? {} : { verifications }),
     ...(snapshot.workflow_revision !== undefined ? { workflow_revision: snapshot.workflow_revision } : {}),
@@ -42,8 +46,8 @@ export function coordinationInputHash(def: WorkflowDef, snapshot: RequirementSna
   }));
 }
 
-function eligibleNodes(def: WorkflowDef, snapshot: RequirementSnapshot): string[] {
-  if ((snapshot.workflow.waiting?.length ?? 0) > 0) return [];
+function eligibleNodes(def: WorkflowDef, snapshot: RequirementSnapshot, execution_context?: CoordinationExecutionContext): string[] {
+  if ((snapshot.workflow.waiting?.length ?? 0) > 0 || execution_context?.run?.active === true) return [];
   const exited = new Set(snapshot.workflow.exited);
   const next_id = topologicalOrder(def).find((id) => !exited.has(id));
   const node = def.spec.nodes.find((item) => item.id === next_id);
@@ -51,33 +55,34 @@ function eligibleNodes(def: WorkflowDef, snapshot: RequirementSnapshot): string[
 }
 
 /** 只接受完整 JSON；来源存在性与 workflow 依赖是宿主判定，不能由模型自报。 */
-export function parseCoordinationProposal(text: string, def: WorkflowDef, snapshot: RequirementSnapshot, verifications: readonly CoordinationVerification[] = []): CoordinationProposal {
+export function parseCoordinationProposal(text: string, def: WorkflowDef, snapshot: RequirementSnapshot, verifications: readonly CoordinationVerification[] = [], execution_context?: CoordinationExecutionContext): CoordinationProposal {
   let value: unknown;
   try { value = JSON.parse(text); } catch { throw new Error("协调结果必须是完整 JSON 对象"); }
   const parsed = CoordinationProposalSchema.safeParse(value);
   if (!parsed.success) throw new Error(`协调提议不符合契约：${parsed.error.issues.map((issue) => issue.path.join(".") || "<root>").join("、")}`);
   const proposal = parsed.data;
   const action = proposal.next_action;
-  if (action.kind === "advance" && !eligibleNodes(def, snapshot).includes(action.node_id)) throw new Error("协调提议引用了不可推进的节点（依赖、进度或人工 gate 未满足）");
-  if (action.kind === "complete" && ((snapshot.workflow.waiting?.length ?? 0) > 0 || !def.spec.nodes.every((node) => snapshot.workflow.exited.includes(node.id)))) throw new Error("工作流尚未完成，不能提议 complete");
+  if (action.kind === "advance" && !eligibleNodes(def, snapshot, execution_context).includes(action.node_id)) throw new Error("协调提议引用了不可推进的节点（依赖、进度、人工 gate 或活动 run 未满足）");
+  if (action.kind === "complete" && (execution_context?.run?.active === true || (snapshot.workflow.waiting?.length ?? 0) > 0 || !def.spec.nodes.every((node) => snapshot.workflow.exited.includes(node.id)))) throw new Error("工作流尚未完成，不能提议 complete");
   if (action.kind === "ask_human" && new Set(action.options).size !== action.options.length) throw new Error("人工选择题选项必须互不相同");
   for (const evidence of action.evidence) {
     const valid = evidence.source === "document" ? snapshot.docs.some((doc) => doc.file === evidence.id && doc.exists) :
       evidence.source === "ledger" ? snapshot.ledger.some((entry) => entry.entry_id === evidence.id && entry.status === "confirmed" && !entry.conflict) :
       evidence.source === "verification" ? verifications.some((result) => result.event_id === evidence.id && result.current === true && result.status !== "missing" && result.status !== "invalid") :
+      evidence.source === "agent_task" ? execution_context?.tasks.some((task) => task.event_id === evidence.id && !["missing", "invalid"].includes(task.status)) === true :
       def.spec.nodes.some((node) => node.id === evidence.id);
     if (!valid) throw new Error(`协调提议的来源引用不可验证：${evidence.source}/${evidence.id}`);
   }
   return proposal;
 }
 
-export function buildCoordinationPrompt(def: WorkflowDef, snapshot: RequirementSnapshot, max_chars = DEFAULT_MAX_PROMPT_CHARS, source_hash: string | null = null, verifications: readonly CoordinationVerification[] = []): string {
+export function buildCoordinationPrompt(def: WorkflowDef, snapshot: RequirementSnapshot, max_chars = DEFAULT_MAX_PROMPT_CHARS, source_hash: string | null = null, verifications: readonly CoordinationVerification[] = [], execution_context?: CoordinationExecutionContext): string {
   if (!Number.isSafeInteger(max_chars) || max_chars < 0) throw new Error("协调上下文预算必须是非负安全整数");
   topologicalOrder(def);
   const fixed = [
     "# Context Session Agent：当前需求的协调者",
     "分析最新快照，提出下一步。只产 Draft；不调用工具、不写文件、不启动 worker、不放行 gate。不要读取事件流或旧会话历史。",
-    "返回一个严格 JSON 对象，禁止 Markdown 围栏和额外解释。证据引用只允许本包的文档、无冲突 confirmed 条目、workflow 节点或 current=true 的验证 event_id。",
+    "返回一个严格 JSON 对象，禁止 Markdown 围栏和额外解释。证据引用只允许本包的文档、无冲突 confirmed 条目、workflow 节点、current=true 的验证 event_id 或合法当前 run 的 agent_task event_id。",
     `context_policy: ${COORDINATION_CONTEXT_POLICY}\n文档按首尾片段提供，document_excerpts 标明 UTF-16 字符范围和省略数。未显示的内容不能声称已核验；材料不足时请选择 wait 或 ask_human。`,
     `workflow 来源的 id 只能是 node.id（${JSON.stringify(def.spec.nodes.map((node) => node.id))}），不能是 gate.id；verification 来源的 id 只能是 current=true 观察的 event_id。`,
     "advance 只可选择 eligible_nodes；该提议不代表机器 checker 或人工审批已放行。等待人工 gate 时请选择 ask_human 或 wait。",
@@ -86,8 +91,9 @@ export function buildCoordinationPrompt(def: WorkflowDef, snapshot: RequirementS
     ...(snapshot.workflow_revision !== undefined ? [`workflow_revision: ${snapshot.workflow_revision}`] : []),
     ...(source_hash === null ? [] : [`source_hash: ${source_hash}\n源码摘要仅标识当前声明范围，不代表测试通过或内容已被核验。`]),
     ...(verifications.length === 0 ? [] : [`verifications: ${JSON.stringify(verifications)}\n机器观察由宿主核验输入身份。missing、invalid、current=false/null 均不能认作当前通过；当前 failed/timeout/cancelled 也不是通过。验证证据不能代替人工 gate。`]),
+    ...(execution_context === undefined ? [] : [`execution_context: ${JSON.stringify(execution_context)}\nactive 仅标识宿主当前运行槽位，active=true 时不得推进新 run。started 只证明启动已记录，active=false 时不能声称进程仍活着。任务事实不保证对应修改后的输入，ok 也不等于测试或 gate 通过；missing/invalid 不能引用，agent_task 来源只用这里的合法 event_id。`]),
     `progress: ${JSON.stringify(snapshot.workflow)}`,
-    `eligible_nodes: ${JSON.stringify(eligibleNodes(def, snapshot))}`,
+    `eligible_nodes: ${JSON.stringify(eligibleNodes(def, snapshot, execution_context))}`,
     `ledger: ${JSON.stringify(snapshot.ledger)}`,
     `documents: ${JSON.stringify(snapshot.docs.map(({ file, exists, content_hash, content_length }) => ({ file, exists, content_hash, content_length })))}`,
     `response_schema: ${JSON.stringify(z.toJSONSchema(CoordinationProposalSchema))}`,
@@ -109,6 +115,18 @@ async function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T
 
 export function createContextSessionAgent(options: ContextSessionAgentOptions): ContextSessionAgent {
   return { coordinate };
+
+  async function read_execution_context(def: WorkflowDef, session: SessionHandle, workflow_revision?: string): Promise<CoordinationExecutionContext | undefined> {
+    if (options.read_execution_context === undefined) return undefined;
+    const parsed = CoordinationExecutionContextSchema.safeParse(await options.read_execution_context(def, session, workflow_revision));
+    if (!parsed.success) throw new Error("协调执行观察不符合契约");
+    const nodes = def.spec.nodes.filter((node) => node.run !== undefined);
+    if (parsed.data.tasks.length !== nodes.length || parsed.data.tasks.some((task) => !nodes.some((node) => node.id === task.node_id))) {
+      throw new Error("协调执行观察必须完整覆盖声明的 worker 节点");
+    }
+    parsed.data.tasks.sort((a, b) => a.node_id < b.node_id ? -1 : a.node_id > b.node_id ? 1 : 0);
+    return parsed.data;
+  }
 
   async function read_source_hash(def: WorkflowDef): Promise<string | null> {
     if (options.read_source_hash === undefined) return null;
@@ -152,6 +170,7 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
     let prompt: string;
     let source_hash: string | null = null;
     let verifications: CoordinationVerification[] = [];
+    let execution_context: CoordinationExecutionContext | undefined;
     try {
       snapshot = await readCoordinationSnapshot(def, session, input.workflow_revision);
       Object.assign(base, { snapshot_id: snapshot.snapshot_id, snapshot_event_seq: snapshot.event_seq, snapshot_event_chain_hash: snapshot.event_chain_hash });
@@ -159,7 +178,9 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
       if (source_hash !== null) base["source_hash"] = source_hash;
       verifications = await read_verifications(def, session, input.workflow_revision);
       if (verifications.length > 0) base["verification_context_hash"] = sha256Hex(canonicalJson(verifications));
-      prompt = buildCoordinationPrompt(def, snapshot, max_prompt_chars, source_hash, verifications);
+      execution_context = await read_execution_context(def, session, input.workflow_revision);
+      if (execution_context !== undefined) base["execution_context_hash"] = sha256Hex(canonicalJson(execution_context));
+      prompt = buildCoordinationPrompt(def, snapshot, max_prompt_chars, source_hash, verifications, execution_context);
     } catch (error) {
       await append("coordinator.round.started", base);
       return complete("failed", null, error instanceof Error ? error.message : "协调快照准备失败", { failure_stage: "snapshot" });
@@ -170,7 +191,7 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
       if (typeof driver.name !== "string" || driver.name.length === 0 || (driver.configuration_hash !== undefined && !/^[0-9a-f]{64}$/.test(driver.configuration_hash))) throw new Error("协调 driver 身份不符合契约");
       base["driver"] = driver.name;
       if (driver.configuration_hash !== undefined) base["agent_configuration_hash"] = driver.configuration_hash;
-      base["input_hash"] = coordinationInputHash(def, snapshot, driver.configuration_hash ?? null, max_prompt_chars, source_hash, verifications);
+      base["input_hash"] = coordinationInputHash(def, snapshot, driver.configuration_hash ?? null, max_prompt_chars, source_hash, verifications, execution_context);
       base["prompt_hash"] = sha256Hex(prompt);
     } catch (error) {
       await append("coordinator.round.started", base);
@@ -241,14 +262,15 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
     const text = result_text ?? chunks;
     extra["response_hash"] = sha256Hex(text);
     let proposal: CoordinationProposal;
-    try { proposal = parseCoordinationProposal(text, def, snapshot, verifications); }
+    try { proposal = parseCoordinationProposal(text, def, snapshot, verifications, execution_context); }
     catch (error) { return complete("failed", null, error instanceof Error ? error.message : "协调输出校验失败", { ...extra, failure_stage: "output" }); }
     try {
       const current = await readCoordinationSnapshot(def, session, input.workflow_revision);
       const current_source = await read_source_hash(def);
       const current_verifications = await read_verifications(def, session, input.workflow_revision);
+      const current_execution = await read_execution_context(def, session, input.workflow_revision);
       if (input.signal?.aborted) return complete("cancelled", null, "协调轮次已取消", extra);
-      if (coordinationInputHash(def, current, driver.configuration_hash ?? null, max_prompt_chars, current_source, current_verifications) !== base["input_hash"]) {
+      if (coordinationInputHash(def, current, driver.configuration_hash ?? null, max_prompt_chars, current_source, current_verifications, current_execution) !== base["input_hash"]) {
         return complete("stale", null, "协调期间需求、源码、验证、账本或 workflow 进度已变化，请重新协调", { ...extra, failure_stage: "freshness" });
       }
     } catch (error) {

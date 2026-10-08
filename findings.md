@@ -124,6 +124,14 @@
 - workspace doctor 的 merge driver 检查不同于 session doctor，临时 git 仓库仍需注册本地 merge driver；完成该初始化后 HTTP/浏览器验收与 workspace doctor 全通过。
 - 读错误后的 UI 不能解锁编辑或显示“已与磁盘一致”，真实 404 才进入新文档状态；浏览器已验证错误、缺失、保存与恢复，控制台仍只展示 server 投影。
 
+## 实现校准（2026-10-08，协调执行观察）
+
+- 独立协调没有 run/worker 状态，任务失败而文档/进度不变时提议仍可用；9 个核心反例先全部复现。
+- worker run_id provenance、受限任务/运行 schema、同批严格投影与 read_execution_context 已贯通。当前 run 活动时禁止 advance/complete；started 不证明 PID 存活，任务 ok 不等于验证/gate 通过。
+- 执行观察进入 v5 输入身份和完成/查询/采用重检，event_id 变化也会失效；坏最新记录不回退旧成功，旧无 run_id 不猜测归属，模型只可引用合法当前任务事件。
+- 全量 765 测试 / 61 文件、build/typecheck/diff 通过。真实 fixture 失败→修复产 Draft 停人工 gate，真实 Claude 两轮如实引用 failed/ok 最新任务与 active=false/true，无工具调用、人工决定/退出/采用，doctor=true。
+- 冷启动第三次真实 Claude 引用同一 ok 任务但 active=false，无 worker 重放，新轮次 current=true。Playwright/Chrome 1440/390/320 来源定位/展开通过，无溢出/pageerror，截图无重叠；原真实 Draft 仍为审批 1、人工决定 0、done 未退出。
+
 ## 实现校准（2026-10-08，快照事件完整性）
 
 - readSnapshot 的普通事件读取会跳过坏行且接受外部 session；未声明机器验证时旧提议也会继续可采用。10 个新反例先全部复现。

@@ -1,5 +1,18 @@
 # 工作进度
 
+## 2026-10-08（阶段 34）
+
+- 上一轮为已验证进展，当前 HEAD=e426eb9，工作区干净且与远端同步。
+- 独立协调没有 run/worker 执行观察，started→failed/timeout 不改变其输入；历史 started 不能证明进程当前活着。ADR-0048 先行，增加受限观察、run provenance 与活动运行行动约束。
+- 9 个核心反例先全部复现，开始实现契约、worker run_id、宿主执行投影与 v5 协调身份，来源沿用事件定位展开交互。
+- 首轮核心 9 与构建/typecheck 通过；扩展 73 项定向中 71 通过，活动用例 fixture 的 fail 模式忽略 sleep，已改为真实静默 worker。旧采用写失败恢复用例因新增 run 事实使输入过期，更新为先拒绝旧提议、重新协调后再采用，不绕过新鲜度。
+- 校准后定向 67 项通过；全量 765 测试 / 61 文件、build:all/typecheck/git diff --check 通过。
+- 隔离工作区真实 worker 退出码 3 失败→修复后产计划 Draft 停人工 gate，真实 Claude 两轮正确引用 failed/ok 最新任务与 active=false/true，输入/执行观察摘要不同、旧轮次失效，无工具/人工决定/退出/采用，doctor=true。继续冷观察与浏览器来源验收。
+- 第三次真实 Claude 冷启动协调引用同一 ok 任务且 active=false，旧活动轮次过期；无 worker 重放、新工作流事实或人工决定，doctor=true。
+- 浏览器首轮未启动：原 Playwright npm 缓存路径已清理且未找到其他缓存，临时目录单独安装工具恢复验收，不改应用依赖。预览 7311 与原真实 Draft 实时健康，原 gate 仍未决。
+- 临时 Playwright 1.58.2 与本机 Chrome 验收通过：1440/390/320 任务来源均定位并展开正确 event/run/status，无溢出/pageerror。重置滚动位置后桌面/手机截图已查看，无内容重叠。
+- 当前预览 `http://127.0.0.1:7311/#/requirements/REQ-TASK-OBSERVATION/coordination` 展示真实冷启动 wait Draft，current=true；事件/模型正文/截图仅留在临时目录。差异审查完成，进入提交与有界推送，持续目标保持 active。
+
 ## 2026-10-08（阶段 33）
 
 - 上一轮为已验证实现进展；当前 HEAD=8aeb08f，工作树干净，领先 5 个本地提交。

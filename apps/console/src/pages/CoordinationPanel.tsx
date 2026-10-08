@@ -18,7 +18,7 @@ interface Props {
   event_seq: number;
   run_in_flight: boolean;
   onChanged: () => Promise<void>;
-  onSource: (source: "document" | "ledger" | "workflow" | "verification", id: string) => void;
+  onSource: (source: "document" | "ledger" | "workflow" | "verification" | "agent_task", id: string) => void;
   onRun: () => void;
 }
 
@@ -184,7 +184,7 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
             <div className="coordination-action-title"><span className="pill">{ACTION_TEXT[selected.proposal.next_action.kind]}</span>{selected.proposal.next_action.kind === "advance" ? <strong className="mono">{selected.proposal.next_action.node_id}</strong> : null}</div>
             <p className="coordination-reason">{selected.proposal.next_action.reason}</p>
             {selected.proposal.next_action.kind === "ask_human" ? <div className="coordination-question"><h4>{selected.proposal.next_action.question}</h4><ul>{selected.proposal.next_action.options.map((option) => <li key={option}>{option}</li>)}</ul></div> : null}
-            <div className="coordination-evidence"><h4>来源</h4><ul>{selected.proposal.next_action.evidence.map((evidence, index) => <li key={`${evidence.source}:${evidence.id}:${index}`}><span className="muted small">{evidence.source === "document" ? "文档" : evidence.source === "ledger" ? "共识" : evidence.source === "verification" ? "验证" : "节点"}</span>
+            <div className="coordination-evidence"><h4>来源</h4><ul>{selected.proposal.next_action.evidence.map((evidence, index) => <li key={`${evidence.source}:${evidence.id}:${index}`}><span className="muted small">{evidence.source === "document" ? "文档" : evidence.source === "ledger" ? "共识" : evidence.source === "verification" ? "验证" : evidence.source === "agent_task" ? "任务" : "节点"}</span>
               {evidence.source !== "document" || ["prd.md", "plan.md", "adr.md", "findings.md"].includes(evidence.id) ? <button type="button" className="link mono" onClick={() => onSource(evidence.source, evidence.id)}><span>{evidence.id}</span><ChevronRight size={14} aria-hidden="true" /></button> : <code className="mono">{evidence.id}</code>}
             </li>)}</ul></div>
             {selected.proposal.risks.length > 0 ? <div className="coordination-risks"><h4>风险</h4><ul>{selected.proposal.risks.map((risk, index) => <li key={index}>{risk}</li>)}</ul></div> : null}

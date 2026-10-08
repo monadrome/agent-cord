@@ -155,6 +155,8 @@ export interface WorkflowExecutor {
 export interface NodeRunContext {
   workflow_id: string;
   workflow_revision?: string;
+  /** ADR-0048：当前 run 身份；旧库调用可省略，不猜测归属。 */
+  run_id?: string;
   node_id: string;
   /** run 取消信号（ADR-0025）：abort 后执行体应尽快收束（杀 agent 子进程、落 cancelled 终态） */
   signal?: AbortSignal;

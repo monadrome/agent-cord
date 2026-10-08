@@ -162,8 +162,8 @@ export class RunService {
   }
 
   /** 当前绑定按启动事实的因果顺序确定；没有新协议事实时只读旧操作登记。 */
-  async latestRun(req_id: string): Promise<RunRow | null> {
-    for (const event of [...await this.sessions.readEvents(req_id)].reverse()) {
+  async latestRun(req_id: string, events?: readonly EventEnvelope[]): Promise<RunRow | null> {
+    for (const event of [...(events ?? await this.sessions.readEvents(req_id))].reverse()) {
       if (event.type !== "workflow.run.started") continue;
       const parsed = WorkflowRunStartedPayloadSchema.safeParse(event.payload);
       if (!parsed.success) throw new Error("工作流启动绑定事件不符合契约");

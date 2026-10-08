@@ -210,6 +210,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
     const base = {
       workflow_id: ctx.workflow_id,
       ...(ctx.workflow_revision !== undefined ? { workflow_revision: ctx.workflow_revision } : {}),
+      ...(ctx.run_id !== undefined ? { run_id: ctx.run_id } : {}),
       node_id: ctx.node_id,
       ...(node.run?.output !== undefined ? { output: node.run.output } : {}),
       attempt,

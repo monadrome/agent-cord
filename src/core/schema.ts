@@ -277,12 +277,39 @@ export const CoordinationVerificationsSchema = z.array(CoordinationVerificationS
   new Set(values.map((value) => JSON.stringify([value.node_id, value.verification_id]))).size === values.length,
   { message: "同一节点的验证观察不能重复" });
 
+/** ADR-0048：当前 run 的受限任务事实，不携带正文/错误日志。 */
+export const CoordinationTaskSchema = z.strictObject({
+  node_id: z.string().min(1).max(500),
+  run_id: z.string().regex(ULID_RE).nullable(),
+  event_id: z.string().regex(ULID_RE).nullable(),
+  status: z.enum(["missing", "invalid", "started", "ok", "failed", "timeout", "cancelled"]),
+  attempt: z.number().int().positive().nullable(),
+  max_attempts: z.number().int().positive().nullable(),
+  failure_stage: z.enum(["snapshot", "configuration", "driver", "artifact"]).nullable(),
+  retryable: z.boolean().nullable(),
+}).refine((value) => value.max_attempts === null || value.attempt === null || value.attempt <= value.max_attempts, { message: "重试编号超过上限" })
+  .refine((value) => value.status === "missing" ? value.event_id === null : value.run_id !== null && value.event_id !== null, { message: "任务事实必须携带 run/event 身份" })
+  .refine((value) => !["missing", "invalid", "started"].includes(value.status) || (value.failure_stage === null && value.retryable === null), { message: "未确认终态不能携带失败结论" })
+  .refine((value) => !["missing", "invalid"].includes(value.status) || (value.attempt === null && value.max_attempts === null), { message: "缺失/非法任务不能声明重试编号" })
+  .refine((value) => value.status !== "ok" || value.failure_stage === null, { message: "成功任务不能同时声明失败阶段" });
+export type CoordinationTask = z.infer<typeof CoordinationTaskSchema>;
+export const CoordinationExecutionContextSchema = z.strictObject({
+  run: z.strictObject({ run_id: z.string().regex(ULID_RE), status: z.enum(["running", "waiting_human", "completed", "blocked", "failed", "cancelled"]), active: z.boolean() })
+    .refine((value) => !value.active || ["running", "waiting_human"].includes(value.status), { message: "终态 run 不能仍 active" }).nullable(),
+  tasks: z.array(CoordinationTaskSchema).max(128),
+}).refine((value) => new Set(value.tasks.map((task) => task.node_id)).size === value.tasks.length, { message: "任务节点不能重复" })
+  .refine((value) => { const ids = value.tasks.flatMap((task) => task.event_id === null ? [] : [task.event_id]); return new Set(ids).size === ids.length; }, { message: "同一任务事件不能归属多个节点" })
+  .refine((value) => value.tasks.every((task) => task.run_id === (value.run?.run_id ?? null)), { message: "任务观察必须属于当前 run" })
+  .refine((value) => value.run !== null || value.tasks.every((task) => task.status === "missing"), { message: "没有当前 run 时不能声明任务事实" });
+export type CoordinationExecutionContext = z.infer<typeof CoordinationExecutionContextSchema>;
+
 /** ADR-0032：协调提议仅引用当前快照/工作流，不能携带任意命令或修改协议。 */
 export const CoordinationEvidenceSchema = z.discriminatedUnion("source", [
   z.strictObject({ source: z.literal("document"), id: z.string().min(1).max(500) }),
   z.strictObject({ source: z.literal("ledger"), id: z.string().regex(/^C-\d+$/) }),
   z.strictObject({ source: z.literal("workflow"), id: z.string().min(1).max(500) }),
   z.strictObject({ source: z.literal("verification"), id: z.string().regex(ULID_RE) }),
+  z.strictObject({ source: z.literal("agent_task"), id: z.string().regex(ULID_RE) }),
 ]);
 const coordination_action_fields = {
   reason: z.string().trim().min(1).max(2_000),
@@ -493,6 +520,7 @@ export const WorkflowNodeExitedPayloadSchema = z.looseObject({
 export const AgentTaskStartedPayloadSchema = z.looseObject({
   workflow_id: z.string().min(1),
   workflow_revision: z.string().length(64).optional(),
+  run_id: z.string().regex(ULID_RE).optional(),
   node_id: z.string().min(1),
   driver: z.string().min(1),
   output: z.enum(["auto", "text"]).optional(),
@@ -528,6 +556,7 @@ export const AgentUsagePayloadSchema = z.looseObject({
 export const AgentTaskCompletedPayloadSchema = z.looseObject({
   workflow_id: z.string().min(1),
   workflow_revision: z.string().length(64).optional(),
+  run_id: z.string().regex(ULID_RE).optional(),
   node_id: z.string().min(1),
   driver: z.string().min(1),
   output: z.enum(["auto", "text"]).optional(),
@@ -611,6 +640,8 @@ const coordination_round_fields = {
   source_hash: z.string().length(64).optional(),
   /** ADR-0044：完整验证观察的摘要，正文不保存到轮次。 */
   verification_context_hash: z.string().length(64).optional(),
+  /** ADR-0048：run/worker 受限执行观察摘要。 */
+  execution_context_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   snapshot_id: z.string().length(64).optional(),
   snapshot_event_seq: z.number().int().nonnegative().optional(),
   snapshot_event_chain_hash: z.string().length(64).optional(),

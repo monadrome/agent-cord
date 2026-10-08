@@ -35,6 +35,8 @@
 
 `agent.task.started/completed` 会记录 `snapshot_id`、`snapshot_event_seq` 与 `snapshot_event_chain_hash`（ADR-0026），标识本次派发使用的最新需求快照。`agent.task.completed` 的其他关键字段：`status`（ok / failed / timeout / cancelled）、`text`（截断 32KB）、`artifact_written` 与 `written_by`（agent / coordinator / none）、`attempt` 与 `max_attempts`（重试时）、`agent_session_id`（仅供人工调试 resume，执行器恢复总是新会话）。`cancelled` 不算失败：不计入 failed 终态，也不触发重试。
 
+ADR-0048 的 NodeRunContext.run_id 由 executor 透传，原生 worker 的 started/completed 保存当前运行身份；库调用可省略。旧任务缺少 run_id 时不猜测当前归属，已有 workflow 版本/输入/产物 checkpoint 复用规则不变。
+
 ADR-0028 增加失败阶段 `failure_stage`（snapshot / configuration / driver / artifact）和 `retryable`。配置及永久文件路径错误不重试；普通准备、驱动与写回故障都有任务终态，瞬态故障按节点策略重试。准备失败时尚无成功快照，provenance 字段省略。事件追加失败必须上抛宿主，不能用未持久化的 completed 伪造终态。
 
 ADR-0029 增加 `artifact_before_hash`（started/completed）、`artifact_after_hash` 与 `artifact_changed`（completed）。不存在文件用 null，后态不可读时省略 after/changed。旧内容不变不能记为当前 agent 自写；有完整最终文本则代写 draft，可写产物无新内容且无最终文本则 failed/artifact。代写前与替换前比较预期 hash，观察到冲突时保留现状并失败。`written_by=agent` 指运行期间观察到有效文件变化，不保证操作系统写者身份。
@@ -174,7 +176,7 @@ REST 的 `approval_id` 是等待事件 ULID；旧静态编码可解析但不允�
 
 ADR-0046 的 readCoordinationSnapshot 共用独立协调采集策略：每份长文档在 20000 字符内保留首尾，普通 readSnapshot 默认仍只取前缀。总预算扣除固定元信息和片段索引后在有内容文档间均衡分配，短文档额度回流；截断不拆开 Unicode 代理对。prompt 的 document_excerpts 记录 file、included_chars、omitted_chars 与 ranges（UTF-16 原文偏移，起点包含、终点不包含），正文展示这些范围。未展示内容不能声称已核验；首尾片段也不保证包含中间所有关键要求。
 
-输出必须符合 `CoordinationProposalSchema`：summary、next_action、risks；next_action 是 advance / ask_human / wait / complete，每种都必须有 reason 和 evidence。evidence 引用存在的 snapshot document、无冲突 confirmed ledger entry、当前 workflow node 或 current=true 的最新机器验证 event_id。workflow ID 指 node.id，不指 gate.id。advance 只能指向执行器拓扑顺序第一个未退出且依赖已退出的节点，无待人工 gate；complete 要求全部退出且无等待；人工选项不能重复。未知字段、自由文本、围栏 JSON、未知来源或非法节点均 failed/output。存在性验证不等价于语义正确性。
+输出必须符合 `CoordinationProposalSchema`：summary、next_action、risks；next_action 是 advance / ask_human / wait / complete，每种都必须有 reason 和 evidence。evidence 引用存在的 snapshot document、无冲突 confirmed ledger entry、当前 workflow node、current=true 的最新机器验证 event_id 或 agent_task 的当前 run 最新合法任务 event_id。workflow ID 指 node.id，不指 gate.id。advance 只能指向执行器拓扑顺序第一个未退出且依赖已退出的节点，无待人工 gate或活动绑定 run；complete 要求全部退出且无等待/活动 run；人工选项不能重复。未知字段、自由文本、围栏 JSON、未知来源或非法节点均 failed/output。存在性验证不等价于语义正确性。
 
 轮次事件与 worker 恢复完全分离：server requested 绑定 SDLC 版本，started/completed 记录 round_id、workflow_id、driver、snapshot provenance、input_hash、prompt_hash 与可选配置身份。语义 input_hash 排除事件序号与轮次自身事件，覆盖完整文档 hash、账本、进度/等待、workflow 和配置身份。结果返回前重检；变化记 stale，读取失败记 failed/freshness，均没有提议。completed 只在 ok 时携带提议，其余状态 proposal 为 null；不保存原始输出/上下文或 driver raw。
 
@@ -182,7 +184,11 @@ ADR-0043 的 ContextSessionAgentOptions.read_source_hash(def) 将声明源码身
 
 ADR-0044 的 read_verifications(def, session, revision) 为协调者提供最多 128 项严格机器观察。server 只保留当前 run/发布版本/声明检查的最新结果，共用 readNodeInput 校验 current；缺失、坏结果、过期、取消和读失败不能标为当前有效。观察包含 status/current/reason、事件 ID、输入/命令/源码摘要及退出码，不含 summary 或日志。该阶段曾用 v3 域绑定观察，当前统一采用 v4；完成/查询/采用重检同一投影，轮次只落 verification_context_hash。当前失败事实可作为 verification 来源用于解释等待，但不能冒充 passed 或绕过人工 gate。来源点击在控制台打开并展开结果事件。
 
-当前 coordinationInputHash 使用 cord.coordination-input.v4，加入 context_policy=balanced-head-tail.v1，继续绑定完整原文 hash、配置、workflow、进度、声明源码与机器观察。查询/采用和模型完成共用首尾采集；旧 v1/v2/v3 成功轮次保留历史，但 current=false，须重新协调。片段正文和索引不落事件，事件只保留 prompt/input hash。已采用轮次的原 run 重放语义不变，不自动回滚已退出节点。
+coordinationInputHash 的 v4 域加入 context_policy=balanced-head-tail.v1，继续绑定完整原文 hash、配置、workflow、进度、声明源码与机器观察；无执行观察 hook 的库调用仍用 v4，当前 server 使用下述 v5。查询/采用和模型完成共用首尾采集，旧域成功轮次保留历史但需重新协调。片段正文和索引不落事件，事件只保留 prompt/input hash。已采用轮次的原 run 重放语义不变，不自动回滚已退出节点。
+
+ADR-0048 的 read_execution_context(def, session, revision) 提供严格 CoordinationExecutionContext：当前发布绑定 run 的 run_id/status/active，以及最多 128 项、完整覆盖 node.run 声明的任务元信息。宿主从同批严格事件定位 run 和最新任务；旧 run/版本、无 run_id 的旧任务不进入当前来源，坏的最新 payload/correlation/重试编号为 invalid，不回退历史成功。missing 表示无当前任务，started 只表示启动事实，active=false 时不能推断进程仍活着；active 来自匹配且未终态的本机运行槽位。任务 ok 不等于机器测试或 gate 通过，也不证明仍对应修改后的输入。
+
+server 执行观察进入 prompt、v5 输入身份与完成/查询/采用重检，任务终态或 event_id 替换、run 变更、active 变化都使旧轮次失效。轮次/REST view 只新增 execution_context_hash，不注入 error/text/prompt_excerpt/raw。当前合法任务可作为 agent_task 来源，控制台打开并展开对应事件；活动绑定 run 时 eligible_nodes=[]，模型只能提出 wait/ask_human。failed/cancelled 且 inactive 可提出重试方向，仍由人工采用和现有 runner 核验。采用写失败后产生的新 run 事实也改变执行观察，需重新协调，不能继续采用旧提议。
 
 REST 创建 `POST /requirements/:req_id/coordination` 输入 `{agent, sdlc_id?, sdlc_version?, timeout_ms?}`，返回 202；列表/读取使用 GET，取消 `POST .../:round_id/cancel` 先落 cancel_requested 再 abort。写命令使用 Idempotency-Key；跨 method/path 复用键返回 409，创建并发同键合并为一轮。每需求只允许一轮在途协调，resolver 在创建时固定，归档版本拒绝新轮次。事件写入失败必须报告宿主，不能伪造 completed。server 重启将未完成轮次落 failed/interrupted；已有取消请求则落 cancelled，不重放模型调用。
 

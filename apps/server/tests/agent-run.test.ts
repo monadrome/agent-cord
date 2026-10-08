@@ -230,6 +230,9 @@ describe("agent 执行闭环（node.run + agents.yaml + 参数化 checker）", (
     const types = events.body.events.map((event: { type: string }) => event.type);
     expect(types).toContain("agent.task.started");
     expect(types).toContain("agent.task.completed");
+    expect(events.body.events.filter((event: { type: string }) => event.type.startsWith("agent.task.")).every(
+      (event: { payload: { run_id: string } }) => event.payload.run_id === started.body.run.run_id,
+    )).toBe(true);
     const completed = events.body.events.find(
       (event: { type: string }) => event.type === "agent.task.completed",
     );

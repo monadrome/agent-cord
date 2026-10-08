@@ -169,7 +169,7 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
                 pending: state.waiting.get(gateKey(nodeId, gate.id)),
                 ...(options.gateInputHash !== undefined ? { inputHash: () => options.gateInputHash!(node, gate, session) } : {}),
                 ...(gate.attach.when === "post" && options.nodeRunner?.isCompletionReusable !== undefined && state.agentDone.has(nodeId)
-                  ? { checkpointCurrent: () => options.nodeRunner!.isCompletionReusable!(node, session, { ...scope, node_id: nodeId }, state.agentDone.get(nodeId)!) }
+                  ? { checkpointCurrent: () => options.nodeRunner!.isCompletionReusable!(node, session, { ...scope, node_id: nodeId, ...(options.run_id === undefined ? {} : { run_id: options.run_id }) }, state.agentDone.get(nodeId)!) }
                   : {}),
                 signal: options.signal,
               });
@@ -192,7 +192,7 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
               let reusable = false;
               if (completion !== undefined && options.nodeRunner.isCompletionReusable !== undefined) {
                 try {
-                  reusable = await options.nodeRunner.isCompletionReusable(node, session, { ...scope, node_id: nodeId }, completion) === true;
+                  reusable = await options.nodeRunner.isCompletionReusable(node, session, { ...scope, node_id: nodeId, ...(options.run_id === undefined ? {} : { run_id: options.run_id }) }, completion) === true;
                 } catch {
                   notes.push("无法验证历史任务输入，按最新快照重新执行");
                 }
@@ -210,6 +210,7 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
                 const outcome = await options.nodeRunner.runNode(node, session, {
                   ...scope,
                   node_id: nodeId,
+                  ...(options.run_id === undefined ? {} : { run_id: options.run_id }),
                   ...(options.signal !== undefined ? { signal: options.signal } : {}),
                 });
                 // 失败/超时/取消：停在该节点，修复后按新输入重跑。
