@@ -9,6 +9,8 @@
 - 最终全量 735 测试 / 59 文件、build:all 通过；实际 HTTP 拒绝损坏材料、同键修复、冷恢复隔离、健康需求协调与取消 PID 回收全通过，doctor=true，没有人工决定/节点退出/worker/采用。
 - 原真实 Draft 实时核验 health=true、审批 1、人工决定 0、done 未退出。协议、架构、ADR 索引和公开验收记录同步，继续最终类型与差异审查。
 - 最终 typecheck/git diff --check 通过，差异审查完成。临时预览恢复为无延迟离线 fixture，启动最新代码后进入本地提交与有界推送。
+- 功能提交 `33e0548`；本轮改用 HTTP/2 后推送成功（origin/exp/impl：f5ab910→33e0548），ls-remote 确认远端 hash 相同。阶段 30–33 的本地积压提交已同步，不改全局 Git 设置；持续目标保持 active。
+- 最新源码预览 `http://127.0.0.1:7310/#/requirements/REQ-EVENT-INTEGRITY/coordination` health=true，展示真实取消/中断恢复事实；临时工作区与运行数据不入库。
 
 ## 2026-10-08（阶段 32）
 
