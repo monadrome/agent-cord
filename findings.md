@@ -124,6 +124,12 @@
 - workspace doctor 的 merge driver 检查不同于 session doctor，临时 git 仓库仍需注册本地 merge driver；完成该初始化后 HTTP/浏览器验收与 workspace doctor 全通过。
 - 读错误后的 UI 不能解锁编辑或显示“已与磁盘一致”，真实 404 才进入新文档状态；浏览器已验证错误、缺失、保存与恢复，控制台仍只展示 server 投影。
 
+## 实现校准（2026-10-08，协调提议源码新鲜度）
+
+- 独立协调仍用文档/流程身份，源码变化没有改变 current/adoptable。5 个核心与 6 个 REST 反例先全部复现，在途代码变化仍返回 ok，采用 guard 也没有阻断。
+- server 复用声明范围扫描，对绑定流程各节点验证 inputs 取并集；协调器由宿主摘要钩子记录 source_hash，绑定时 input_hash 使用 v2（无绑定保持 v1）。完成、查询与采用在同一范围重检。
+- 源码不可读时失败或不可采用；范围恢复后可以核验旧提议。中断恢复保留 source_hash，不重放调用；源码正文不进入 prompt 或轮次事件。
+
 ## 实现校准（2026-10-08，只读 worker 源码新鲜度）
 
 - 机器 gate 的源码 hash 已生效，但执行 checkpoint 仍只依赖文档和配置。源码变化后可能沿用旧评审报告。

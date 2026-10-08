@@ -21,12 +21,15 @@ export interface ContextSessionAgentOptions {
   workspaceRoot: string;
   maxPromptChars?: number;
   maxOutputChars?: number;
+  /** ADR-0043：宿主读取绑定流程声明的源码范围摘要，null 为无绑定。 */
+  read_source_hash?: (def: WorkflowDef) => Promise<string | null>;
 }
 
 /** 轮次自己的事件不会改变输入；文档、账本、进度与人工等待会改变。 */
-export function coordinationInputHash(def: WorkflowDef, snapshot: RequirementSnapshot, configuration_hash: string | null, max_prompt_chars = DEFAULT_MAX_PROMPT_CHARS): string {
+export function coordinationInputHash(def: WorkflowDef, snapshot: RequirementSnapshot, configuration_hash: string | null, max_prompt_chars = DEFAULT_MAX_PROMPT_CHARS, source_hash: string | null = null): string {
   return sha256Hex(canonicalJson({
-    domain: "cord.coordination-input.v1", workflow: def, configuration_hash, max_prompt_chars,
+    domain: source_hash === null ? "cord.coordination-input.v1" : "cord.coordination-input.v2", workflow: def, configuration_hash, max_prompt_chars,
+    ...(source_hash === null ? {} : { source_hash }),
     ...(snapshot.workflow_revision !== undefined ? { workflow_revision: snapshot.workflow_revision } : {}),
     req_id: snapshot.req_id, title: snapshot.title,
     docs: snapshot.docs.map(({ file, exists, content_hash }) => ({ file, exists, content_hash })),
@@ -63,7 +66,7 @@ export function parseCoordinationProposal(text: string, def: WorkflowDef, snapsh
   return proposal;
 }
 
-export function buildCoordinationPrompt(def: WorkflowDef, snapshot: RequirementSnapshot, max_chars = DEFAULT_MAX_PROMPT_CHARS): string {
+export function buildCoordinationPrompt(def: WorkflowDef, snapshot: RequirementSnapshot, max_chars = DEFAULT_MAX_PROMPT_CHARS, source_hash: string | null = null): string {
   topologicalOrder(def);
   const fixed = [
     "# Context Session Agent：当前需求的协调者",
@@ -73,6 +76,7 @@ export function buildCoordinationPrompt(def: WorkflowDef, snapshot: RequirementS
     `req_id: ${snapshot.req_id}\ntitle: ${snapshot.title ?? "（未命名）"}`,
     `workflow: ${JSON.stringify(def)}`,
     ...(snapshot.workflow_revision !== undefined ? [`workflow_revision: ${snapshot.workflow_revision}`] : []),
+    ...(source_hash === null ? [] : [`source_hash: ${source_hash}\n源码摘要仅标识当前声明范围，不代表测试通过或内容已被核验。`]),
     `progress: ${JSON.stringify(snapshot.workflow)}`,
     `eligible_nodes: ${JSON.stringify(eligibleNodes(def, snapshot))}`,
     `ledger: ${JSON.stringify(snapshot.ledger)}`,
@@ -107,6 +111,13 @@ async function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T
 export function createContextSessionAgent(options: ContextSessionAgentOptions): ContextSessionAgent {
   return { coordinate };
 
+  async function read_source_hash(def: WorkflowDef): Promise<string | null> {
+    if (options.read_source_hash === undefined) return null;
+    const hash = await options.read_source_hash(def);
+    if (hash !== null && (typeof hash !== "string" || !/^[0-9a-f]{64}$/.test(hash))) throw new Error("协调源码摘要必须是小写 SHA-256 或 null");
+    return hash;
+  }
+
   async function coordinate(def: WorkflowDef, session: SessionHandle, input: CoordinationInput): Promise<CoordinationResult> {
     const started_at = Date.now();
     const base: Record<string, unknown> = { round_id: input.round_id, workflow_id: def.metadata.id, driver: input.agent };
@@ -123,10 +134,13 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
     const max_output_chars = options.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS;
     let snapshot: RequirementSnapshot;
     let prompt: string;
+    let source_hash: string | null = null;
     try {
       snapshot = await readSnapshot(session, { workflow_id: def.metadata.id, workflow_revision: input.workflow_revision, files: def.spec.nodes.flatMap((node) => node.artifact === undefined ? [] : [node.artifact]) });
       Object.assign(base, { snapshot_id: snapshot.snapshot_id, snapshot_event_seq: snapshot.event_seq, snapshot_event_chain_hash: snapshot.event_chain_hash });
-      prompt = buildCoordinationPrompt(def, snapshot, max_prompt_chars);
+      source_hash = await read_source_hash(def);
+      if (source_hash !== null) base["source_hash"] = source_hash;
+      prompt = buildCoordinationPrompt(def, snapshot, max_prompt_chars, source_hash);
     } catch (error) {
       await append("coordinator.round.started", base);
       return complete("failed", null, error instanceof Error ? error.message : "协调快照准备失败", { failure_stage: "snapshot" });
@@ -137,7 +151,7 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
       if (typeof driver.name !== "string" || driver.name.length === 0 || (driver.configuration_hash !== undefined && !/^[0-9a-f]{64}$/.test(driver.configuration_hash))) throw new Error("协调 driver 身份不符合契约");
       base["driver"] = driver.name;
       if (driver.configuration_hash !== undefined) base["agent_configuration_hash"] = driver.configuration_hash;
-      base["input_hash"] = coordinationInputHash(def, snapshot, driver.configuration_hash ?? null, max_prompt_chars);
+      base["input_hash"] = coordinationInputHash(def, snapshot, driver.configuration_hash ?? null, max_prompt_chars, source_hash);
       base["prompt_hash"] = sha256Hex(prompt);
     } catch (error) {
       await append("coordinator.round.started", base);
@@ -212,8 +226,10 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
     catch (error) { return complete("failed", null, error instanceof Error ? error.message : "协调输出校验失败", { ...extra, failure_stage: "output" }); }
     try {
       const current = await readSnapshot(session, { workflow_id: def.metadata.id, workflow_revision: input.workflow_revision, files: def.spec.nodes.flatMap((node) => node.artifact === undefined ? [] : [node.artifact]) });
-      if (coordinationInputHash(def, current, driver.configuration_hash ?? null, max_prompt_chars) !== base["input_hash"]) {
-        return complete("stale", null, "协调期间需求、账本或 workflow 进度已变化，请重新协调", { ...extra, failure_stage: "freshness" });
+      const current_source = await read_source_hash(def);
+      if (input.signal?.aborted) return complete("cancelled", null, "协调轮次已取消", extra);
+      if (coordinationInputHash(def, current, driver.configuration_hash ?? null, max_prompt_chars, current_source) !== base["input_hash"]) {
+        return complete("stale", null, "协调期间需求、源码、账本或 workflow 进度已变化，请重新协调", { ...extra, failure_stage: "freshness" });
       }
     } catch (error) {
       return complete("failed", null, error instanceof Error ? error.message : "协调输入重检失败", { ...extra, failure_stage: "freshness" });

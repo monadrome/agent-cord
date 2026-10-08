@@ -1,5 +1,5 @@
 /** 独立协调 API：真实 Fastify + 离线 headless 子进程，验证幂等、固定配置、取消和恢复。 */
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -78,6 +78,126 @@ async function valid_round(): Promise<CoordinationRoundView> {
 function adopt(round_id: string, key = ulid()) {
   return request("POST", `/api/v1/requirements/REQ-CONTEXT/coordination/${round_id}/adopt`, {}, key);
 }
+
+async function source_workflow(): Promise<void> {
+  await mkdir(join(root, "src"));
+  await mkdir(join(root, "tests"));
+  await writeFile(join(root, "src", "draft.ts"), "export const current = 1;\n");
+  await server.sdlcs.publish("source-coordination", YAML.stringify({
+    apiVersion: "agent-cord.dev/v1alpha1", kind: "Workflow", metadata: { id: "source-coordination" },
+    spec: { nodes: [
+      { id: "intake", artifact: "prd.md", gates: [{ id: "human-intake", role: {}, attach: { node: "intake", when: "post" },
+        checks: [{ ref: "file-nonempty", with: { path: "prd.md" } }], pass: { require: "all", human_confirm: true }, on_fail: "block" }] },
+      { id: "verify", depends_on: ["intake"], gates: [{ id: "machine-tests", role: {}, attach: { node: "verify", when: "post" },
+        checks: [{ ref: "verification-passed", with: { verification_id: "tests", inputs: ["src", "tests"] } }],
+        pass: { require: "all", human_confirm: false }, on_fail: "escalate" }] },
+    ] },
+  }));
+}
+
+async function source_round(key = ulid()): Promise<CoordinationRoundView> {
+  const response = await start(key, { sdlc_id: "source-coordination", sdlc_version: 1 });
+  expect(response.status).toBe(202);
+  return done(response.body.round.round_id);
+}
+
+describe("协调提议源码身份", () => {
+  it("源码声明缺失时协调失败，输入修复后新轮次可恢复", async () => {
+    await source_workflow();
+    await rm(join(root, "src"), { recursive: true });
+    const failed = await source_round();
+    expect(failed).toMatchObject({ status: "failed", proposal: null, failure_stage: "snapshot", source_hash: null });
+    const completion = (await server.sessions.readEvents("REQ-CONTEXT")).find((event) => event.type === "coordinator.round.completed");
+    expect(completion?.payload).not.toHaveProperty("agent_session_id");
+    expect(server.runs.listRuns("REQ-CONTEXT")).toHaveLength(0);
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src", "draft.ts"), "export const current = 1;\n");
+    expect(await source_round()).toMatchObject({ status: "ok", current: true });
+  });
+
+  it("中断轮次重启保留源码摘要，不重放付费调用", async () => {
+    await source_workflow();
+    const binding = await server.sdlcs.get("source-coordination", 1);
+    const round_id = ulid();
+    const source_hash = "d".repeat(64);
+    const session = await server.sessions.open("REQ-CONTEXT");
+    await session.events.append({ event_id: ulid(), session_id: session.req_id, type: "coordinator.round.requested", schema_version: "1",
+      actor: { kind: "human", id: "test" }, correlation_id: round_id,
+      payload: { round_id, workflow_id: binding.def.metadata.id, workflow_revision: binding.workflow_revision, driver: "coordinator", sdlc_id: "source-coordination", sdlc_version: 1 }, source: { adapter: "test" } });
+    await session.events.append({ event_id: ulid(), session_id: session.req_id, type: "coordinator.round.started", schema_version: "1",
+      actor: { kind: "agent", id: "test" }, correlation_id: round_id,
+      payload: { round_id, workflow_id: binding.def.metadata.id, workflow_revision: binding.workflow_revision, driver: "headless:coordinator", source_hash, input_hash: "a".repeat(64) }, source: { adapter: "test" } });
+    await restart();
+    expect(await server.coordination.get(session.req_id, round_id)).toMatchObject({ status: "failed", proposal: null, failure_stage: "interrupted", source_hash });
+    const events = await server.sessions.readEvents(session.req_id);
+    expect(events.filter((event) => event.type === "coordinator.round.completed")).toHaveLength(1);
+    expect(events.find((event) => event.type === "coordinator.round.completed")?.payload).toMatchObject({ source_hash });
+    expect(events.filter((event) => event.type === "coordinator.round.started")).toHaveLength(1);
+  });
+
+  it.each(["edit", "add", "delete"])("声明的后续节点源码发生 %s 后，旧提议不可采用且不登记 run", async (change) => {
+    await source_workflow();
+    const first = await source_round();
+    expect(first).toMatchObject({ status: "ok", current: true, adoptable: true });
+    const file = join(root, "src", "draft.ts");
+    if (change === "edit") await writeFile(file, "export const current = 2;\n");
+    if (change === "add") await writeFile(join(root, "src", "new.ts"), "export const added = true;\n");
+    if (change === "delete") await rm(file);
+    expect(await server.coordination.get("REQ-CONTEXT", first.round_id)).toMatchObject({ status: "ok", current: false, adoptable: false });
+    expect((await adopt(first.round_id)).status).toBe(409);
+    expect(server.runs.listRuns("REQ-CONTEXT")).toHaveLength(0);
+    if (change === "add") await rm(join(root, "src", "new.ts"));
+    else await writeFile(file, "export const current = 1;\n");
+    expect((await server.coordination.get("REQ-CONTEXT", first.round_id)).adoptable).toBe(true);
+    expect(first.source_hash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("源码在模型执行期间变更导致 stale，新轮次恢复并保留源码 provenance", async () => {
+    await source_workflow();
+    await config(JSON.stringify(proposal), 250);
+    await server.agents.reload();
+    const response = await start("source-in-flight", { sdlc_id: "source-coordination", sdlc_version: 1 });
+    await wait_for(async () => (await server.sessions.readEvents("REQ-CONTEXT")).some((event) => event.type === "coordinator.round.started"));
+    await writeFile(join(root, "src", "draft.ts"), "export const current = 2;\n");
+    const first = await done(response.body.round.round_id);
+    expect(first).toMatchObject({ status: "stale", proposal: null, failure_stage: "freshness" });
+    const second = await source_round();
+    expect(second).toMatchObject({ status: "ok", current: true, adoptable: true });
+    expect(second.source_hash).not.toBe(first.source_hash);
+    expect(second.input_hash).not.toBe(first.input_hash);
+    const events = await server.sessions.readEvents("REQ-CONTEXT");
+    expect(events.filter((event) => event.type.startsWith("workflow.") || event.type.startsWith("agent.task."))).toHaveLength(0);
+  });
+
+  it("采用进入运行槽位前源码变化，guard 重检拒绝派发", async () => {
+    await source_workflow();
+    const round = await source_round();
+    const start_run = server.runs.start.bind(server.runs);
+    vi.spyOn(server.runs, "start").mockImplementation(async (...args) => {
+      await writeFile(join(root, "src", "draft.ts"), "export const current = 2;\n");
+      return start_run(...args);
+    });
+    expect((await adopt(round.round_id)).status).toBe(409);
+    expect(server.runs.listRuns("REQ-CONTEXT")).toHaveLength(0);
+  });
+
+  it("源码出现链接时无法判定，查询/采用 fail-closed，修复后恢复", async () => {
+    await source_workflow();
+    const round = await source_round();
+    const file = join(root, "src", "draft.ts");
+    await writeFile(join(root, "private.ts"), "PRIVATE_SOURCE_BODY");
+    await rm(file);
+    await symlink(join(root, "private.ts"), file);
+    expect(await server.coordination.get("REQ-CONTEXT", round.round_id)).toMatchObject({ current: null, adoptable: false });
+    const rejected = await adopt(round.round_id);
+    expect(rejected.status).toBe(409);
+    expect(JSON.stringify(rejected.body)).not.toContain("PRIVATE_SOURCE_BODY");
+    await rm(file);
+    await writeFile(file, "export const current = 1;\n");
+    await restart();
+    expect(await server.coordination.get("REQ-CONTEXT", round.round_id)).toMatchObject({ current: true, adoptable: true, source_hash: round.source_hash });
+  });
+});
 
 describe("协调提议受控采用", () => {
   it("采用当前 advance 提议启动绑定 SDLC，事实在节点派发前落盘，人工 gate 仍挂起", async () => {
@@ -263,6 +383,7 @@ describe("Context Session Agent REST", () => {
     expect(round).toMatchObject({ status: "ok", proposal, req_id: "REQ-CONTEXT", sdlc_id: "simple-sdlc", sdlc_version: 1, workflow_id: "simple-sdlc", driver: "headless:coordinator" });
     expect(round.input_hash).toMatch(/^[0-9a-f]{64}$/);
     expect(round.agent_configuration_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(round.source_hash).toBeNull();
     expect(await readFile(join(root, "cord", "REQ-CONTEXT", "prd.md"), "utf8")).toBe(original);
     expect((await request("GET", "/api/v1/requirements/REQ-CONTEXT/coordination")).body.rounds).toHaveLength(1);
     const events = await server.sessions.readEvents("REQ-CONTEXT");

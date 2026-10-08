@@ -42,6 +42,73 @@ function coordinate(worker: AgentDriver, input: { signal?: AbortSignal; timeout_
 }
 
 describe("独立协调轮次", () => {
+  it("源码摘要纳入协调输入、prompt 和轮次 provenance，无范围保留原身份", async () => {
+    const worker = driver();
+    const source_hash = "d".repeat(64);
+    const bound = createContextSessionAgent({ resolveDriver: () => worker, workspaceRoot: root, read_source_hash: async () => source_hash });
+    expect((await bound.coordinate(def, session, { round_id: ulid(), agent: "test-coordinator" })).status).toBe("ok");
+    expect(worker.tasks[0]?.prompt).toContain(`source_hash: ${source_hash}`);
+    const rounds = (await session.events.readOrdered()).filter((event) => event.type.startsWith("coordinator.round."));
+    expect(rounds[0]?.payload).toMatchObject({ source_hash });
+    expect(rounds[1]?.payload).toMatchObject({ source_hash });
+    const snapshot = await readSnapshot(session, { workflow_id: def.metadata.id, files: ["prd.md", "design/plan.md"] });
+    const bound_hash = coordinationInputHash(def, snapshot, worker.configuration_hash!, undefined, source_hash);
+    expect((rounds[0]?.payload as any).input_hash).toBe(bound_hash);
+    expect(coordinationInputHash(def, snapshot, worker.configuration_hash!, undefined, "e".repeat(64))).not.toBe(bound_hash);
+    expect(coordinationInputHash(def, snapshot, worker.configuration_hash!, undefined, null)).toBe(coordinationInputHash(def, snapshot, worker.configuration_hash!));
+    expect(buildCoordinationPrompt(def, snapshot, 12_000, source_hash).length).toBeLessThanOrEqual(12_000);
+  });
+
+  it("运行期间源码改变记 stale，下一轮基于新摘要恢复且不写旧提议", async () => {
+    let source_hash = "d".repeat(64);
+    const worker = driver();
+    worker.run = async function* (task) {
+      worker.tasks.push(task);
+      source_hash = "e".repeat(64);
+      yield { type: "result", data: { text: JSON.stringify(proposal) } };
+    };
+    const options = { resolveDriver: () => worker, workspaceRoot: root, read_source_hash: async () => source_hash };
+    const bound = createContextSessionAgent(options);
+    expect(await bound.coordinate(def, session, { round_id: ulid(), agent: "test-coordinator" })).toMatchObject({ status: "stale", proposal: null });
+    const first = (await session.events.readOrdered()).filter((event) => event.type === "coordinator.round.completed")[0]!;
+    expect(first.payload).toMatchObject({ source_hash: "d".repeat(64), failure_stage: "freshness" });
+    expect((await bound.coordinate(def, session, { round_id: ulid(), agent: "test-coordinator" })).status).toBe("ok");
+    expect(worker.tasks[1]?.prompt).toContain(`source_hash: ${source_hash}`);
+  });
+
+  it.each(["invalid", "unreadable"])("源码摘要 %s 时不派发协调 driver", async (mode) => {
+    const worker = driver();
+    const bound = createContextSessionAgent({ resolveDriver: () => worker, workspaceRoot: root, read_source_hash: async () => {
+      if (mode === "unreadable") throw new Error("源码摘要不可读");
+      return "invalid-hash";
+    } });
+    expect(await bound.coordinate(def, session, { round_id: ulid(), agent: "test-coordinator" })).toMatchObject({ status: "failed", proposal: null });
+    expect(worker.tasks).toHaveLength(0);
+    expect((await session.events.readOrdered()).find((event) => event.type === "coordinator.round.completed")?.payload).toMatchObject({ failure_stage: "snapshot" });
+  });
+
+  it.each([new Error("完成时源码不可读"), undefined])("完成时源码摘要读取失败 %s，不能返回提议", async (failure) => {
+    const worker = driver();
+    let reads = 0;
+    const bound = createContextSessionAgent({ resolveDriver: () => worker, workspaceRoot: root, read_source_hash: async () => {
+      if (++reads > 1) throw failure;
+      return "d".repeat(64);
+    } });
+    expect(await bound.coordinate(def, session, { round_id: ulid(), agent: "test-coordinator" })).toMatchObject({ status: "failed", proposal: null });
+    expect((await session.events.readOrdered()).find((event) => event.type === "coordinator.round.completed")?.payload).toMatchObject({ failure_stage: "freshness" });
+  });
+
+  it("源码重检期间取消，返回 cancelled 且不保留提议", async () => {
+    const controller = new AbortController();
+    const worker = driver();
+    let reads = 0;
+    const bound = createContextSessionAgent({ resolveDriver: () => worker, workspaceRoot: root, read_source_hash: async () => {
+      if (++reads > 1) controller.abort();
+      return "d".repeat(64);
+    } });
+    expect(await bound.coordinate(def, session, { round_id: ulid(), agent: "test-coordinator", signal: controller.signal })).toMatchObject({ status: "cancelled", proposal: null });
+  });
+
   it("成功只产提议，记录 provenance/hash，不推进节点或写文档，不注入事件正文", async () => {
     await append("cli.message.received", { kind: "message", text: "HISTORICAL_EVENT_BODY", argv: [], raw_id: "history" });
     const worker = driver();

@@ -210,6 +210,7 @@ export interface CoordinationRoundView {
   snapshot_id: string | null;
   input_hash: string | null;
   agent_configuration_hash: string | null;
+  source_hash: string | null;
   proposal: CoordinationProposal | null;
   error: string | null;
   failure_stage: string | null;

@@ -572,6 +572,8 @@ const coordination_round_fields = {
   input_hash: z.string().length(64).optional(),
   prompt_hash: z.string().length(64).optional(),
   agent_configuration_hash: z.string().length(64).optional(),
+  /** ADR-0043：独立协调轮次声明的源码范围摘要。 */
+  source_hash: z.string().length(64).optional(),
   snapshot_id: z.string().length(64).optional(),
   snapshot_event_seq: z.number().int().nonnegative().optional(),
   snapshot_event_chain_hash: z.string().length(64).optional(),

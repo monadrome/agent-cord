@@ -158,6 +158,15 @@
 - 活跃 fixture worker 的 PID 回收测试通过。冷重启用例的代码变更改在 app.close 完成之后执行，避免混用关闭前的 live 输入变化与冷恢复时序；在途变化仍由独立失败/恢复用例覆盖。
 - 最终全量 634 测试 / 54 文件、build:all、typecheck、diff 检查通过。10 个核心源码新鲜度回归与真实 fixture 子进程覆盖恢复、失败、取消和关闭；本轮没有调用新模型或处理真实人工审批。
 
+## 阶段 29：协调提议源码新鲜度（已实现并验证）
+
+- ADR-0043 先行；5 个核心和 6 个 REST 反例全部复现：源码变更后仍可采用、在途变化仍成功、guard 及不可读范围未阻断。
+- 已接入流程声明范围并集和宿主摘要钩子，prompt/轮次记录 source_hash，源码绑定的输入用 v2 域，无绑定保留 v1。完成、查询与采用 guard 使用同一源码范围。
+- 首轮 61 个定向测试通过，根构建/typecheck 通过；补充中断 provenance、缺失输入修复与取消/任意异常回归。
+- 真实 Claude Code 2.1.220 命名角色两轮源码绑定协调均 ok/current=true；PRD 不变而源码版本改变后旧轮次 current=false，新 source_hash/input_hash/session ID 不同，workflow/task/human 决定事件为 0、doctor=true。
+- 最终全量 649 测试 / 54 文件、build:all、typecheck、diff 检查通过。公开记录 docs/research/2026-10-08-source-bound-coordination.md；运行数据仅保留在临时工作区。
+- 最新预览在临时验收目录启动，health=true，最新轮次 current=true/旧轮次 current=false：`http://127.0.0.1:7307/#/requirements/REQ-SOURCE-CONTEXT/coordination`。启动后首个立即 health 请求早于 listen，确认进程和监听日志后再次核验通过。
+
 ## 阶段 22：机器验证 run 级隔离（已实现并验证）
 
 - [x] 将 `run_id` 注入 workflow CheckerContext

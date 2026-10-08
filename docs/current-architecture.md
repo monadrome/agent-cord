@@ -113,6 +113,8 @@ intake → align → plan → implement → verify → review → done
 
 独立 ContextSessionAgent 不依赖 node.run：每轮固定 resolver，按当前 SDLC 版本采集最新快照（含同次事件投影的待人工 gate），新建 driver 会话，输出严格 JSON Draft 提议。来源引用、实际下一节点和完成状态由宿主验证；运行期间输入变化则落 stale，不返回旧建议。它不自行启动 worker、写文档或放行 gate。CoordinationService 提供异步创建、查询、取消与显式人工采用；轮次事实只在事件流，重启将未完成请求记 interrupted，不重放调用（ADR-0032/0033）。
 
+协调输入也绑定流程声明的源码范围并集：started/completed 与 REST view 暴露 source_hash，模型完成后和提议查询/采用前重检。PRD 未变而代码变更时旧提议仍会失效；摘要不可读时不可采用，修复相同内容后可重新核验。未声明范围保留文档范围身份（ADR-0043）。
+
 人工采用只接受当前有效 advance，重检位于 RunService 预留槽位内，采用事实落盘后进入绑定版本的整个 SDLC runner；其余提议不生成 gate 决策。查询新鲜度与历史完成状态分离，重复采用返回原 run。运行登记的 coordination_round_id 保留启动来源，恢复缺少匹配采用事实时 fail-closed，旧 SQLite 表自动兼容。
 
 ## 5. Server 和 API

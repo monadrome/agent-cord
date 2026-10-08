@@ -18,6 +18,8 @@
 
 readonly worker 也绑定同节点声明范围的 source_hash：源码不变的报告可恢复复用，源码变化后重新派发评审；运行期间源码变化时报告不写回，保留失败事实再基于新输入恢复。可写实现 worker 的正常代码产出不应用这个只读规则。未声明范围的只读节点仍只有文档/配置身份。
 
+独立协调轮次使用整个绑定 SDLC 的声明范围并集，包括后续验证节点：REST round 的 source_hash 标识本轮源码。代码改变而 PRD 不变时，旧轮次 current=false、不可采用；新轮次基于新摘要建立会话。摘要只能证明输入身份，不能证明测试通过或模型结论正确。
+
 ```bash
 curl -X POST http://127.0.0.1:7250/api/v1/sdlcs/agent-example/versions/publish \
   -H 'Idempotency-Key: publish-agent-example-1' -H 'Content-Type: application/json' \

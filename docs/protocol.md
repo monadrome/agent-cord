@@ -170,6 +170,8 @@ REST 的 `approval_id` 是等待事件 ULID；旧静态编码可解析但不允�
 
 轮次事件与 worker 恢复完全分离：server requested 绑定 SDLC 版本，started/completed 记录 round_id、workflow_id、driver、snapshot provenance、input_hash、prompt_hash 与可选配置身份。语义 input_hash 排除事件序号与轮次自身事件，覆盖完整文档 hash、账本、进度/等待、workflow 和配置身份。结果返回前重检；变化记 stale，读取失败记 failed/freshness，均没有提议。completed 只在 ok 时携带提议，其余状态 proposal 为 null；不保存原始输出/上下文或 driver raw。
 
+ADR-0043 的 ContextSessionAgentOptions.read_source_hash(def) 将声明源码身份加入协调轮次：server 对绑定流程全部 verification-passed.with.inputs 取并集，prompt 元信息与 started/completed 保存 source_hash，绑定时 input_hash 用 v2 域（未声明仍为 v1）。完成、查询和采用 guard 重新扫描同一范围；代码变更导致 stale 或 current=false，无法判定时不可采用。中断恢复保留旧摘要但不重放模型调用。source_hash 不等价于测试通过，snapshot_id 仍记录文档/事件 provenance。
+
 REST 创建 `POST /requirements/:req_id/coordination` 输入 `{agent, sdlc_id?, sdlc_version?, timeout_ms?}`，返回 202；列表/读取使用 GET，取消 `POST .../:round_id/cancel` 先落 cancel_requested 再 abort。写命令使用 Idempotency-Key；跨 method/path 复用键返回 409，创建并发同键合并为一轮。每需求只允许一轮在途协调，resolver 在创建时固定，归档版本拒绝新轮次。事件写入失败必须报告宿主，不能伪造 completed。server 重启将未完成轮次落 failed/interrupted；已有取消请求则落 cancelled，不重放模型调用。
 
 提议是该轮完成时的 Draft，之后的输入变更应发起新轮次。任何提议本身都不生成 node.exited、gate.resolved 或 artifact；实际推进仍经既有 workflow run 与人工 gate。readonly 不提供 OS 沙箱（ADR-0032）。
