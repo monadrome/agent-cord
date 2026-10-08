@@ -344,6 +344,19 @@
 - 事件只保存状态、输入/命令/输出摘要 hash、退出码、耗时和短摘要；长日志留在外部系统。
 - verification 结果必须绑定当前 workflow scope、节点和 gate 输入 hash；需求或账本变化后旧结果返回 409 或被 checker 阻断。
 
+## 阶段 21：真实 Claude/ACP Context Session Agent 协调验证（已完成）
+
+- [x] 真实 Claude 命名角色封装协调调用
+- [x] 真实 Kimi ACP 协调调用
+- [x] 核验最新快照重建、严格提议和 session/configuration 回执
+- [x] 核验无 workflow/task 副作用、PRD 不变、doctor 通过
+- [x] 写入研究与当前架构记录
+
+### 阶段 21 边界
+
+- 真实调用只证明本机 CLI/认证组合与 Context Session Agent 协议可用，不证明代码生成质量或异构盲评结论。
+- 协调轮次只产 Draft 提议；不自动采用、不启动 worker、不批准 gate、不合入代码。
+
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
 - [x] 核验当前分支与阶段 10；上一轮实现和远端同步属于已验证进展

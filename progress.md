@@ -95,6 +95,20 @@
 - 机器验证 REST 不写 stdout/stderr 正文；输入指纹在服务端重算，旧 hash 在事件写入前返回 409。
 - 全量 577 测试 / 52 文件、typecheck、build:all、diff 检查通过；真实开发 Draft 人工 gate 仍保持未决。
 
+## 阶段 21：真实 Claude/ACP Context Session Agent 协调验证（已实现并验证）
+
+- [x] 在临时 git 工作区使用真实 Claude 命名角色封装完成最新快照协调
+- [x] 在同一隔离场景使用真实 Kimi ACP 完成最新快照协调
+- [x] 核验严格提议、marker 来源、新鲜度 hash、configuration hash、session 回执和无 workflow/task 副作用
+- [x] 核验 PRD 不被协调 agent 修改，session doctor=true
+- [x] 同步研究记录与当前架构边界
+
+### 阶段 21 验证记录
+
+- `claude-coordinator` 与 `kimi-coordinator` 均 `ok/current=true`，提议 summary 命中各自 PRD marker，行动均为只读 `wait`。
+- 两轮 `input_hash`、`snapshot_id`、`agent_session_id` 均不同；事件流没有 `workflow.node.*` 或 `agent.task.*`。
+- 真实证据记录于 `docs/research/2026-10-08-real-claude-acp-coordination.md`；开发 Draft 的人工 gate、人工批准、合入和异构评审仍未完成。
+
 ## 2026-09-25
 
 - 按交接文档 `/tmp/agent-cord-handoff.KcQZOB/KIMI_HANDOFF.md` 执行实现；保留工作区未提交改动（事件协议增强 + merge driver）。

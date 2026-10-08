@@ -62,7 +62,7 @@ ledger.yaml                        # 可重建的账本投影
 
 快照文档与文件 gate 共用 core/session-files：拒绝链接/非普通文件/事实与管理路径，存在性检查只读元信息，读取使用 no-follow 描述符，写回独占临时文件并原子替换。REST 区分缺失 404、物理边界 409 与 IO 500；文档读取故障不能变成“未生成”，失败保存保留旧内容。该边界不代替 worker OS 沙箱或跨进程文件事务（ADR-0036）。
 
-headless 驱动保留流级会话回执，Codex 的 item.error/warning 非终态通知归 metadata，顶层任务错误仍失败。当前模板使用 approval_policy 配置，已通过真实 CLI 0.160.0 两轮新快照协调验证；详情见 [接入验证](./research/2026-10-07-real-context-agent.md) 与 ADR-0037。examples 提供三类 agent 与带人工审核的计划流程，CLI 安装/认证和其它 provider 的真实运行仍由实际调用验证。
+headless 驱动保留流级会话回执，Codex 的 item.error/warning 非终态通知归 metadata，顶层任务错误仍失败。当前模板使用 approval_policy 配置；真实 Codex、Claude 命名角色和 Kimi ACP 均已通过最新快照协调冒烟验证，详情见 [Codex 接入验证](./research/2026-10-07-real-context-agent.md)、[Claude/ACP 协调验证](./research/2026-10-08-real-claude-acp-coordination.md) 与 ADR-0037。examples 提供三类 agent 与带人工审核的计划流程，其他 CLI/provider 的安装、认证和真实运行仍由实际调用验证。
 
 `cord/.index/server-index.sqlite` 只保存幂等键、run 登记和 SDLC 归档登记。删除它不会删除需求事实，但会丢失运行查询、幂等重放缓存和归档状态。
 
@@ -85,7 +85,7 @@ Workflow 定义是 `agent-cord.dev/v1alpha1 / Workflow` YAML。加载时检查 s
 
 worker 权限与产物通道可分别声明：readonly+output=text 让 worker 只读核验，返回完整报告，由 coordinator 原子代写节点 artifact；旧 readonly/auto 行为不变。文本模式观察到 artifact 变化即失败并保留当前文件，不把外部写入当成功。checkpoint 将报告视为输出，验证其完成后 hash 与写入证据，后置 gate/人工审批继续控制推进（ADR-0038）。examples/development-sdlc.yaml 提供计划/实现/只读评审/人工终审的隔离开发 Draft 流程。
 
-真实隔离检出已验证计划、实现 Draft、超时后的同版本恢复、只读报告写回与人工 gate 挂起；宿主新增目标57/完整库615通过，模型只读环境的测试临时目录写限制在报告中保留，不把报告生成ok当作测试通过。详情见 [真实开发验收](./research/2026-10-07-development-draft-workflow.md)。人工批准/合入与异构模型验证仍未完成。
+真实隔离检出已验证计划、实现 Draft、超时后的同版本恢复、只读报告写回与人工 gate 挂起；宿主新增目标57/完整库615通过，模型只读环境的测试临时目录写限制在报告中保留，不把报告生成ok当作测试通过。详情见 [真实开发验收](./research/2026-10-07-development-draft-workflow.md)。机器验证事实已可通过 `verification.completed` + 当前输入 hash 接入 gate；人工批准/合入与异构模型验证仍未完成。
 
 每个节点边界检查取消信号：run 取消先落 `workflow.run.cancelled`（事实），再 abort 执行器——信号经 NodeRunContext → AgentTask 透传到 driver，driver 杀进程树并关闭事件流；人工 gate 挂起处与 abort 竞速，取消不落 `gate.resolved` 假判定。取消后该 run 的未决 gate 从审批投影移除，重新 start 即断点续跑。
 
