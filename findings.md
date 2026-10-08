@@ -124,6 +124,14 @@
 - workspace doctor 的 merge driver 检查不同于 session doctor，临时 git 仓库仍需注册本地 merge driver；完成该初始化后 HTTP/浏览器验收与 workspace doctor 全通过。
 - 读错误后的 UI 不能解锁编辑或显示“已与磁盘一致”，真实 404 才进入新文档状态；浏览器已验证错误、缺失、保存与恢复，控制台仍只展示 server 投影。
 
+## 实现校准（2026-10-08，验证证据一致性）
+
+- checker 与协调观察对结果契约有漂移：passed/非零退出码、坏摘要、坏最新 correlation、损坏行、外部 session 与取消事实均有放行风险；新增反例先复现 13 个失败。
+- 已引入共享结果 schema、严格事件读取/最新结果解析和取消判定，REST 在追加前拒绝矛盾结果；显式未知退出码不补造为 0。
+- 首轮全量 701 项中 700 通过，非法源码链接恢复失败。代码定位到 gate.waiting 后 ask 的重检异常会把已有等待置为 failed；将该测试改成等待事实落盘后、ask 前修改源码，确定性复现后修复。
+- 修复后 96 项定向与全量 701 测试 / 56 文件通过，build:all 通过。只保留 VerificationInputError 的已挂起等待，其他异常继续上抛；无法读取时 409，不写验证/人工决定/节点退出，修复后恢复原 run。
+- 真实宿主 node --test 退出码 1→0：矛盾 passed 返回 400 且零写入，同键 failed 可提交并跨重启保留，修复后 passed 停在人工终审，doctor=true。原真实 Draft 实时 HTTP 显示一个审批、零人工决定、done 未退出。
+
 ## 实现校准（2026-10-08，协调机器验证上下文）
 
 - 独立协调只有 docs/ledger/progress/source_hash，未观察 verification.completed；机器结果单独更新不改变输入，模型无法区分未验证与当前失败。

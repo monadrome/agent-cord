@@ -9,6 +9,7 @@ import { basename, join } from "node:path";
 import { readSessionDocument, statSessionDocument } from "../core/session-files.js";
 import { z } from "zod";
 import { matchesWorkflowScope } from "./scope.js";
+import { readVerificationEvents, parseVerificationResult, isVerificationRunCancelled } from "./verification.js";
 import {
   AnchorSchema,
   EventEnvelopeSchema,
@@ -397,7 +398,7 @@ export function createVerificationPassedChecker(): Checker {
       const run_id = ctx.run_id;
       let events: EventEnvelope[];
       try {
-        events = await readEventsForCheck(ctx);
+        events = await readVerificationEvents(ctx.session_dir, ctx.session);
       } catch (err) {
         return block(`读取事件流失败，fail-closed：${message(err)}`);
       }
@@ -409,14 +410,17 @@ export function createVerificationPassedChecker(): Checker {
         return matchesWorkflowScope(value, { workflow_id, workflow_revision: ctx.workflow_revision })
           && value["node_id"] === node_id
           && value["run_id"] === run_id
-          && value["verification_id"] === parsed.params.verification_id
-          && (!parsed.params.within_node || event.correlation_id === node_id);
+          && value["verification_id"] === parsed.params.verification_id;
       });
       const latest = hits.at(-1);
       if (latest === undefined) {
         return block(`未找到当前节点的机器验证结果：${parsed.params.verification_id}`);
       }
-      const payload = latest.payload as Record<string, unknown>;
+      const payload = parseVerificationResult(latest, node_id, parsed.params.within_node);
+      if (payload === null) return block(`最新机器验证事实不符合结果契约：${parsed.params.verification_id}`);
+      if (isVerificationRunCancelled(events, { workflow_id, workflow_revision: ctx.workflow_revision, run_id })) {
+        return block("当前 run 已取消，机器验证事实不可用于放行");
+      }
       if (payload["input_hash"] !== ctx.input_hash) {
         return block(`机器验证结果已过期：input_hash 不匹配（verification_id=${parsed.params.verification_id}）`);
       }

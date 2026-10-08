@@ -661,6 +661,8 @@ export class RunService {
               pending_ask.resolve({ kind: "recheck" });
             }
           } catch (error) {
+            // 源码暂不可读时保留未决等待，修复后的验证提交仍可唤醒。
+            if (error instanceof VerificationInputError) return answer;
             if (this.pendingAsks.get(fullKey) === pending_ask) this.pendingAsks.delete(fullKey);
             throw error;
           }

@@ -1,5 +1,15 @@
 # 工作进度
 
+## 2026-10-08（阶段 31）
+
+- 承接验证证据一致性实现：共享 schema/读取/解析与取消检查已完成，ADR-0045 已先行；原真实 Draft gate 保持未决。
+- 首轮全量 700/701 通过，build:all 已通过；真实宿主命令退出码 1→0 已验证 REST 拒绝矛盾 passed、同键修复、重启保留失败与恢复到人工终审。
+- 剩余失败定位到 gate.waiting 后 ask 重检的源码读取错误使 run 永久 failed；新增确定性时序复现，继续修复并完成最终验证、文档和提交推送。
+- 单测已确定性复现 run=failed；对已挂起的 VerificationInputError 保留等待，其他错误仍上抛，修复后验证可唤醒原 run。
+- 96 项定向测试及全量 701 测试 / 56 文件通过，build:all 通过；协议、ADR 索引和公开验收记录同步，进入最终类型与差异检查。
+- 原真实 Draft 经实时 HTTP 核验 health=true、审批数 1、人工决定 0、done 未退出。
+- 最终 typecheck 与 git diff --check 通过，差异审查完成；阶段 31 实现和验收记录进入提交与有界推送，持续目标保持 active。
+
 ## 2026-09-24
 
 - 读取项目指令、README、核心 schema/ports、workflow、roadmap 和架构文档。

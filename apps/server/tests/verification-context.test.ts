@@ -1,10 +1,10 @@
 /** 机器观察只能来自当前声明/run/scope，不保留日志和不明输入。 */
-import { mkdtemp, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ulid } from "ulid";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { initSession, parseWorkflow, type SessionHandle, type WorkflowDef } from "agent-cord";
+import { createVerificationPassedChecker, initSession, parseWorkflow, type SessionHandle, type WorkflowDef } from "agent-cord";
 import YAML from "yaml";
 import { readCoordinationVerifications } from "../src/services/verification-context.js";
 import type { RunService } from "../src/services/run-service.js";
@@ -23,8 +23,8 @@ const def: WorkflowDef = parseWorkflow(YAML.stringify({ apiVersion: "agent-cord.
 }] }] } }));
 const service = () => ({ latestRun: vi.fn(async () => run), configurationHashFor: vi.fn(() => null), readNodeInput: vi.fn(async () => ({ input_hash })) });
 const read = (runs = service(), workflow = def) => readCoordinationVerifications(workflow, session, revision, runs as unknown as RunService);
-async function record(overrides: Record<string, unknown> = {}) {
-  return session.events.append({ event_id: ulid(), session_id: session.req_id, type: "verification.completed", schema_version: "1", actor: { kind: "system", id: "host" }, correlation_id: "verify",
+async function record(overrides: Record<string, unknown> = {}, correlation_id = "verify") {
+  return session.events.append({ event_id: ulid(), session_id: session.req_id, type: "verification.completed", schema_version: "1", actor: { kind: "system", id: "host" }, correlation_id,
     payload: { workflow_id: def.metadata.id, workflow_revision: revision, run_id, node_id: "verify", verification_id: "unit-tests", input_hash, command_hash: "c".repeat(64), status: "failed", exit_code: 1, summary: "PRIVATE_LOG", stdout: "PRIVATE_STDOUT", ...overrides }, source: { adapter: "host" } });
 }
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), "cord-evidence-context-")); session = await initSession(join(root, "cord"), "REQ-EVIDENCE"); });
@@ -65,10 +65,41 @@ describe("协调机器观察投影", () => {
     expect((await read(runs)).find((item) => item.verification_id === "unit-tests")).toMatchObject({ current: false, reason: "run_cancelled" });
   });
 
-  it.each([{ command_hash: undefined }, { status: "bogus" }, { input_hash: "z".repeat(64) }, { status: "passed", exit_code: 3 }])("坏的最新结果 %s 不回退历史通过", async (value) => {
+  it.each([{ command_hash: undefined }, { status: "bogus" }, { input_hash: "z".repeat(64) }, { status: "passed", exit_code: 3 },
+    { stdout_hash: "z".repeat(64) }, { stderr_hash: "z".repeat(64) }, { duration_ms: -1 }])("坏的最新结果 %s 不回退历史通过", async (value) => {
     await record({ status: "passed", exit_code: 0 });
     await record(value);
     expect((await read()).find((item) => item.verification_id === "unit-tests")).toMatchObject({ status: "invalid", current: false, reason: "invalid_result" });
+    expect((await createVerificationPassedChecker().check({ session_dir: session.dir, session, workflow_id: def.metadata.id, workflow_revision: revision,
+      run_id, node_id: "verify", input_hash, params: { verification_id: "unit-tests" }, anchors: [], payload: {} })).result).toBe("block");
+  });
+
+  it("最新 correlation 错误在观察和 gate 中都无效，修复后共同恢复", async () => {
+    await record({ status: "passed", exit_code: 0 });
+    await record({ status: "passed", exit_code: 0 }, "other-node");
+    expect((await read()).find((item) => item.verification_id === "unit-tests")).toMatchObject({ status: "invalid", current: false });
+    const context = { session_dir: session.dir, session, workflow_id: def.metadata.id, workflow_revision: revision, run_id, node_id: "verify",
+      input_hash, params: { verification_id: "unit-tests" }, anchors: [], payload: {} };
+    expect((await createVerificationPassedChecker().check(context)).result).toBe("block");
+    await record({ status: "passed", exit_code: 0 });
+    expect((await read()).find((item) => item.verification_id === "unit-tests")).toMatchObject({ status: "passed", current: true });
+    expect((await createVerificationPassedChecker().check(context)).result).toBe("pass");
+  });
+
+  it.each([null, undefined, 0])("未知/明确退出码 %s 在两种消费者中保持同一语义", async (exit_code) => {
+    await record({ status: "passed", exit_code });
+    const result = (await read()).find((item) => item.verification_id === "unit-tests")!;
+    expect(result).toMatchObject({ status: "passed", current: true, exit_code: exit_code ?? null });
+    expect((await createVerificationPassedChecker().check({ session_dir: session.dir, session, workflow_id: def.metadata.id, workflow_revision: revision,
+      run_id, node_id: "verify", input_hash, params: { verification_id: "unit-tests" }, anchors: [], payload: {} })).result).toBe("pass");
+  });
+
+  it("事件流损坏时观察拒绝，门禁同样阻断", async () => {
+    await record({ status: "passed", exit_code: 0 });
+    await appendFile(join(session.dir, "events.jsonl"), "INVALID_FACT\n");
+    await expect(read()).rejects.toThrow(/无法解析/);
+    expect((await createVerificationPassedChecker().check({ session_dir: session.dir, session, workflow_id: def.metadata.id, workflow_revision: revision,
+      run_id, node_id: "verify", input_hash, params: { verification_id: "unit-tests" }, anchors: [], payload: {} })).result).toBe("block");
   });
 
   it("没有声明时不加载结果，超过观察上限拒绝读取", async () => {

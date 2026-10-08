@@ -249,6 +249,10 @@ export type WorkflowDef = z.infer<typeof WorkflowDefSchema>;
 export const WorkflowScopeSchema = z.object({ workflow_id: z.string().min(1), workflow_revision: z.string().length(64).optional() });
 export type WorkflowScope = z.infer<typeof WorkflowScopeSchema>;
 
+function verificationExitIsConsistent(value: { status: string; exit_code?: number | null }): boolean {
+  return value.status !== "passed" || value.exit_code == null || value.exit_code === 0;
+}
+
 /** ADR-0044：协调者只接收受限机器观察，不携带日志或事件正文。 */
 export const CoordinationVerificationSchema = z.strictObject({
   run_id: z.string().regex(ULID_RE).nullable(),
@@ -262,6 +266,8 @@ export const CoordinationVerificationSchema = z.strictObject({
   command_hash: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
   source_hash: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
   exit_code: z.number().int().nullable(),
+}).refine(verificationExitIsConsistent, {
+  path: ["exit_code"], message: "passed 不能与非零退出码同时声明",
 }).refine((value) => value.current !== true || (value.event_id !== null && !["missing", "invalid"].includes(value.status)
   && value.reason === "current" && value.run_id !== null && value.input_hash !== null && value.command_hash !== null), {
   message: "当前有效验证必须携带完整结果身份",
@@ -555,23 +561,29 @@ export const AgentTaskCompletedPayloadSchema = z.looseObject({
   snapshot_event_chain_hash: z.string().length(64).optional(),
 });
 
-/** `verification.completed`：宿主/CI 写入的机器验证结果，不接受 agent 正文冒充。 */
-export const VerificationCompletedPayloadSchema = z.looseObject({
-  workflow_id: z.string().min(1),
-  workflow_revision: z.string().length(64).optional(),
-  run_id: z.string().regex(ULID_RE),
-  node_id: z.string().min(1),
+/** ADR-0045：REST 与事实消费共用结果约束，未知退出码不补造为 0。 */
+export const VerificationResultSchema = z.strictObject({
   verification_id: z.string().min(1).max(200),
-  input_hash: z.string().length(64),
-  /** ADR-0041：由宿主计算的声明源码输入摘要，不保存源码正文。 */
-  source_hash: z.string().length(64).optional(),
-  command_hash: z.string().length(64),
+  input_hash: z.string().regex(/^[0-9a-f]{64}$/),
+  command_hash: z.string().regex(/^[0-9a-f]{64}$/),
   status: z.enum(["passed", "failed", "timeout", "cancelled"]),
   exit_code: z.number().int().nullable().optional(),
   duration_ms: z.number().int().nonnegative().optional(),
-  stdout_hash: z.string().length(64).optional(),
-  stderr_hash: z.string().length(64).optional(),
+  stdout_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  stderr_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   summary: z.string().max(2_000).optional(),
+}).refine(verificationExitIsConsistent, {
+  path: ["exit_code"], message: "passed 不能与非零退出码同时声明",
+});
+
+/** `verification.completed`：宿主/CI 写入的机器验证结果，不接受 agent 正文冒充。 */
+export const VerificationCompletedPayloadSchema = VerificationResultSchema.loose().safeExtend({
+  workflow_id: z.string().min(1),
+  workflow_revision: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  run_id: z.string().regex(ULID_RE),
+  node_id: z.string().min(1),
+  /** ADR-0041：由宿主计算的声明源码输入摘要，不保存源码正文。 */
+  source_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
 });
 
 /** `workflow.run.cancelled`：run 取消（ADR-0025）。取消是事实：落盘后执行器在节点边界止步 */

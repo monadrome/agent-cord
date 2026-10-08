@@ -90,11 +90,12 @@ describe("独立协调轮次", () => {
     expect(worker.tasks[1]?.prompt).toContain('"status":"passed"');
   });
 
-  it.each(["logs", "duplicate", "undeclared", "too-many", "unreadable"])("非法宿主验证观察 %s 阻断派发，私有日志不进入事件", async (kind) => {
+  it.each(["logs", "duplicate", "undeclared", "too-many", "unreadable", "nonzero-passed"])("非法宿主验证观察 %s 阻断派发，私有日志不进入事件", async (kind) => {
     const worker = driver();
     const observer = createContextSessionAgent({ resolveDriver: () => worker, workspaceRoot: root, read_verifications: async () => {
       if (kind === "unreadable") throw new Error("无法读取机器观察");
       if (kind === "logs") return [{ ...verification, summary: "PRIVATE_LOG" }] as any;
+      if (kind === "nonzero-passed") return [{ ...verification, status: "passed", exit_code: 1 }];
       if (kind === "duplicate") return [verification, verification];
       if (kind === "undeclared") return [{ ...verification, verification_id: "foreign-check" }];
       return Array.from({ length: 129 }, (_, index) => ({ ...verification, verification_id: `tests-${index}` }));

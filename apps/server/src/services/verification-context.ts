@@ -1,5 +1,5 @@
 /** ADR-0044：当前流程声明的验证观察；不读取日志或复制 gate 状态机。 */
-import { CoordinationVerificationsSchema, VerificationCompletedPayloadSchema, matchesWorkflowScope,
+import { CoordinationVerificationsSchema, matchesWorkflowScope, readVerificationEvents, parseVerificationResult, isVerificationRunCancelled,
   type CoordinationVerification, type EventEnvelope, type SessionHandle, type WorkflowDef } from "agent-cord";
 import type { RunService } from "./run-service.js";
 
@@ -21,12 +21,8 @@ export async function readCoordinationVerifications(
   const scope = { workflow_id: def.metadata.id, workflow_revision };
   const latest_run = await runs.latestRun(session.req_id);
   const run = latest_run !== null && latest_run.workflow_revision === workflow_revision ? latest_run : null;
-  const events = await session.events.readOrdered();
-  if (events.some((event) => event.session_id !== session.req_id)) throw new Error("验证上下文包含其他需求的事实");
-  const store = session.events as typeof session.events & { diagnostics?: () => { notes: Array<{ kind: string }> } };
-  if (store.diagnostics?.().notes.some((note) => note.kind === "unparsable_line")) throw new Error("验证事件流包含无法解析的事实");
-  const cancelled = run !== null && (run.status === "cancelled" || events.some((event) => event.type === "workflow.run.cancelled"
-    && matchesWorkflowScope(event.payload, scope) && event.payload["run_id"] === run.run_id));
+  const events = await readVerificationEvents(session.dir, session);
+  const cancelled = run !== null && (run.status === "cancelled" || isVerificationRunCancelled(events, { ...scope, run_id: run.run_id }));
   const latest_results = new Map<string, EventEnvelope>();
   if (run !== null) for (const event of events) {
     if (event.type !== "verification.completed" || !matchesWorkflowScope(event.payload, scope) || event.payload["run_id"] !== run.run_id) continue;
@@ -42,16 +38,12 @@ export async function readCoordinationVerifications(
     };
     const candidate = latest_results.get(key);
     if (candidate !== undefined) {
-      const parsed = VerificationCompletedPayloadSchema.safeParse(candidate.payload);
+      const value = parseVerificationResult(candidate, node.id);
       observation.event_id = candidate.event_id;
-      if (!parsed.success || candidate.correlation_id !== node.id || (parsed.success && (
-        ![parsed.data.input_hash, parsed.data.command_hash, ...(parsed.data.source_hash === undefined ? [] : [parsed.data.source_hash])].every((hash) => /^[0-9a-f]{64}$/.test(hash))
-        || (parsed.data.status === "passed" && parsed.data.exit_code != null && parsed.data.exit_code !== 0)
-      ))) {
+      if (value === null) {
         observation.status = "invalid";
         observation.reason = "invalid_result";
       } else {
-        const value = parsed.data;
         Object.assign(observation, { status: value.status, input_hash: value.input_hash, command_hash: value.command_hash,
           source_hash: value.source_hash ?? null, exit_code: value.exit_code ?? null });
         if (cancelled) observation.reason = "run_cancelled";

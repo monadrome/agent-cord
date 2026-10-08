@@ -135,23 +135,73 @@ async function submitVerification(run_id: string, key: string, status = "passed"
 }
 
 describe("结构化机器验证事实", () => {
-  it("源码范围出现非法链接后 fail-closed，修复后仍可提交", async () => {
+  it("REST 拒绝 passed 与非零退出码冲突，修复同键请求后可恢复", async () => {
+    const { runId, approvalId } = await setupRun();
+    const context = await api("GET", `/api/v1/requirements/REQ-VERIFY/runs/${runId}/nodes/verify/verification-context`);
+    const input = { run_id: runId, node_id: "verify", verification_id: "unit-tests", input_hash: context.body.verification.input_hash,
+      command_hash: "d".repeat(64), status: "passed", exit_code: 1 };
+    const rejected = await api("POST", `/api/v1/requirements/REQ-VERIFY/runs/${runId}/verifications`, input, "inconsistent-exit");
+    expect(rejected.status).toBe(400);
+    expect((await server.sessions.readEvents("REQ-VERIFY")).filter((event) => event.type === "verification.completed")).toHaveLength(0);
+    expect((await server.sessions.listApprovals("REQ-VERIFY"))[0]?.approval_id).toBe(approvalId);
+    expect((await api("POST", `/api/v1/requirements/REQ-VERIFY/runs/${runId}/verifications`, { ...input, exit_code: 0 }, "inconsistent-exit")).status).toBe(200);
+    await waitFor(async () => (await server.runs.getRun(runId)).status === "completed");
+  });
+
+  it("重启不消费坏的最新事实，修复结果后再进入人工终审", async () => {
+    const { runId } = await setupRun({ human_confirm: true });
+    expect((await submitVerification(runId, "before-bad-fact")).status).toBe(200);
+    await waitFor(async () => (await server.sessions.listApprovals("REQ-VERIFY"))[0]?.kind === "human_confirm");
+    await server.app.close(); server.index.close();
+    const binding = await server.sdlcs.get("machine-verification", 1);
+    const prior_events = await server.sessions.readEvents("REQ-VERIFY");
+    const prior = prior_events.find((event) => event.type === "verification.completed")!;
+    await server.sessions.recordVerification("REQ-VERIFY", { ...(prior.payload as Record<string, unknown>), exit_code: 2,
+      workflow_id: binding.def.metadata.id, workflow_revision: binding.workflow_revision });
+    await listen();
+    await waitFor(async () => (await server.sessions.listApprovals("REQ-VERIFY"))[0]?.kind === "escalation");
+    const bad_approval = (await server.sessions.listApprovals("REQ-VERIFY"))[0]!;
+    expect(bad_approval.reason).toContain("结果契约");
+    expect((await server.sessions.readEvents("REQ-VERIFY")).filter((event) => event.type === "human.decision.recorded")).toHaveLength(0);
+    expect((await submitVerification(runId, "after-bad-fact")).status).toBe(200);
+    await waitFor(async () => (await server.sessions.listApprovals("REQ-VERIFY"))[0]?.kind === "human_confirm");
+    const approval = (await server.sessions.listApprovals("REQ-VERIFY"))[0]!;
+    expect((await api("POST", `/api/v1/requirements/REQ-VERIFY/approvals/${approval.approval_id}/decide`, { choice: "确认放行" }, "valid-restored-decision")).status).toBe(200);
+    await waitFor(async () => (await server.runs.getRun(runId)).status === "completed");
+  });
+
+  it("等待挂起重检遇到非法源码链接时 fail-closed，修复后仍可提交", async () => {
     await mkdir(join(root, "src"));
     await writeFile(join(root, "src", "draft.ts"), "export const draft = 1;\n");
-    const { runId } = await setupRun({ inputs: ["src"] });
+    let source_read_failed = false;
+    const read_input = server.runs.readNodeInput.bind(server.runs);
+    vi.spyOn(server.runs, "readNodeInput").mockImplementation(async (...args) => {
+      try { return await read_input(...args); }
+      catch (error) { source_read_failed = true; throw error; }
+    });
+    let first_hash = "";
+    const { runId } = await setupRun({ inputs: ["src"], before_ask: async () => {
+      const run = server.runs.listRuns("REQ-VERIFY")[0]!;
+      const first = await api("GET", `/api/v1/requirements/REQ-VERIFY/runs/${run.run_id}/nodes/verify/verification-context`);
+      expect(first.status).toBe(200);
+      first_hash = first.body.verification.input_hash;
+      await rm(join(root, "src", "draft.ts"));
+      await writeFile(join(root, "outside.ts"), "PRIVATE_SOURCE_CONTENT");
+      await symlink(join(root, "outside.ts"), join(root, "src", "draft.ts"));
+    } });
+    await waitFor(async () => source_read_failed);
     const url = `/api/v1/requirements/REQ-VERIFY/runs/${runId}/nodes/verify/verification-context`;
-    const first = await api("GET", url);
-    await rm(join(root, "src", "draft.ts"));
-    await writeFile(join(root, "outside.ts"), "PRIVATE_SOURCE_CONTENT");
-    await symlink(join(root, "outside.ts"), join(root, "src", "draft.ts"));
     const rejected = await api("GET", url);
     expect(rejected.status).toBe(409);
+    expect((await server.runs.getRun(runId)).status).not.toBe("failed");
+    expect(server.runs.activeRunId("REQ-VERIFY")).toBe(runId);
     expect(JSON.stringify(rejected.body)).not.toContain("PRIVATE_SOURCE_CONTENT");
     expect((await api("POST", `/api/v1/requirements/REQ-VERIFY/runs/${runId}/verifications`, {
-      run_id: runId, node_id: "verify", verification_id: "unit-tests", input_hash: first.body.verification.input_hash,
+      run_id: runId, node_id: "verify", verification_id: "unit-tests", input_hash: first_hash,
       command_hash: "b".repeat(64), status: "passed", exit_code: 0,
     }, "linked-source")).status).toBe(409);
     expect((await server.sessions.readEvents("REQ-VERIFY")).filter((event) => event.type === "verification.completed")).toHaveLength(0);
+    expect((await server.sessions.readEvents("REQ-VERIFY")).filter((event) => event.type === "human.decision.recorded" || event.type === "workflow.node.exited" && event.payload["node_id"] === "verify")).toHaveLength(0);
     await rm(join(root, "src", "draft.ts"));
     await writeFile(join(root, "src", "draft.ts"), "export const draft = 1;\n");
     expect((await submitVerification(runId, "fixed-source")).status).toBe(200);

@@ -7,6 +7,7 @@ export {
   AgentTaskCompletedPayloadSchema,
   AgentTaskStartedPayloadSchema,
   VerificationCompletedPayloadSchema,
+  VerificationResultSchema,
   AnchorSchema,
   CliMessageReceivedPayloadSchema,
   ConfidenceSourceSchema,

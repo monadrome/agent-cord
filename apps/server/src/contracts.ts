@@ -4,6 +4,7 @@
  * 不修改 `src/core/schema.ts`（核心契约冻结边界不变），这里的类型是核心类型的 API 投影。
  */
 import { z } from "zod";
+import { ULID_RE, VerificationResultSchema } from "agent-cord";
 import type { CoordinationProposal, CoordinationStatus } from "agent-cord";
 
 // ---------------------------------------------------------------------------
@@ -157,21 +158,10 @@ export const StartRunInputSchema = z.object({
 });
 export type StartRunInput = z.infer<typeof StartRunInputSchema>;
 
-const HashSchema = z.string().regex(/^[0-9a-f]{64}$/, "必须是小写 SHA-256");
-
 /** 机器验证只提交摘要与状态，不把 stdout/stderr 正文写入事件流。 */
-export const RecordVerificationInputSchema = z.strictObject({
-  run_id: z.string().min(1),
+export const RecordVerificationInputSchema = VerificationResultSchema.safeExtend({
+  run_id: z.string().regex(ULID_RE),
   node_id: z.string().min(1).max(200),
-  verification_id: z.string().min(1).max(200),
-  input_hash: HashSchema,
-  command_hash: HashSchema,
-  status: z.enum(["passed", "failed", "timeout", "cancelled"]),
-  exit_code: z.number().int().nullable().optional(),
-  duration_ms: z.number().int().nonnegative().optional(),
-  stdout_hash: HashSchema.optional(),
-  stderr_hash: HashSchema.optional(),
-  summary: z.string().max(2_000).optional(),
 });
 export type RecordVerificationInput = z.infer<typeof RecordVerificationInputSchema>;
 
