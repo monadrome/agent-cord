@@ -109,6 +109,13 @@
 - 两轮 `input_hash`、`snapshot_id`、`agent_session_id` 均不同；事件流没有 `workflow.node.*` 或 `agent.task.*`。
 - 真实证据记录于 `docs/research/2026-10-08-real-claude-acp-coordination.md`；开发 Draft 的人工 gate、人工批准、合入和异构评审仍未完成。
 
+## 阶段 23：控制台机器验证可观察性（已实现并验证）
+
+- [x] 需求概览展示机器验证事实、状态、run、节点、输入 hash 摘要和时间
+- [x] 历史 run 与当前 run 明确区分，失败/超时/取消不隐藏
+- [x] 同步当前架构 API 说明
+- [x] console typecheck、定向测试、build:all 和 diff check 通过
+
 ## 阶段 22：机器验证 run 级隔离（已实现并验证）
 
 - [x] 将 `run_id` 注入 workflow CheckerContext

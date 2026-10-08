@@ -326,7 +326,7 @@ export function RequirementDetail({ reqId, tab, onTab, onBack }: Props): ReactEl
         ))}
       </nav>
 
-      {tab === "overview" ? <OverviewTab timeline={timeline} activeRun={activeRun} /> : null}
+      {tab === "overview" ? <OverviewTab timeline={timeline} activeRun={activeRun} events={events} /> : null}
       {tab === "coordination" ? <CoordinationPanel req_id={reqId} default_sdlc={timeline?.sdlc_version !== null && timeline?.sdlc_version !== undefined ? `${timeline.sdlc_id}@${timeline.sdlc_version}` : ""}
         event_seq={events.at(-1)?.seq ?? 0} run_in_flight={runInFlight} onChanged={loadProjections} onRun={() => onTab("overview")}
         onSource={(source, id) => { if (source === "document") { set_focused_doc(id.replace(/\.md$/, "") as SnapshotDocName); onTab("docs"); } else onTab(source === "ledger" ? "ledger" : "overview"); }} /> : null}
@@ -356,9 +356,11 @@ function mergeEvents(prev: StreamedEvent[], incoming: StreamedEvent[]): Streamed
 function OverviewTab({
   timeline,
   activeRun,
+  events,
 }: {
   timeline: TimelineView | null;
   activeRun: RequirementDetailView["active_run"];
+  events: StreamedEvent[];
 }): ReactElement {
   if (timeline === null) return <Empty text="加载中…" />;
   // 在途 run 优先（active_run 来自需求详情，timeline.run 是最近一次 run 登记）
@@ -423,7 +425,69 @@ function OverviewTab({
           </dl>
         )}
       </Section>
+
+      <VerificationSection events={events} run_id={run?.run_id ?? null} />
     </>
+  );
+}
+
+interface VerificationRow {
+  seq: number;
+  run_id: string;
+  node_id: string;
+  verification_id: string;
+  status: "passed" | "failed" | "timeout" | "cancelled";
+  input_hash: string;
+  summary: string | null;
+  timestamp: string;
+}
+
+function VerificationSection({ events, run_id }: { events: StreamedEvent[]; run_id: string | null }): ReactElement {
+  const rows = useMemo(() => {
+    const latest = new Map<string, VerificationRow>();
+    for (const event of events) {
+      if (event.type !== "verification.completed" || typeof event.payload !== "object" || event.payload === null || Array.isArray(event.payload)) continue;
+      const payload = event.payload as Record<string, unknown>;
+      if (typeof payload.run_id !== "string" || typeof payload.node_id !== "string" || typeof payload.verification_id !== "string" || typeof payload.input_hash !== "string") continue;
+      if (typeof payload.status !== "string" || !["passed", "failed", "timeout", "cancelled"].includes(payload.status)) continue;
+      latest.set(`${payload.run_id}:${payload.node_id}:${payload.verification_id}`, {
+        seq: event.seq,
+        run_id: payload.run_id,
+        node_id: payload.node_id,
+        verification_id: payload.verification_id,
+        status: payload.status as VerificationRow["status"],
+        input_hash: payload.input_hash,
+        summary: typeof payload.summary === "string" ? payload.summary : null,
+        timestamp: event.timestamp,
+      });
+    }
+    return [...latest.values()].sort((a, b) => b.seq - a.seq);
+  }, [events]);
+
+  return (
+    <Section title="机器验证" extra={<span className="muted">事件事实 · 输入 hash 绑定</span>}>
+      {rows.length === 0 ? (
+        <Empty text="暂无机器验证事实" />
+      ) : (
+        <div className="verification-list">
+          {rows.map((row) => {
+            const current = run_id !== null && row.run_id === run_id;
+            return (
+              <article key={`${row.run_id}:${row.node_id}:${row.verification_id}`} className="verification-row">
+                <div className="verification-head">
+                  <strong className="mono">{row.verification_id}</strong>
+                  <span className={`verification-status verification-${row.status}`}>{row.status}</span>
+                  <span className={current ? "badge badge-run-running" : "muted small"}>{current ? "当前 run" : "历史 run"}</span>
+                  <span className="muted small">#{row.seq} · {formatTime(row.timestamp)}</span>
+                </div>
+                <div className="muted small mono">节点 {row.node_id} · run {row.run_id} · input {row.input_hash.slice(0, 12)}…</div>
+                {row.summary !== null ? <div className="verification-summary">{row.summary}</div> : null}
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </Section>
   );
 }
 

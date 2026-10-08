@@ -364,6 +364,18 @@
 - [x] 覆盖旧 run 同输入验证事实不可复用
 - [x] 更新协议文档并完成定向验证
 
+## 阶段 23：控制台机器验证可观察性（已完成）
+
+- [x] 需求概览展示 `verification.completed` 的最新状态
+- [x] 显示当前/历史 run、节点、输入 hash 摘要和失败状态
+- [x] 保持 server 投影为唯一状态来源，不在前端复制 gate 判定
+- [x] 完成 console typecheck、定向测试、build:all 和 diff check
+
+### 阶段 23 边界
+
+- 页面展示验证事实，不替代 `verification-passed` checker，也不允许前端直接放行 gate。
+- 本机未安装 Playwright 依赖，本轮以 console typecheck、Vitest 和生产构建验证；此前版本的浏览器验收证据仍保留。
+
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
 - [x] 核验当前分支与阶段 10；上一轮实现和远端同步属于已验证进展

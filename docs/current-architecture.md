@@ -120,6 +120,7 @@ server 默认监听 `127.0.0.1:7250`，工作区由 `CORD_ROOT` 指定。核心�
 - 查询：`/health`、`/dashboard`、`/requirements`、需求详情、timeline、ledger、votes、runs、approvals。
 - Agent：`GET /agents` 查看配置 revision、公开清单和诊断；`POST /agents/reload` 显式重载（幂等键），清单不包含 env、args 或角色 prompt。
 - 协调：`POST/GET /requirements/:req_id/coordination`、`GET /requirements/:req_id/coordination/:round_id`、`POST .../:round_id/cancel`、`POST .../:round_id/adopt`；创建/采用返回 202，每需求至多一个在途协调轮次。
+- 机器验证：`GET /requirements/:req_id/runs/:run_id/nodes/:node_id/verification-context` 获取当前输入 hash；`POST /requirements/:req_id/runs/:run_id/verifications` 记录带 run/input hash 的验证事实。需求详情概览展示各 run 的最新验证状态。
 - 命令：创建需求、编辑快照文档、启动 run（可指定 `sdlc_id` + `sdlc_version`）、取消 run（`POST /runs/:run_id/cancel`，幂等）、处理人工审批。
 - 实时：`/requirements/:req_id/events/stream`，使用事件 `seq` 作为 SSE id，并支持 `Last-Event-ID` 回放。
 - SDLC：列表、读取版本、validate、publish、草稿（GET/PUT/DELETE `/sdlcs/:id/draft`）、版本归档（archive/unarchive）、模板库（`GET /sdlc-templates`）。归档版本禁止启动新 run，不影响在途/历史 run。

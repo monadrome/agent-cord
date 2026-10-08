@@ -711,6 +711,40 @@ p {
   font-size: 13.5px;
 }
 
+.verification-list {
+  display: grid;
+  gap: 8px;
+}
+
+.verification-row {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.verification-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.verification-status {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.verification-passed { color: var(--ok); }
+.verification-failed,
+.verification-timeout { color: var(--danger); }
+.verification-cancelled { color: var(--ink-faint); }
+
+.verification-summary {
+  margin-top: 4px;
+  color: var(--ink-soft);
+}
+
 /* ---- 表单 ---- */
 .form {
   display: grid;
