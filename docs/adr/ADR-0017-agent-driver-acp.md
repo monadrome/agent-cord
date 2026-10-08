@@ -73,6 +73,7 @@ ADR-0011 已定型「每任务 subprocess 驱动 headless CLI + 统一 `AgentDri
 4. **盲评隔离不变**：每票 = 独立进程 + 独立临时 worktree + 独立 env（ADR-0011 注意点 2 原样适用）；ACP 的 `session/load` 只允许用于执行类长任务恢复，投票任务永远起全新 session。
 5. **降级通道的探测顺序**：ACP → 厂商直连协议（stream-json / app-server）→ 裸 headless 参数拼装 → PTY（最后兜底，需显式配置开启）。
 6. **registry 缓存**：ACP registry 为远程清单，daemon 启动时拉取并本地缓存，离线时用缓存；清单变更写事件流。
+7. **会话回执**：完成 `session/new`/`session/load` 后，驱动发出的每个 `AgentEvent` 都回填同一 `session_id`；`result`/`error` 的 data 也保留该字段。握手或建会话前失败时回执允许为空。
 
 ## 证据来源
 

@@ -146,6 +146,7 @@ describe("AcpDriver", () => {
     const result = resultData(events.at(-1));
     expect(result).toMatchObject({ text: "hello done", session_id: "acp-session-1" });
     expect((result.raw as { stop_reason?: string }).stop_reason).toBe("end_turn");
+    expect(events.every((event) => event.session_id === "acp-session-1")).toBe(true);
 
     const log = recorded(recordFile);
     expect(log.find((entry) => entry.event === "session/new")).toMatchObject({

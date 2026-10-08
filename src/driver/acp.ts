@@ -213,6 +213,25 @@ export class AcpDriver implements AgentDriver {
     let timedOut = false;
     let agentText = "";
 
+    /** ACP 通知与终态统一回填会话回执，供恢复与宿主审计使用。 */
+    const push = (events: AgentEvent[]): void => {
+      for (const event of events) {
+        const data = typeof event.data === "object" && event.data !== null && !Array.isArray(event.data)
+          ? event.data as Record<string, unknown>
+          : null;
+        const sessionId = event.session_id ?? activeSessionId ?? (
+          typeof data?.session_id === "string" && data.session_id.length > 0 ? data.session_id : null
+        );
+        queue.push(sessionId === null ? event : {
+          ...event,
+          session_id: sessionId,
+          ...(data !== null && (event.type === "result" || event.type === "error") && data.session_id == null
+            ? { data: { ...data, session_id: sessionId } }
+            : {}),
+        });
+      }
+    };
+
     const child = execa(this.bin, this.args, {
       cwd: task.cwd,
       env: { ...process.env, ...this.env },
@@ -234,11 +253,11 @@ export class AcpDriver implements AgentDriver {
             agentText += data.text;
           }
         }
-        queue.push(event);
+        push([event]);
       }
     });
     app.onRequest("session/request_permission", ({ params }) =>
-      this.answerPermission(params, { readonly, queue }),
+      this.answerPermission(params, { readonly, push }),
     );
 
     const connection = app.connect(ndJsonStream(toAgent.writable, fromAgent.readable));
@@ -247,11 +266,11 @@ export class AcpDriver implements AgentDriver {
     let sigkillTimer: NodeJS.Timeout | undefined;
     /** 收束序列（超时与外部取消共用）：error 落流 → 先 session/cancel 打完招呼 → 杀进程树 → 关流 */
     const shutdown = (reason: string, kind: "timeout" | "agent"): void => {
-      queue.push(
+      push([
         errorEvent(reason, kind, {
           session_id: activeSessionId ?? null,
         }),
-      );
+      ]);
       void (async () => {
         // 先 session/cancel 把话说完再杀（有上限，不能因为写不出去反而卡住）
         if (activeSessionId !== undefined) {
@@ -304,12 +323,12 @@ export class AcpDriver implements AgentDriver {
           clientInfo: CLIENT_INFO,
         });
         if (initialized.protocolVersion !== PROTOCOL_VERSION) {
-          queue.push(
+          push([
             errorEvent(
               `agent negotiated unsupported Agent Client Protocol version ${initialized.protocolVersion} (client: ${PROTOCOL_VERSION})`,
               "protocol",
             ),
-          );
+          ]);
           return;
         }
 
@@ -333,21 +352,21 @@ export class AcpDriver implements AgentDriver {
           prompt: [{ type: "text", text: task.prompt }],
         });
 
-        queue.push(
+        push([
           resultEvent(agentText.length > 0 ? agentText : null, sessionId, {
             stop_reason: response.stopReason,
             usage: response.usage ?? null,
             raw: response,
           }, mapAcpUsage(response.usage)),
-        );
+        ]);
       } catch (error) {
         if (!timedOut) {
           const message = error instanceof Error ? error.message : String(error);
-          queue.push(
+          push([
             errorEvent(message, error instanceof RequestError ? "agent" : "protocol", {
               session_id: activeSessionId ?? null,
             }),
-          );
+          ]);
         }
       } finally {
         clearTimeout(timeoutTimer);
@@ -382,7 +401,7 @@ export class AcpDriver implements AgentDriver {
 
   private async answerPermission(
     request: RequestPermissionRequest,
-    state: { readonly: boolean; queue: AsyncQueue<AgentEvent> },
+    state: { readonly: boolean; push: (events: AgentEvent[]) => void },
   ): Promise<RequestPermissionResponse> {
     const title = request.toolCall.title ?? request.toolCall.toolCallId;
     const cancelled: RequestPermissionResponse = { outcome: { outcome: "cancelled" } };
@@ -401,54 +420,54 @@ export class AcpDriver implements AgentDriver {
     );
 
     if (decision === TIMED_OUT) {
-      state.queue.push(
+      state.push([
         errorEvent(
           `permission request timed out after ${this.permissionTimeoutMs}ms; answered with cancelled: ${title}`,
           "permission",
           { raw: request },
         ),
-      );
+      ]);
       return cancelled;
     }
 
     if ("failed" in decision) {
-      state.queue.push(
+      state.push([
         errorEvent(`permission decision failed (${decision.failed}); answered with cancelled: ${title}`, "permission", {
           raw: request,
         }),
-      );
+      ]);
       return cancelled;
     }
 
     if ("optionId" in decision) {
       const option = request.options.find((candidate) => candidate.optionId === decision.optionId);
       if (option === undefined) {
-        state.queue.push(
+        state.push([
           errorEvent(
             `permission option "${decision.optionId}" was not offered by the agent; answered with cancelled: ${title}`,
             "permission",
             { raw: request },
           ),
-        );
+        ]);
         return cancelled;
       }
       const denied = option.kind === "reject_once" || option.kind === "reject_always";
-      state.queue.push(
+      state.push([
         textEvent(`[permission ${denied ? "denied" : "granted"}: ${option.name}] ${title}`, request),
-      );
+      ]);
       return { outcome: { outcome: "selected", optionId: option.optionId } };
     }
 
     if (state.readonly) {
-      state.queue.push(textEvent(`[permission denied: readonly] ${title}`, request));
+      state.push([textEvent(`[permission denied: readonly] ${title}`, request)]);
     } else {
-      state.queue.push(
+      state.push([
         errorEvent(
           `permission request requires human approval (M2 未接人工审批); answered with cancelled: ${title}`,
           "permission",
           { raw: request },
         ),
-      );
+      ]);
     }
     return cancelled;
   }

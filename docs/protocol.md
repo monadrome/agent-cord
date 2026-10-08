@@ -44,6 +44,8 @@ ADR-0037 增 Codex item.error/warning 非终态通知的 metadata 映射；顶�
 
 ADR-0039 将 Codex item.file_change 的 started/completed 保持为 tool_use（input=changes，raw 保留 status），不能拼入产物正文或报告 fallback。工具通知不代替 artifact 前后证据，超时任务的部分文件不能当作完成；恢复仍经新快照和已有 executor，不手工追加成功事实。
 
+ACP 驱动在 `session/new` 或 `session/load` 成功后，为通知、工具、权限、错误和终态事件统一回填当前 `session_id`；`result`/`error` 的 data 保留同一回执。握手或建会话前失败可没有会话身份，不能据此伪造可恢复会话。
+
 ADR-0030 增加 `execution_input_hash`（agent started/completed）：覆盖完整 workflow、节点、需求文档 hash、账本摘要、已退出进度和上下文预算，排除事件序号/时间戳。可写当前 artifact 以 completed 后态验证，不把自身写入作为输入变化。`snapshot_id` 继续记录完整 provenance，两者作用不同。
 
 ADR-0031 增加 driver 可选 `configuration_hash` 与任务事件 `agent_configuration_hash`，内置 headless/ACP 从固定有效启动参数派生，全部 env 排除。该身份纳入 execution_input_hash（内部域 v2）和节点审批上下文；同名模型/角色参数变更后，未退出节点重新执行并重新审批。外部 driver 未提供身份时仍支持，但宿主需提供可靠身份才能覆盖其配置变化。

@@ -65,6 +65,21 @@
 - 真实运行、超时、恢复与宿主验证证据仅在隔离clone及临时JSON/截图，公开总结已写 docs/research/2026-10-07-development-draft-workflow.md。阶段18功能与验收完成至人工gate，准备提交推送；机器验证事实通道与Claude/ACP实际调用仍待后续。
 - 阶段 18 功能提交 `8b0ba10` 已成功推送（origin/exp/impl：`234508e` → `8b0ba10`）；真实 Draft gate 仍待人工，未自动批准。
 
+## 阶段 19：真实 Claude/ACP 驱动冒烟与 ACP 会话回执（已实现并验证）
+
+- [x] 在临时只读目录真实调用 Claude headless 与 Claude 命名角色封装
+- [x] 在临时只读目录真实调用 Kimi ACP，并核验 initialize/session/new/session/prompt 终态
+- [x] 修复 ACP 事件流顶层 `AgentEvent.session_id` 未统一回填的问题，保留 result/error data 兼容字段
+- [x] 增加 ACP 全事件回执回归、ADR/协议说明和公开研究记录
+- [x] 定向测试、真实 CLI 冒烟、typecheck/build/diff 验证
+
+### 阶段 19 验证记录
+
+- Claude Code 2.1.220：`headless:claude` 与 `headless:claude-architect` 均成功返回预期 smoke 终态；角色 argv 含 `--agents`、`--agent architect`、计划权限模式和只读工具白名单。
+- Kimi Code 2.1.1：`acp:kimi-acp` 成功返回预期 smoke 终态；修复后所有输出事件与终态共享同一 session 回执。
+- 未记录真实会话正文、凭据或运行目录；调用均未修改当前仓库。
+- 真实证据记录于 `docs/research/2026-10-08-real-agent-driver-smoke.md`；完整开发 Draft 的人工 gate 仍保持未决。
+
 ## 2026-09-25
 
 - 按交接文档 `/tmp/agent-cord-handoff.KcQZOB/KIMI_HANDOFF.md` 执行实现；保留工作区未提交改动（事件协议增强 + merge driver）。
