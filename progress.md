@@ -63,6 +63,7 @@
 - reviewer自身测试因readonly SSR临时目录权限未执行，报告明确区分host通过与自身静态核验，不能把任务ok当测试通过。主工作树572测试/51文件、build/typecheck/diff通过，进入pending gate浏览器验收。
 - Playwright 1440/390/320 无溢出/pageerror，人工gate未决、报告可读且环境限制明确、plan只调用一次、done未推进；没有自动批准/合入。预览 `http://127.0.0.1:7306/#/requirements/REQ-INPUT-PROPERTIES/approvals`。
 - 真实运行、超时、恢复与宿主验证证据仅在隔离clone及临时JSON/截图，公开总结已写 docs/research/2026-10-07-development-draft-workflow.md。阶段18功能与验收完成至人工gate，准备提交推送；机器验证事实通道与Claude/ACP实际调用仍待后续。
+- 阶段 18 功能提交 `8b0ba10` 已成功推送（origin/exp/impl：`234508e` → `8b0ba10`）；真实 Draft gate 仍待人工，未自动批准。
 
 ## 2026-09-25
 

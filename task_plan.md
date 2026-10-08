@@ -284,7 +284,7 @@
 - [x] 隔离检出的真实 worker 开发 Draft 与新会话只读评审，宿主独立执行测试，停在真实人工 gate
 - [x] 全量 test/typecheck/build/diff、实际验收、文档
 - [x] 全量 572 测试 / 51 文件、build:all/typecheck/diff、浏览器验收
-- [ ] 提交推送
+- [x] 提交推送
 
 ### 阶段 18 边界
 
