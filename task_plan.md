@@ -274,6 +274,48 @@
 - 将可公开的真实开发需求接入示例 SDLC，完成计划 worker/独立评审/人工 gate 全链路验证；当前两轮真实协调不能证明整条开发流程完成。
 - Claude Code 角色封装和 ACP 仍需真实调用验证，CLI/version/model 的变化需兼容回归；不自动批准关键 gate 或合入。
 
+## 阶段 18：只读报告与真实开发 Draft（已实现并验证至人工 gate）
+
+- [x] 核验 `325f8c4` / `234508e` 与干净工作树，上一轮为有代码和真实 CLI 验收的进展
+- [x] 定位 readonly worker 文本报告不落 artifact，无法进入后置文件/人工 gate 的功能缺口
+- [x] ADR-0038 与 run.output=text 契约：保持 worker 只读、宿主唯一产物写回、旧行为兼容
+- [x] 文本模式的 prompt/写回/输入 hash/恢复校验，空内容/元信息/冲突/取消必须失败可见
+- [x] 离线 coordinator/恢复/server 回归与真实开发 SDLC 示例
+- [x] 隔离检出的真实 worker 开发 Draft 与新会话只读评审，宿主独立执行测试，停在真实人工 gate
+- [x] 全量 test/typecheck/build/diff、实际验收、文档
+- [x] 全量 572 测试 / 51 文件、build:all/typecheck/diff、浏览器验收
+- [ ] 提交推送
+
+### 阶段 18 边界
+
+- output 缺省 auto，旧 readonly 节点仍不写文档；显式 text 只允许有声明 artifact 的节点。
+- text 产物由 coordinator 从完整结果文本代写，派发前后观察到产物变化则保留现状并失败，不能把 agent 自写当作文本通道成功。
+- 恢复把 report artifact 当输出，以后态 hash 校验；读取 PRD/上游资料和配置变化仍使旧 checkpoint 失效。
+- 真实开发工作保留在隔离 worktree 作为 Draft，不合入当前分支，不自动采用或批准关键 gate；同模型不同会话的评审不能声称异构盲评。
+
+### 阶段 18 验证记录
+
+- 首轮 9 个核心回归中 6 个失败，复现 readonly 报告不写回、空结果假成功、文件变化未阻断与无 artifact 定义未拒绝。
+- 首轮实现验证发现新增 prompt 的嵌套反引号转义丢失，造成构建错误；改用纯路径文本后重跑，协议语义不变。
+- 85 个 coordinator/checkpoint/loader 用例 / 4 文件、build/typecheck 通过。新增真实 server 文本报告/审批/重启/失败修复回归和五节点开发 Draft 示例。
+- 真实任务选择请求输入身份的属性回归：在独立本地 clone 新增至少 40 组确定性 JSON 输入测试，只改指定新测试，不改生产源码/已有测试。完整计划/实现/只读评审使用新 CLI 会话，宿主另跑目标测试，保留未提交 Draft 与未决人工 gate。
+- 全量 570 测试 / 51 文件、build:all/typecheck/diff 通过，真实运行已协调成功并进入 plan 节点；已确认进程/事件仍在途，不因观察间隔重启。
+- 真实 plan ok，implement 在 240 秒预算内未完成收束，落 timeout 而非 ok；已有测试 Draft 共 48 组基准/57 测试，宿主目标测试全部通过。原命令在 sandbox 共享依赖缓存写入失败，替代 configLoader=runner 可跑目标；全库 sandbox HTTP 监听限制与宿主验证须分开记录。
+- 实际 file_change 事件被拼入正文，新增 ADR-0039 与结构化工具映射回归；不以部分文件证明任务 completion，保留超时事实后按最新恢复附记重跑未退出节点。
+- 宿主完整 clone 验证 615 测试 / 50 文件、typecheck/diff 全通过，已跟踪文件无改动。准备在最新 PRD 加恢复附记，明确缓存/监听限制与已验证事实，只补目标验证及报告，不伪造任务终态。
+- 原运行 terminal 且 worker 已收束后关闭旧 server；新 PRD 加恢复附记，同版本重新 start 只派发 implement，未重复 plan。40 个协议/报告/server 回归与 build/typecheck 通过，恢复仍在途。
+- 恢复结果：plan/implement/verify 各有真实 ok，初次 implement timeout 保留；plan 只派发一次，verify 的 readonly+text 报告 written_by=coordinator，宿主目标57再次通过。人工 gate 等待，0 human.decision，done未退出，独立clone HEAD仍为原234508e、已跟踪生产/测试无改动。
+- 实际 reviewer 静态检查无阻断发现，但自身测试因 readonly SSR临时目录权限失败未完成；报告如实区分宿主615通过与模型自己的运行。任务ok表示报告生成成功，不证明独立测试通过，不自动放行。
+- 主工作树全量 572 测试 / 51 文件、build:all/typecheck/diff 通过；准备 pending gate 和报告的浏览器验收。
+- 浏览器验收通过：1440/390/320 无横向溢出/pageerror，真实human gate待决、报告可读/环境限制可见、plan未重跑、done仍pending，未点击放行。预览 `http://127.0.0.1:7306/#/requirements/REQ-INPUT-PROPERTIES/approvals`。
+- 证据 `/tmp/cord-stage18-recovery-result.json`、`/tmp/cord-stage18-browser-result.json`，隔离clone及 host-verification/目标输出保留未提交 Draft；公开总结 docs/research/2026-10-07-development-draft-workflow.md，不提交会话数据/凭据。
+- 隔离 clone 最终 recovery-result.json：timeout → implement恢复ok → verify text报告ok → human gate pending；plan未重跑、tracked_diff为空、done未退出、0 human.decision、session doctor=true。
+
+### 持续目标后续
+
+- 当前真实开发处于可审查的人工 gate，未批准/合入；不能以报告生成成功替代独立运行验证。
+- 继续接入明确的机器验证事实/证据渠道，解决只读 reviewer 测试临时目录限制；Claude/ACP 实际调用和异构评审仍需验证。
+
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
 - [x] 核验当前分支与阶段 10；上一轮实现和远端同步属于已验证进展

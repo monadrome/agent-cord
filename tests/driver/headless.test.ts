@@ -77,6 +77,13 @@ async function expectDead(pid: number): Promise<void> {
 }
 
 describe("parseHeadlessLine", () => {
+  it("Codex file_change 的 started/completed 是工具事件，不能成为产物正文", () => {
+    const changes = [{ path: "apps/server/tests/draft.test.ts", kind: "add" }];
+    for (const type of ["item.started", "item.completed"]) {
+      const item = { id: "change-1", type: "file_change", changes, status: type === "item.started" ? "in_progress" : "completed" };
+      expect(parseHeadlessLine(JSON.stringify({ type, item }))).toMatchObject([{ type: "tool_use", data: { name: "file_change", input: changes, raw: item } }]);
+    }
+  });
   it("Codex 非终态 error/warning item 是辅助通知，顶层失败仍是 error", () => {
     for (const type of ["error", "warning"]) {
       const raw = { type: "item.completed", item: { id: "notice-1", type, message: "辅助配置通知" } };

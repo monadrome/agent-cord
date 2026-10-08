@@ -27,6 +27,7 @@ import { buildContextPack } from "./context-pack.js";
 import { readSnapshot, resolveSessionFile, type RequirementSnapshot } from "./snapshot.js";
 import { readSessionDocument, SessionFileConflictError, SessionFileError, writeSessionDocument } from "./session-files.js";
 import { executionInputHash } from "./checkpoint.js";
+import { nodeProducesArtifact } from "./artifact-policy.js";
 
 const ADAPTER = "coordinator";
 const PROMPT_EXCERPT_CHARS = 4_096;
@@ -92,8 +93,9 @@ async function settleArtifact(
   const existing = await readSessionDocument(session.dir, node.artifact);
   const after_hash = existing === null ? null : sha256Hex(existing);
   const evidence = { artifact_before_hash: before_hash, artifact_after_hash: after_hash, artifact_changed: after_hash !== before_hash };
-  if (node.run?.readonly === true) return { artifact_written: false, written_by: "none", ...evidence };
+  if (!nodeProducesArtifact(node)) return { artifact_written: false, written_by: "none", ...evidence };
   if (after_hash !== before_hash) {
+    if (node.run?.output === "text") throw new ArtifactEvidenceError("文本产物在派发期间被修改，保留当前文件，不能代写或改记 agent 自写", after_hash);
     if (existing !== null && existing.trim().length > 0 && !isPlaceholderDoc(existing)) {
       return { artifact_written: true, written_by: "agent", ...evidence };
     }
@@ -151,7 +153,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
       if (node.artifact !== undefined) {
         const current = snapshot.docs.find((doc) => doc.file === node.artifact);
         if (payload["artifact_after_hash"] !== current?.content_hash) return false;
-        if (node.run?.readonly !== true && payload["artifact_written"] !== true) return false;
+        if (nodeProducesArtifact(node) && payload["artifact_written"] !== true) return false;
       }
       return true;
     },
@@ -196,6 +198,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
       workflow_id: ctx.workflow_id,
       ...(ctx.workflow_revision !== undefined ? { workflow_revision: ctx.workflow_revision } : {}),
       node_id: ctx.node_id,
+      ...(node.run?.output !== undefined ? { output: node.run.output } : {}),
       attempt,
       ...(maxAttempts > 1 ? { max_attempts: maxAttempts } : {}),
     };
@@ -234,6 +237,10 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
       }, node.id);
     };
 
+    if (node.run?.output === "text" && node.artifact === undefined) {
+      await started(agentName);
+      return complete("failed", { error: "output=text 必须声明节点 artifact", text: "", failure_stage: "configuration", retryable: false });
+    }
     if (node.artifact !== undefined && resolveSessionFile(session.dir, node.artifact) === null) {
       await started(agentName);
       return complete("failed", {

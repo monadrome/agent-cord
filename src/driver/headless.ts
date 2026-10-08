@@ -390,11 +390,11 @@ export function parseHeadlessLine(line: string): AgentEvent[] {
       const text = typeof item.text === "string" ? item.text : "";
       return [textEvent(text, item, itemType === "agent_message" ? undefined : "metadata")];
     }
-    if (/tool|command|function_call|patch/i.test(itemType)) {
+    if (itemType === "file_change" || /tool|command|function_call|patch/i.test(itemType)) {
       return [
         toolUseEvent(
           asString(item.name) ?? itemType,
-          item.arguments ?? item.command ?? item.input ?? null,
+          item.arguments ?? item.command ?? item.input ?? item.changes ?? null,
           item,
         ),
       ];

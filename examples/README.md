@@ -6,6 +6,10 @@
 
 `agent-sdlc.yaml` 是可发布流程：检查人工 PRD → Codex 计划草稿 → 内容/章节门禁 → 人工审核。发布到独立 SDLC 名称后，在需求详情的协调页选择该版本与 `context-coordinator` 发起轮次；有效 advance 提议可显式采用，之后仍需人工批准计划。选择 `claude-architect` 或 `kimi-acp` 可验证不同驱动的协调角色，不改变流程推进规则。
 
+`development-sdlc.yaml` 扩展为五节点：需求检查 → 只读计划 → 可写实现 Draft → 只读评审报告 → 人工终审。必须运行在独立检出/隔离工作区；示例本身不会创建 OS 隔离。实现 worker 可修改工作区，禁止提交、推送和合入；评审 worker 使用新会话，只读核验代码和测试，报告由协调层写入 findings.md。默认 Codex 角色别名仍可能使用同模型，这不等价于异构盲评；需要异构时替换评审 driver，并实际核验模型与权限。
+
+只读计划/评审声明 `run: {readonly: true, output: text}` 和节点 artifact。worker 返回完整 Markdown，coordinator 通过共享文件边界代写 Draft；空内容、只有协议 metadata、产物冲突、失败或取消不能生成成功报告。后置文件 gate 和人工审核依然生效；不声明 output 的旧 readonly 节点仍不写产物。
+
 ```bash
 curl -X POST http://127.0.0.1:7250/api/v1/sdlcs/agent-example/versions/publish \
   -H 'Idempotency-Key: publish-agent-example-1' -H 'Content-Type: application/json' \

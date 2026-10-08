@@ -125,7 +125,14 @@ export function buildContextPack(
     `- 不要修改与本节点无关的快照文档。`,
   );
 
-  if (node.artifact !== undefined && node.run?.readonly !== true) {
+  if (node.artifact !== undefined && node.run?.output === "text") {
+    sections.push(
+      ``, `## 输出要求`,
+      `- 在最终回复中给出完整 UTF-8 Markdown 产物，协调层将代写为 cord/${snapshot.req_id}/${node.artifact} 的 draft。`,
+      `- 不要自行写入声明产物；以最终文本作为本次报告的唯一内容。`,
+      ...(node.run.readonly === true ? [`- 本任务保持只读，不修改任何文件。`] : []),
+    );
+  } else if (node.artifact !== undefined && node.run?.readonly !== true) {
     sections.push(
       ``,
       `## 输出要求`,

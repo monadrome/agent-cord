@@ -88,6 +88,8 @@ agents:
 
 节点通过 `run: { agent: implementer }` 选择 agent。模板形态可省略 `bin`，使用模板默认二进制；自定义 args 必须声明 `bin`，只替换 `{{prompt}}`，不会自动提供只读限制或 resume 参数。
 
+计划或评审 worker 可声明 `readonly: true, output: text`，并在节点上声明 artifact：worker 保持只读，在最终回复返回完整 Markdown，由 coordinator 校验后原子代写 Draft，供后置 gate/人工审核使用。产物变化冲突、空内容、失败和取消不会作为成功报告；缺省 output=auto 保留原 readonly 不写文档行为。参见 [开发 Draft 示例](./examples/development-sdlc.yaml) 和 [ADR-0038](./docs/adr/ADR-0038-readonly-report-artifacts.md)。
+
 编辑后调用 `POST /api/v1/agents/reload`（携带唯一 `Idempotency-Key`），再用 `GET /api/v1/agents` 检查 revision、清单与告警。清单表示配置可解析，CLI 安装和凭据可用性由实际运行验证。单条无效配置会被告警并阻断其别名；文件整体错误保留上一份有效配置。在途 run 继续使用启动配置，新 run 使用重载后的配置；server 重启恢复使用当前文件，revision 从 1 重新编号。凭据从本机环境传入，清单不返回 env、args 或角色提示。
 
 控制台的「Agent」页提供同一清单和重载操作。`configuration_hash` 表示实际启动参数身份，包含模板生效的模型/角色参数；全部 env 不参与。任务事件保存 `agent_configuration_hash` 并将其纳入恢复指纹，配置参数变化后的旧审批需重新确认。CLI 安装状态、环境变量与外部命名 agent 文件内容不在该指纹覆盖范围内。
@@ -96,7 +98,7 @@ agents:
 
 文件 checker、协调快照和 REST 文档使用同一普通文件边界：拒绝符号/硬链接、管理与事实文件、非规范路径及非普通文件。REST 真缺失返回 404，边界冲突返回 409，权限/IO 失败返回 500，避免把读故障当成新文档。文档保存使用独占临时文件与原子替换，失败保留旧内容；这不替代 worker 的 OS 沙箱或跨进程文件事务。详见 [ADR-0036](./docs/adr/ADR-0036-shared-document-boundary.md)。
 
-Codex headless 已用真实 CLI 0.160.0 验证两个新会话：更新 PRD 后提议使用新范围，旧提议不再有效。驱动保留 thread ID，将非终态配置通知留在 metadata，审批参数使用官方当前配置；测试仍默认离线，真实验证不证明所有模型或统计质量。详见 [ADR-0037](./docs/adr/ADR-0037-codex-runtime-notifications.md)。
+Codex headless 已用真实 CLI 0.160.0 验证两个新会话：更新 PRD 后提议使用新范围，旧提议不再有效。驱动保留 thread ID，将非终态配置通知留在 metadata、file_change 保持工具事件，审批参数使用官方当前配置；测试仍默认离线，真实验证不证明所有模型或统计质量。详见 [ADR-0037](./docs/adr/ADR-0037-codex-runtime-notifications.md) 与 [ADR-0039](./docs/adr/ADR-0039-codex-file-change-events.md)。
 
 ## 数据布局
 
@@ -224,7 +226,7 @@ curl -X POST http://127.0.0.1:7250/api/v1/requirements/REQ-001/coordination \
 - [文档入口](./docs/INDEX.md)：当前实现、协议、ADR 和设计归档的阅读路径。
 - [当前实现架构](./docs/current-architecture.md)：server、console、数据布局和运行路径。
 - [核心协议速查](./docs/protocol.md)：事件、账本、workflow、gate 和 voting 的实现契约。
-- [ADR 目录](./docs/adr/)：架构决策记录，当前包含 ADR-0001 ~ ADR-0037。
+- [ADR 目录](./docs/adr/)：架构决策记录，当前包含 ADR-0001 ~ ADR-0039。
 - [安全与权限模型](./docs/09-security.md)
 - [路线图](./docs/10-roadmap.md)
 - [风险与开放问题](./docs/11-risks.md)

@@ -42,6 +42,8 @@ driver 保留明确空最终字符串，与无显式最终文本的 null 区分�
 
 ADR-0037 增 Codex item.error/warning 非终态通知的 metadata 映射；顶层 error/turn.failed 仍是失败，不通过 JSON 子串提取掩盖混合结果。headless 当次 execute 保留初始化/thread.started 会话回执，填入后续 AgentEvent.session_id 与 result/error.data.session_id；新 run 不共享旧身份。Codex 模板使用当前 `approval_policy="never"`，不提升沙箱权限，有效配置身份随启动参数更新。真实 0.160.0 两轮协调验证已证明本机组合可用，不代表全部 provider 或统计质量。
 
+ADR-0039 将 Codex item.file_change 的 started/completed 保持为 tool_use（input=changes，raw 保留 status），不能拼入产物正文或报告 fallback。工具通知不代替 artifact 前后证据，超时任务的部分文件不能当作完成；恢复仍经新快照和已有 executor，不手工追加成功事实。
+
 ADR-0030 增加 `execution_input_hash`（agent started/completed）：覆盖完整 workflow、节点、需求文档 hash、账本摘要、已退出进度和上下文预算，排除事件序号/时间戳。可写当前 artifact 以 completed 后态验证，不把自身写入作为输入变化。`snapshot_id` 继续记录完整 provenance，两者作用不同。
 
 ADR-0031 增加 driver 可选 `configuration_hash` 与任务事件 `agent_configuration_hash`，内置 headless/ACP 从固定有效启动参数派生，全部 env 排除。该身份纳入 execution_input_hash（内部域 v2）和节点审批上下文；同名模型/角色参数变更后，未退出节点重新执行并重新审批。外部 driver 未提供身份时仍支持，但宿主需提供可靠身份才能覆盖其配置变化。
@@ -98,6 +100,10 @@ console 读取失败保持编辑/保存禁用，不能声明已与磁盘一致�
 节点可声明执行体 `run`（ADR-0023）：`{ agent, prompt?, readonly?, timeout_ms?, retry? }`。执行顺序为 pre gates → node.run → post gates；node.run 由注入执行器的 `NodeRunner` 端口处理（生产实现是协调 agent，见 `src/coordinator/`），未注入时跳过并在 node.exited 记 `notes`。未退出节点恢复时通过 `NodeRunner.isCompletionReusable` 验证当前输入 hash 与产物后态，相同才复用历史 ok；旧事件没有指纹、验证错误或接口未提供时重新执行（ADR-0030）。已退出节点保持原事实，不自动回滚。
 
 `run.retry`（ADR-0025）：`{ max_attempts(1-10, 默认 1), backoff_ms(默认 0) }`。协调 agent 按尝试循环，退避为 `backoff_ms × 第 n 次失败`，每次尝试落独立的 agent.task.started/completed（带 `attempt`/`max_attempts`），重试的上下文包附上次失败摘要。驱动解析失败属定义性错误，不重试。
+
+ADR-0038 增可选 `run.output`（auto/text，缺省 auto）。auto 保留 agent 文件通道优先/文本回退，可写任务按既有语义写回，readonly 不写 artifact。text 必须声明 artifact，worker 最终文本由 coordinator 经共享文档 helper 代写，readonly 权限保持原样；文本模式观察到文件前后变化时保留现状并失败，不能改记 agent 自写。完整有效正文才可写，空/占位/metadata/失败/取消不生成成功报告，事件记录显式 output 与产物证据。
+
+text artifact 属当前节点输出，不参与该节点语义输入 hash，避免自身代写使 checkpoint 失效；复用仍要求 artifact_written 与 artifact_after_hash 匹配。PRD、上游资料、账本、workflow/配置变化仍使未退出任务失效。后置 gate 和人工审批按新产物核验，报告存在不证明结论正确，不自动批准或合入。
 
 上下文快照（ADR-0026）除固定的 `prd.md` / `plan.md` / `adr.md` / `findings.md` 外，还会采集 workflow 节点声明的 artifact；上游产物按依赖闭包进入上下文包。artifact 必须是 `cord/<req-id>/` 内的相对路径，越界路径以 `agent.task.completed{status: failed}` 记录。快照只把截断内容放入 prompt，完整文档通过 `content_hash` 参与 `snapshot_id`，不会复制进事件流。
 

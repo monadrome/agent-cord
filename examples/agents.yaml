@@ -16,6 +16,14 @@ agents:
     kind: headless
     template: codex
     effort: high
+  codex-implementer:
+    kind: headless
+    template: codex
+    effort: high
+  codex-reviewer:
+    kind: headless
+    template: codex
+    effort: high
   kimi-acp:
     kind: acp
     bin: kimi

@@ -55,6 +55,14 @@
 - 最终 558 离线测试 / 49 文件、build:all/typecheck/diff 全通过。真实提议预览 `http://127.0.0.1:7305/#/requirements/REQ-REAL-CONTEXT/coordination`；real/http/browser-result.json 与截图保留在临时工作区，公开研究记录不提交运行数据或凭据。
 - 阶段 17 进入提交推送；后续真实开发需求全链路、Claude/ACP 实际调用仍待验证，持续目标不以两轮 Codex 协调测试代替全部需求。
 - 功能提交 `325f8c4`，推送成功（origin/exp/impl：`0231ab2` → `325f8c4`）；当前代码、示例与公开验收记录同步，预览 health 正常。
+- 开始阶段 18：核验干净工作树与提交，发现 readonly worker 完整报告不会进入 artifact，准备显式文本产物通道与真实开发/评审 Draft 验收。
+- ADR-0038、run.output=text、宿主报告写回/prompt/checkpoint 实现；9 个核心回归先复现 6 个失败，修复后 85 个相关用例通过。server 报告/审批/重启/空结果恢复与开发示例解析通过，全量 570 测试 / 51 文件、build/typecheck/diff 通过。
+- 独立本地 clone 的真实属性测试 Draft 运行已启动，协调成功、plan 在途；计划/实现/只读评审与宿主验证有界执行，最终人工 gate 保留，不合入当前分支。
+- 真实plan成功，初次implement在240秒预算内timeout，保留Draft与失败事实。宿主目标57与完整615/50文件、typecheck/diff全通过；真实 file_change通知污染正文，ADR-0039与parser工具映射修复通过。
+- 最新PRD恢复附记明确缓存/监听限制和host证据，同版本只恢复implement，计划未重跑；implement/readonly verify均生成真实成功产物，verify报告由coordinator代写，人工gate保持等待，无决策/合入。
+- reviewer自身测试因readonly SSR临时目录权限未执行，报告明确区分host通过与自身静态核验，不能把任务ok当测试通过。主工作树572测试/51文件、build/typecheck/diff通过，进入pending gate浏览器验收。
+- Playwright 1440/390/320 无溢出/pageerror，人工gate未决、报告可读且环境限制明确、plan只调用一次、done未推进；没有自动批准/合入。预览 `http://127.0.0.1:7306/#/requirements/REQ-INPUT-PROPERTIES/approvals`。
+- 真实运行、超时、恢复与宿主验证证据仅在隔离clone及临时JSON/截图，公开总结已写 docs/research/2026-10-07-development-draft-workflow.md。阶段18功能与验收完成至人工gate，准备提交推送；机器验证事实通道与Claude/ACP实际调用仍待后续。
 
 ## 2026-09-25
 

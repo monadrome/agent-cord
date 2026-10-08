@@ -25,4 +25,14 @@ describe("Agent 接入示例", () => {
     for (const node of def.spec.nodes) if (node.run !== undefined) expect(registry.resolve(node.run.agent).configuration_hash).toMatch(/^[0-9a-f]{64}$/);
     expect(def.spec.nodes.flatMap((node) => node.gates).some((gate) => gate.pass.human_confirm)).toBe(true);
   });
+  it("开发示例包含可写实现、只读文本评审和人工终审，驱动与 gate 均可解析", async () => {
+    const registry = createAgentRegistry(parseAgentsYaml(await readFile(new URL("../../examples/agents.yaml", import.meta.url), "utf8")).yaml);
+    const def = parseWorkflow(await readFile(new URL("../../examples/development-sdlc.yaml", import.meta.url), "utf8"));
+    expect(topologicalOrder(def)).toEqual(["intake", "plan", "implement", "verify", "done"]);
+    expect(findUnknownCheckers(def, createBuiltinRegistry())).toEqual([]);
+    expect(def.spec.nodes.find((node) => node.id === "verify")?.run).toMatchObject({ readonly: true, output: "text" });
+    expect(def.spec.nodes.find((node) => node.id === "implement")?.run?.readonly).toBe(false);
+    for (const node of def.spec.nodes) if (node.run !== undefined) expect(registry.resolve(node.run.agent).configuration_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(def.spec.nodes.find((node) => node.id === "verify")?.gates.some((gate) => gate.pass.human_confirm)).toBe(true);
+  });
 });

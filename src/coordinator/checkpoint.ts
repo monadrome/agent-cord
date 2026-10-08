@@ -3,6 +3,7 @@ import { canonicalJson, sha256Hex } from "../core/hash.js";
 import type { SessionHandle } from "../core/ports.js";
 import type { WorkflowDef } from "../core/schema.js";
 import { readSnapshot, type RequirementSnapshot } from "./snapshot.js";
+import { nodeProducesArtifact } from "./artifact-policy.js";
 
 type Node = WorkflowDef["spec"]["nodes"][number];
 
@@ -22,7 +23,7 @@ export function executionInputHash(
     req_id: snapshot.req_id,
     title: snapshot.title,
     max_pack_chars,
-    docs: snapshot.docs.filter((doc) => node.run?.readonly === true || doc.file !== node.artifact)
+    docs: snapshot.docs.filter((doc) => !nodeProducesArtifact(node) || doc.file !== node.artifact)
       .map(({ file, exists, content_hash }) => ({ file, exists, content_hash })),
     ledger: snapshot.ledger,
     exited: snapshot.workflow.exited.filter((id) => id !== node.id),

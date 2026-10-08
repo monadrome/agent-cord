@@ -221,6 +221,8 @@ export const WorkflowDefSchema = z.object({
               /** 任务模板（支持 {{req_id}} / {{node_id}} / {{artifact}} 占位）；缺省按产物类型给模板 */
               prompt: z.string().optional(),
               readonly: z.boolean().default(false),
+              /** ADR-0038：text 仅返回完整文本，声明产物由 coordinator 代写；auto 保持原行为。 */
+              output: z.enum(["auto", "text"]).optional(),
               timeout_ms: z.number().int().positive().optional(),
               /**
                * 失败重试（agent 任务 flaky 是常态：限流/网络）：max_attempts 含首次，默认 1 = 不重试；
@@ -235,6 +237,8 @@ export const WorkflowDefSchema = z.object({
             })
             .optional(),
           gates: z.array(GateDefSchema).default([]),
+        }).refine((node) => node.run?.output !== "text" || node.artifact !== undefined, {
+          path: ["run", "output"], message: "output=text 必须声明节点 artifact",
         }),
       )
       .min(1),
@@ -461,6 +465,7 @@ export const AgentTaskStartedPayloadSchema = z.looseObject({
   workflow_revision: z.string().length(64).optional(),
   node_id: z.string().min(1),
   driver: z.string().min(1),
+  output: z.enum(["auto", "text"]).optional(),
   execution_input_hash: z.string().length(64).optional(),
   agent_configuration_hash: z.string().length(64).optional(),
   /** ADR-0029：派发时 artifact 的完整内容 hash，不存在为 null */
@@ -493,6 +498,7 @@ export const AgentTaskCompletedPayloadSchema = z.looseObject({
   workflow_revision: z.string().length(64).optional(),
   node_id: z.string().min(1),
   driver: z.string().min(1),
+  output: z.enum(["auto", "text"]).optional(),
   execution_input_hash: z.string().length(64).optional(),
   agent_configuration_hash: z.string().length(64).optional(),
   status: z.enum(["ok", "failed", "timeout", "cancelled"]),

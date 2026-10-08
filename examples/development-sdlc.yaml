@@ -1,0 +1,76 @@
+apiVersion: agent-cord.dev/v1alpha1
+kind: Workflow
+metadata:
+  id: development-draft-example
+  name: 开发 Draft 与只读评审
+spec:
+  nodes:
+    - id: intake
+      artifact: prd.md
+      gates:
+        - id: requirement-ready
+          role: {}
+          attach: { node: intake, when: pre }
+          checks: [{ ref: file-nonempty, with: { path: prd.md, min_bytes: 20 } }]
+          pass: { require: all, human_confirm: false }
+          on_fail: block
+    - id: plan
+      artifact: plan.md
+      depends_on: [intake]
+      run:
+        agent: codex-planner
+        readonly: true
+        output: text
+        timeout_ms: 120000
+        prompt: >-
+          依据当前 PRD 和代码制定实施计划，包含目标、任务与验收小节。
+          本任务保持只读，在最终回复给出完整 Markdown，不写入任何文件。
+      gates:
+        - id: plan-ready
+          role: {}
+          attach: { node: plan, when: post }
+          checks: [{ ref: doc-has-section, with: { path: plan.md, heading: 验收 } }]
+          pass: { require: all, human_confirm: false }
+          on_fail: block
+    - id: implement
+      artifact: implementation.md
+      depends_on: [plan]
+      run:
+        agent: codex-implementer
+        timeout_ms: 240000
+        prompt: >-
+          在已隔离的开发工作区按 PRD 和计划实现需求、运行相关离线测试。
+          保留未合入的 Draft，不提交、推送、合入或批准门禁。
+          最终报告说明变更文件、实际执行命令、结果和限制，保存 implementation.md。
+      gates:
+        - id: implementation-report
+          role: {}
+          attach: { node: implement, when: post }
+          checks: [{ ref: file-nonempty, with: { path: implementation.md, min_bytes: 40 } }]
+          pass: { require: all, human_confirm: false }
+          on_fail: block
+    - id: verify
+      artifact: findings.md
+      depends_on: [implement]
+      run:
+        agent: codex-reviewer
+        readonly: true
+        output: text
+        timeout_ms: 180000
+        prompt: >-
+          使用当前 PRD、计划和代码独立核验 Draft。实际运行相关离线测试，检查 diff 和失败/恢复场景。
+          不修改文件、不合入、不批准门禁。在最终回复给出完整 Markdown 报告，含证据与结论小节；
+          无法核验时明确说明，不用上游报告代替独立证据。
+      gates:
+        - id: human-review
+          role: { approvers: [local-human] }
+          attach: { node: verify, when: post }
+          checks:
+            - ref: file-nonempty
+              with: { path: findings.md, min_bytes: 40 }
+            - ref: doc-has-section
+              with: { path: findings.md, heading: 结论 }
+          pass: { require: all, human_confirm: true }
+          on_fail: block
+    - id: done
+      depends_on: [verify]

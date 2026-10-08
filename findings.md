@@ -123,3 +123,12 @@
 - 修复后两轮真实调用成功，VERSION_A/B 的提议反映最新 PRD，输入/快照/会话 ID 均不同，旧轮次 current=false，文档不变。真实验证只证明本机该 CLI/模型组合可跑，不证明所有 provider 或统计质量。
 - workspace doctor 的 merge driver 检查不同于 session doctor，临时 git 仓库仍需注册本地 merge driver；完成该初始化后 HTTP/浏览器验收与 workspace doctor 全通过。
 - 读错误后的 UI 不能解锁编辑或显示“已与磁盘一致”，真实 404 才进入新文档状态；浏览器已验证错误、缺失、保存与恢复，控制台仍只展示 server 投影。
+
+## 实现校准（2026-10-07，只读 worker 报告通道）
+
+- settleArtifact 在 readonly 时立即返回 none，worker 即使返回完整 findings 也不能写报告文件；报告 gate 只能看到旧文件/占位，阻断独立评审接入。
+- 当前恢复把 readonly artifact 视为输入，新增加宿主写报告模式时必须把本节点产物从语义输入排除，并继续校验完成后文件 hash，否则自己写的报告会令 checkpoint 自动失效。
+- 需要显式 output=text 区分“只读分析旧文档”和“只读 worker 产报告”，不能改所有旧 readonly 节点的语义。
+- 真实开发 Draft 在独立clone完成48组输入/57个测试，宿主完整615通过；初次worker超时，更新恢复附记后仅重跑未退出实现节点，随后生成readonly文本评审报告并停在人工gate，未提交/合入。
+- 实际 file_change 事件必须是工具语义，不能污染文本fallback；已补ADR-0039与结构化回归。
+- readonly sandbox 不允许 Vitest 的 SSR临时目录写入，独立评审如实报告未完成自身测试；host测试通过不能被模型冒称为自身结果，报告生成ok与验证结论是两个维度。
