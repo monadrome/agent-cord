@@ -19,6 +19,7 @@ import {
   type EventEnvelope,
 } from "./schema.js";
 import { canonicalJson, hashEvent, orderEvents } from "./hash.js";
+import { SessionEventReadError, assertSessionEvents } from "./session-events.js";
 
 const nextMonotonicUlid = monotonicFactory();
 
@@ -121,6 +122,12 @@ export class JsonlEventStore implements EventStore {
     return orderEvents(await this.readAll());
   }
 
+  async readOrderedStrict(): Promise<EventEnvelope[]> {
+    const events = (await this.readCompleteLines(true)).map(({ event }) => event);
+    assertSessionEvents(events, this.sessionId);
+    return orderEvents(events);
+  }
+
   subscribe(handler: (event: EventEnvelope) => void): () => void {
     this.handlers.add(handler);
     return () => {
@@ -215,7 +222,7 @@ export class JsonlEventStore implements EventStore {
     }
   }
 
-  private async readCompleteLines(): Promise<Array<{ event: EventEnvelope }>> {
+  private async readCompleteLines(strict = false): Promise<Array<{ event: EventEnvelope }>> {
     const text = await readFile(this.filePath, "utf8");
     const events: Array<{ event: EventEnvelope }> = [];
     const lines = text.split("\n");
@@ -227,6 +234,7 @@ export class JsonlEventStore implements EventStore {
       try {
         decoded = JSON.parse(line);
       } catch {
+        if (strict) throw new SessionEventReadError(`事件流第 ${index + 1} 行无法解析，请先修复事件流`);
         if (isLast) {
           this.pushNote("truncated_tail", `第 ${index + 1} 行是无法解析的残行（无结尾换行）`);
         } else {
@@ -236,6 +244,7 @@ export class JsonlEventStore implements EventStore {
       }
       const parsed = EventEnvelopeSchema.safeParse(decoded);
       if (!parsed.success) {
+        if (strict) throw new SessionEventReadError(`事件流第 ${index + 1} 行不符合 envelope 契约`);
         this.pushNote("unparsable_line", `第 ${index + 1} 行不符合 EventEnvelope v1`);
         continue;
       }

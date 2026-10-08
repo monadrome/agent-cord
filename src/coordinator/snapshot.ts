@@ -8,6 +8,7 @@ import type { SessionHandle } from "../core/ports.js";
 import { SNAPSHOT_DOC_FILES } from "../core/session.js";
 import { canonicalJson, hashChain, sha256Hex } from "../core/hash.js";
 import { createReducer } from "../core/reducer.js";
+import { readSessionEvents } from "../core/session-events.js";
 import { readSessionDocument } from "./session-files.js";
 import { matchesWorkflowScope } from "../workflow/scope.js";
 
@@ -115,7 +116,7 @@ export async function readSnapshot(
   }
 
   // 账本、进度与 provenance 必须来自同次事件读取，磁盘投影可滞后或缺失。
-  const events = await session.events.readOrdered();
+  const events = await readSessionEvents(session);
   const ledger: SnapshotLedgerEntry[] = createReducer().reduce(events).entries.map((entry) => ({
     entry_id: entry.entry_id,
     title: entry.title,

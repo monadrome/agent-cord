@@ -304,7 +304,7 @@ describe("coordinator（NodeRunner）", () => {
   });
 
   it("瞬态快照读取故障按节点策略重试，成功后重新采集上下文", async () => {
-    vi.spyOn(session.events, "readOrdered").mockRejectedValueOnce(new Error("transient event read IO"));
+    vi.spyOn(session.events, "readOrderedStrict").mockRejectedValueOnce(new Error("transient event read IO"));
     const driver = okDriver("# 最新计划");
     const runner = createNodeRunner(DEF_RETRY, { resolveDriver: () => driver, workspaceRoot: root });
     expect((await runner.runNode(DEF_RETRY.spec.nodes[1]!, session, { workflow_id: "wf-retry", node_id: "plan" })).status).toBe("ok");
@@ -318,8 +318,8 @@ describe("coordinator（NodeRunner）", () => {
 
   it("快照准备期间取消，不启动 worker，不代写文档", async () => {
     const controller = new AbortController();
-    const read = session.events.readOrdered.bind(session.events);
-    vi.spyOn(session.events, "readOrdered").mockImplementationOnce(async () => {
+    const read = session.events.readOrderedStrict!.bind(session.events);
+    vi.spyOn(session.events, "readOrderedStrict").mockImplementationOnce(async () => {
       const events = await read();
       controller.abort();
       return events;

@@ -2,33 +2,22 @@
 import { readFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { orderEvents } from "../core/hash.js";
+import { assertSessionEvents, readSessionEvents } from "../core/session-events.js";
 import type { SessionHandle } from "../core/ports.js";
 import { EventEnvelopeSchema, VerificationCompletedPayloadSchema, type EventEnvelope, type WorkflowScope } from "../core/schema.js";
 import { matchesWorkflowScope } from "./scope.js";
 
 export async function readVerificationEvents(session_dir: string, session?: SessionHandle): Promise<EventEnvelope[]> {
-  let events: EventEnvelope[];
-  if (session !== undefined) {
-    events = await session.events.readOrdered();
-    const store = session.events as typeof session.events & { diagnostics?: () => { notes: Array<{ kind: string }> } };
-    if (store.diagnostics?.().notes.some((note) => note.kind === "unparsable_line")) {
-      throw new Error("验证事件流包含无法解析的事实，请先修复事件流");
-    }
-  } else {
-    const text = await readFile(join(session_dir, "events.jsonl"), "utf8");
-    events = [];
-    for (const [index, line] of text.split("\n").entries()) {
-      if (line.trim().length === 0) continue;
-      try { events.push(EventEnvelopeSchema.parse(JSON.parse(line))); }
-      catch { throw new Error(`验证事件流第 ${index + 1} 行不符合事件契约`); }
-    }
-    events = orderEvents(events);
+  if (session !== undefined) return readSessionEvents(session);
+  const text = await readFile(join(session_dir, "events.jsonl"), "utf8");
+  let events: EventEnvelope[] = [];
+  for (const [index, line] of text.split("\n").entries()) {
+    if (line.trim().length === 0) continue;
+    try { events.push(EventEnvelopeSchema.parse(JSON.parse(line))); }
+    catch { throw new Error(`验证事件流第 ${index + 1} 行不符合事件契约`); }
   }
-  const expected_session = session?.req_id ?? basename(resolve(session_dir));
-  for (const event of events) {
-    if (!EventEnvelopeSchema.safeParse(event).success) throw new Error("验证事件不符合 envelope 契约");
-    if (event.session_id !== expected_session) throw new Error("验证事件流包含其他 session 的事实");
-  }
+  events = orderEvents(events);
+  assertSessionEvents(events, basename(resolve(session_dir)));
   return events;
 }
 

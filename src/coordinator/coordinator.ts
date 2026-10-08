@@ -20,6 +20,7 @@ import type {
 import type { EventDraft, WorkflowDef } from "../core/schema.js";
 import { isPlaceholderDoc } from "../core/session.js";
 import { sha256Hex } from "../core/hash.js";
+import { SessionEventReadError } from "../core/session-events.js";
 import { delay } from "../driver/headless.js";
 import type { ErrorEventData, ResultEventData, TextEventData } from "../driver/headless.js";
 import type { WorkflowNode } from "../workflow/executor.js";
@@ -295,7 +296,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
         error: `快照准备失败：${error instanceof Error ? error.message : String(error)}`,
         text: "",
         failure_stage: "snapshot",
-        retryable: !(error instanceof SessionFileError),
+        retryable: !(error instanceof SessionFileError || error instanceof SessionEventReadError),
       });
     }
 
@@ -409,7 +410,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
           error: `源码输入重检失败：${error instanceof Error ? error.message : String(error)}`,
           text: truncate(text, options.maxResultChars ?? DEFAULT_MAX_RESULT_CHARS),
           artifact: node.artifact ?? null, artifact_written: false, written_by: "none", agent_session_id: agentSessionId, usage,
-          failure_stage: "snapshot", retryable: !(error instanceof SessionFileError),
+          failure_stage: "snapshot", retryable: !(error instanceof SessionFileError || error instanceof SessionEventReadError),
         });
       }
     }

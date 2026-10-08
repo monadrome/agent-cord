@@ -79,6 +79,8 @@ Workflow 定义是 `agent-cord.dev/v1alpha1 / Workflow` YAML。加载时检查 s
 
 快照的账本由同次事件读取直接经过 reducer 派生，与节点进度和 provenance 使用同一事件基线；进度按当前 workflow 过滤，账本冲突明确标记需人工处理。快照读取不刷新磁盘账本。文档读取与写回拒绝链接、非普通文件、事实文件与管理目录，代写采用独占临时文件、fsync 和 rename。普通准备/派发/写回失败落任务 completed，记录 failure_stage/retryable；事件追加故障上抛宿主（ADR-0028）。
 
+快照和验证共用严格事件读取：原生 readOrderedStrict 拒绝当前坏行、非法 envelope 和外部 session，旧自定义端口兼容但须返回全部事实。普通诊断读取仍可展示合法部分；严格读取不代替 doctor 哈希链诊断。协调创建/查询/采用同样拒绝不完整事实，冷协调恢复按需求隔离错误，不重放模型；修复后可重新核验。明确取消即使无法读取/写入事实仍收束当前匹配进程，接口继续报告错误，不伪造取消请求或成功（ADR-0047）。
+
 共识 gate 同样直接从当前事件投影判定，只接受无冲突的 confirmed 条目。协调器以本次快照的 artifact hash 为基线，记录前后指纹：观察到有效文件变化才记为 agent 文件通道，未变化时用完整最终文本代写，无新内容则失败；替换前观察到冲突时保留现状。driver 的明确空结果不会回退进度日志，辅助输出不拼入产物（ADR-0029）。
 
 审批使用稳定的 evaluation_hash 与具体 gate.waiting 事件 ID。等待恢复、REST 选择写入前、核心消费选择后都重新验证；依据变化落 gate.invalidated 并重新推进，worker 过期先重跑。approval_id 是等待 ULID，暂存与已落盘选择按该版本消费；重启不重复执行仍有效的 worker，不把旧审批批准用于新产物（ADR-0030）。

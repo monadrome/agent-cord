@@ -1,5 +1,5 @@
 /** 独立协调 API：真实 Fastify + 离线 headless 子进程，验证幂等、固定配置、取消和恢复。 */
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -100,6 +100,98 @@ async function source_round(key = ulid()): Promise<CoordinationRoundView> {
   expect(response.status).toBe(202);
   return done(response.body.round.round_id);
 }
+
+describe("协调事件完整性", () => {
+  it("坏事实流中的明确取消仍收束真实子进程，报告 409，修复后可读取真实取消终态", async () => {
+    const pid_file = join(root, "coordinator.pid");
+    await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: { coordinator: {
+      kind: "headless", bin: process.execPath, args: [fixture, "--mode", "claude", "--sleep", "60000", "--pid-file", pid_file, "--result-text", JSON.stringify(proposal), "{{prompt}}"],
+    } } }));
+    await server.agents.reload();
+    const response = await start("before-corrupt-cancel");
+    expect(response.status).toBe(202);
+    let pid = 0;
+    await wait_for(async () => { try { pid = Number(await readFile(pid_file, "utf8")); return pid > 0; } catch { return false; } });
+    const path = join(root, "cord", "REQ-CONTEXT", "events.jsonl");
+    await appendFile(path, "PRIVATE_BROKEN_WAITING\n");
+    const url = `/api/v1/requirements/REQ-CONTEXT/coordination/${response.body.round.round_id}/cancel`;
+    expect((await request("POST", url, {}, "corrupt-cancel")).status).toBe(409);
+    expect(() => process.kill(pid, 0)).toThrow();
+    const repaired = (await readFile(path, "utf8")).split("\n").filter((line) => line !== "PRIVATE_BROKEN_WAITING").join("\n");
+    await writeFile(path, repaired);
+    expect(await server.coordination.get("REQ-CONTEXT", response.body.round.round_id)).toMatchObject({ status: "cancelled", proposal: null });
+    expect((await server.sessions.readEvents("REQ-CONTEXT")).filter((item) => item.type === "coordinator.round.cancel_requested")).toHaveLength(0);
+    expect((await request("POST", url, {}, "corrupt-cancel")).status).toBe(200);
+    await config(); await server.agents.reload();
+    expect(await valid_round()).toMatchObject({ current: true });
+  });
+
+  it.each(["broken", "foreign"])("当前事件流 %s 时查询/采用/新建拒绝，修复后不缓存旧错误", async (kind) => {
+    const round = await valid_round();
+    const path = join(root, "cord", "REQ-CONTEXT", "events.jsonl");
+    const baseline = await readFile(path, "utf8");
+    const stream = await server.sessions.readEvents("REQ-CONTEXT");
+    const corrupt = kind === "broken" ? "PRIVATE_BROKEN_WAITING\n" : JSON.stringify({ ...stream[0], event_id: ulid(), session_id: "REQ-FOREIGN" }) + "\n";
+    await appendFile(path, corrupt);
+    for (const response of [await request("GET", `/api/v1/requirements/REQ-CONTEXT/coordination/${round.round_id}`),
+      await adopt(round.round_id), await start("corrupt-new")]) {
+      expect(response.status).toBe(409);
+      expect(JSON.stringify(response.body)).not.toContain("PRIVATE_BROKEN_WAITING");
+    }
+    expect(server.runs.listRuns("REQ-CONTEXT")).toHaveLength(0);
+    expect((await server.sessions.readEvents("REQ-CONTEXT")).filter((item) => item.type === "coordinator.round.requested")).toHaveLength(1);
+    await writeFile(path, baseline);
+    expect(await server.coordination.get("REQ-CONTEXT", round.round_id)).toMatchObject({ current: true, adoptable: true });
+    const retry = await start("corrupt-new");
+    expect(retry.status).toBe(202);
+    expect(await done(retry.body.round.round_id)).toMatchObject({ current: true });
+  });
+
+  it("冷恢复隔离损坏需求，服务保持健康且不执行旧调用，修复重启后可重新协调", async () => {
+    const round = await valid_round();
+    const path = join(root, "cord", "REQ-CONTEXT", "events.jsonl");
+    await server.app.close(); server.index.close();
+    const baseline = await readFile(path, "utf8");
+    await appendFile(path, "PRIVATE_BROKEN_WAITING\n");
+    server = await buildApp({ root });
+    expect((await request("GET", "/api/v1/health")).body.ok).toBe(true);
+    expect((await request("GET", `/api/v1/requirements/REQ-CONTEXT/coordination/${round.round_id}`)).status).toBe(409);
+    await server.app.close(); server.index.close();
+    await writeFile(path, baseline);
+    server = await buildApp({ root });
+    expect(await server.coordination.get("REQ-CONTEXT", round.round_id)).toMatchObject({ status: "ok", current: true });
+    expect((await server.coordination.list("REQ-CONTEXT"))).toHaveLength(1);
+    expect(await valid_round()).toMatchObject({ current: true });
+  });
+
+  it("坏的未完成轮次保留原事实，其他需求可协调，修复重启才记 interrupted", async () => {
+    const binding = await server.sdlcs.get("simple-sdlc", 1);
+    const session = await server.sessions.open("REQ-CONTEXT");
+    const round_id = ulid();
+    await session.events.append({ event_id: ulid(), session_id: session.req_id, type: "coordinator.round.requested", schema_version: "1",
+      actor: { kind: "human", id: "test" }, correlation_id: round_id, payload: { round_id, workflow_id: binding.def.metadata.id,
+        workflow_revision: binding.workflow_revision, driver: "coordinator", sdlc_id: "simple-sdlc", sdlc_version: 1 }, source: { adapter: "test" } });
+    await server.app.close(); server.index.close();
+    const path = join(session.dir, "events.jsonl");
+    const baseline = await readFile(path, "utf8");
+    await appendFile(path, "PRIVATE_BROKEN_WAITING\n");
+    server = await buildApp({ root });
+    expect(await readFile(path, "utf8")).toBe(baseline + "PRIVATE_BROKEN_WAITING\n");
+    expect((await request("POST", "/api/v1/requirements", { req_id: "REQ-HEALTHY", title: "健康需求", prd: "# PRD\n正常协调" }, "healthy-create")).status).toBe(201);
+    const started = await request("POST", "/api/v1/requirements/REQ-HEALTHY/coordination", { agent: "coordinator" }, "healthy-coordinate");
+    expect(started.status).toBe(202);
+    await wait_for(async () => (await server.coordination.get("REQ-HEALTHY", started.body.round.round_id)).status === "ok");
+    expect(await readFile(path, "utf8")).toBe(baseline + "PRIVATE_BROKEN_WAITING\n");
+    await server.app.close(); server.index.close();
+    await writeFile(path, baseline);
+    server = await buildApp({ root });
+    expect(await server.coordination.get("REQ-CONTEXT", round_id)).toMatchObject({ status: "failed", failure_stage: "interrupted", proposal: null });
+    const recovered = await server.sessions.readEvents("REQ-CONTEXT");
+    expect(recovered.filter((item) => item.type === "coordinator.round.started")).toHaveLength(0);
+    expect(recovered.filter((item) => item.type === "coordinator.round.completed")).toHaveLength(1);
+    expect(await valid_round()).toMatchObject({ current: true });
+  });
+});
 
 describe("协调提议源码身份", () => {
   it("源码声明缺失时协调失败，输入修复后新轮次可恢复", async () => {

@@ -4,6 +4,7 @@ import {
   CoordinatorRoundRequestedPayloadSchema, CoordinatorRoundStartedPayloadSchema,
   CoordinatorRoundCompletedPayloadSchema, createContextSessionAgent,
   CoordinatorRoundAdoptedPayloadSchema, coordinationInputHash, parseCoordinationProposal, readCoordinationSnapshot,
+  readSessionEvents, SessionEventReadError,
   type AgentDriver, type EventEnvelope, type SessionHandle, type WorkflowDef,
 } from "agent-cord";
 import type { CoordinationRoundView, RunInfo, StartCoordinationInput } from "../contracts.js";
@@ -90,6 +91,7 @@ export class CoordinationService {
     active.promise = (async () => {
       const resolver = this.options.resolver();
       const session = await this.sessions.open(req_id);
+      await this.readEvents(session);
       const versioned = await this.sdlcs.get(input.sdlc_id ?? DEFAULT_SDLC_ID, input.sdlc_version);
       if (this.sdlcs.isArchived(versioned.sdlc_id, versioned.version)) throw conflict("归档 SDLC 版本不能启动新协调轮次");
       await session.events.append({
@@ -137,11 +139,19 @@ export class CoordinationService {
   }
 
   private async readRounds(req_id: string): Promise<CoordinationRoundView[]> {
-    const rounds = projectRounds(await this.sessions.readEvents(req_id), req_id);
+    const rounds = projectRounds(await this.readEvents(await this.sessions.open(req_id)), req_id);
     const active = this.active.get(req_id);
     const current = rounds.find((round) => round.round_id === active?.round_id);
     if (active !== undefined && current !== undefined && current.status !== "pending" && current.status !== "running") await active.promise;
     return rounds;
+  }
+
+  private async readEvents(session: SessionHandle): Promise<EventEnvelope[]> {
+    try { return await readSessionEvents(session); }
+    catch (error) {
+      if (error instanceof SessionEventReadError) throw conflict("协调事件流不完整或包含其他需求事实，请修复后重新核验");
+      throw error;
+    }
   }
 
   private async inspect(round: CoordinationRoundView, def?: WorkflowDef, workflow_revision?: string): Promise<Pick<CoordinationRoundView, "current" | "adoptable" | "adoption_reason">> {
@@ -220,10 +230,23 @@ export class CoordinationService {
   }
 
   private async cancelOnce(req_id: string, round_id: string): Promise<CoordinationRoundView> {
+    try { return await this.cancelWithEvidence(req_id, round_id); }
+    catch (error) {
+      const active = this.active.get(req_id);
+      // 明确取消必须收束当前调用；事实失败继续报告，不能伪造取消成功。
+      if (active?.round_id === round_id) {
+        active.controller.abort();
+        await active.promise;
+      }
+      throw error;
+    }
+  }
+
+  private async cancelWithEvidence(req_id: string, round_id: string): Promise<CoordinationRoundView> {
     const round = await this.get(req_id, round_id);
     if (round.status !== "pending" && round.status !== "running") return round;
     const session = await this.sessions.open(req_id);
-    const events = await session.events.readOrdered();
+    const events = await this.readEvents(session);
     if (!events.some((event) => event.type === "coordinator.round.cancel_requested" && (event.payload as { round_id?: string })?.round_id === round_id)) {
       await session.events.append({ event_id: ulid(), session_id: req_id, type: "coordinator.round.cancel_requested", schema_version: "1",
         actor: { kind: "human", id: "local-human" }, correlation_id: round_id, payload: { round_id }, source: { adapter: "console-server" } });
@@ -243,7 +266,13 @@ export class CoordinationService {
   async recover(): Promise<void> {
     for (const req_id of await this.sessions.listIds()) {
       const session = await this.sessions.open(req_id);
-      const events = await session.events.readOrdered();
+      let events: EventEnvelope[];
+      try { events = await readSessionEvents(session); }
+      catch (error) {
+        if (!(error instanceof SessionEventReadError)) throw error;
+        this.options.onError?.(new SessionEventReadError(`需求 ${req_id} 的协调恢复未执行：${error.message}`));
+        continue;
+      }
       for (const round of projectRounds(events, req_id)) {
         if (round.status !== "pending" && round.status !== "running") continue;
         const cancelled = events.some((event) => event.type === "coordinator.round.cancel_requested" && (event.payload as { round_id?: string })?.round_id === round.round_id);

@@ -29,6 +29,8 @@ export interface EventStore {
   readAll(): Promise<EventEnvelope[]>;
   /** 因果链拓扑序为主、(timestamp, event_id) 兜底的全序 */
   readOrdered(): Promise<EventEnvelope[]>;
+  /** ADR-0047：决策侧严格读取；任何坏行/envelope/外部 session 都拒绝，不跳过。 */
+  readOrderedStrict?(): Promise<EventEnvelope[]>;
   /** 订阅（进程内 dispatcher；事件已落盘后才触发） */
   subscribe(handler: (e: EventEnvelope) => void): () => void;
 }

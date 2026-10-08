@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -225,6 +225,26 @@ describe("JsonlEventStore：并发与订阅", () => {
 });
 
 describe("JsonlEventStore：崩溃恢复与校验", () => {
+  it.each(["PRIVATE_BAD_LINE\n", "{\"PRIVATE_PARTIAL\":", "{\"PRIVATE_BAD_ENVELOPE\":true}\n"])("严格读取拒绝 %s，普通诊断仍可用，当前修复后可重新读取", async (corrupt) => {
+    const store = await openStore();
+    const first = await store.append(draft());
+    const original = await readFile(filePath, "utf8");
+    await appendFile(filePath, corrupt);
+    expect(await store.readOrdered()).toEqual([first]);
+    await expect(store.readOrderedStrict()).rejects.toThrow(/事件流/);
+    await writeFile(filePath, original);
+    expect(await store.readOrderedStrict()).toEqual([first]);
+  });
+
+  it("严格读取接受无结尾换行的完整事件，拒绝外部 session，未知 payload 保留兼容", async () => {
+    const store = await openStore();
+    const first = await store.append(draft({ type: "future.event", payload: { unknown: true } }));
+    await writeFile(filePath, JSON.stringify(first));
+    expect(await store.readOrderedStrict()).toEqual([first]);
+    await writeFile(filePath, JSON.stringify({ ...first, session_id: "REQ-FOREIGN" }) + "\n");
+    await expect(store.readOrderedStrict()).rejects.toThrow(/session/);
+  });
+
   it("重开时丢弃写到一半的残行，并从链尾继续", async () => {
     const store = await openStore();
     await store.append(draft({ payload: { n: 1 } }));
@@ -238,6 +258,7 @@ describe("JsonlEventStore：崩溃恢复与校验", () => {
     expect(events).toHaveLength(2);
     expect(await readFile(filePath, "utf8")).toBe(committed);
     expect(reopened.diagnostics().notes.some((note) => note.kind === "truncated_tail")).toBe(true);
+    expect(await reopened.readOrderedStrict()).toEqual(events);
 
     const third = await reopened.append(draft({ payload: { n: 3 } }));
     expect(third.seq).toBe(3);

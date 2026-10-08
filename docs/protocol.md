@@ -128,6 +128,8 @@ text artifact 属当前节点输出，不参与该节点语义输入 hash，避�
 
 快照的账本摘要、进度和事件 hash 来自同一次事件读取（ADR-0028），不依赖可能滞后的 `ledger.yaml`；coordinator 按当前 workflow 过滤节点进度，保留账本 conflict 标记。缺失文档合法，其他读取错误拒绝派发。文档访问拒绝符号链接、硬链接、非普通文件和事实/管理路径（events.jsonl、ledger.yaml、agents.yaml、.git、.index、.sdlc）；代写使用独占临时文件、fsync 和 rename。该边界用于 coordinator 文件访问，不替代 worker 的操作系统权限控制。
 
+ADR-0047 增加 EventStore.readOrderedStrict 可选端口与共享 readSessionEvents。原生严格读取校验当前每行 envelope/session，拒绝坏完整行、活跃读取中的未完成残行和外部 session，不跳过；完整事件仅缺结尾换行仍可读，冷打开继续按原子边界修复尾行。快照、验证和协调读侧优先严格端口，旧自定义端口仍兼容但须兑现返回全部事实的契约，提供 unparsable_line 诊断时拒绝。当前文件修复后原生严格读不被历史诊断锁死；冷打开已锁定写入的存储仍需修复后重新打开。未知合法 payload 保持前向兼容，不替代 doctor 哈希链检查，也不自动修复坏完整行。worker 的完整性错误不可自动重试，普通 IO 故障仍按既有重试策略处理。
+
 run 取消（ADR-0025）：`POST /api/v1/runs/:run_id/cancel` 先落 `workflow.run.cancelled` 事件（事实），再 abort 在途执行器——`AbortSignal` 经执行器 → NodeRunContext → AgentTask 透传到 driver，driver 杀进程树并关闭事件流。人工 gate 挂起处 ask 与 abort 竞速，取消**不落 gate.resolved 假判定**；取消使该流程未决 gate 从审批投影移除，重新 start 即断点续跑。终态判定按 `run_id` 匹配取消事件，历史 run 的取消不污染新 run。
 
 人工 gate 的事实顺序是：
@@ -183,6 +185,8 @@ ADR-0044 的 read_verifications(def, session, revision) 为协调者提供最多
 当前 coordinationInputHash 使用 cord.coordination-input.v4，加入 context_policy=balanced-head-tail.v1，继续绑定完整原文 hash、配置、workflow、进度、声明源码与机器观察。查询/采用和模型完成共用首尾采集；旧 v1/v2/v3 成功轮次保留历史，但 current=false，须重新协调。片段正文和索引不落事件，事件只保留 prompt/input hash。已采用轮次的原 run 重放语义不变，不自动回滚已退出节点。
 
 REST 创建 `POST /requirements/:req_id/coordination` 输入 `{agent, sdlc_id?, sdlc_version?, timeout_ms?}`，返回 202；列表/读取使用 GET，取消 `POST .../:round_id/cancel` 先落 cancel_requested 再 abort。写命令使用 Idempotency-Key；跨 method/path 复用键返回 409，创建并发同键合并为一轮。每需求只允许一轮在途协调，resolver 在创建时固定，归档版本拒绝新轮次。事件写入失败必须报告宿主，不能伪造 completed。server 重启将未完成轮次落 failed/interrupted；已有取消请求则落 cancelled，不重放模型调用。
+
+协调创建在 requested 前严格预检事件；列表/查询/采用的完整性错误返回 409，不回退旧提议。冷协调恢复隔离坏 session，保留原请求事实且不写中断终态或重放调用，健康需求继续可用；修复并重新启动后执行正常 interrupted 恢复。明确取消遇到读取/落盘错误时仍收束当前匹配轮次的进程，接口保留原错误，不伪造 cancel_requested 或取消成功；能落盘的 completed 如实记录 cancelled，写失败则走已有中断恢复。普通事件诊断浏览和其余 workflow 投影保持原读取语义，本规则保护快照、验证与协调决策边界。
 
 提议是该轮完成时的 Draft，之后的输入变更应发起新轮次。任何提议本身都不生成 node.exited、gate.resolved 或 artifact；实际推进仍经既有 workflow run 与人工 gate。readonly 不提供 OS 沙箱（ADR-0032）。
 

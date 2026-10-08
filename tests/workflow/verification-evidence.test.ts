@@ -1,5 +1,5 @@
 /** 验证事实消费者必须 fail-closed，不回退旧通过或忽略坏事件。 */
-import { appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ulid } from "ulid";
@@ -76,8 +76,19 @@ describe("机器验证证据有效性", () => {
 
   it("读取故障阻断，本次输入修复后不缓存旧失败", async () => {
     await append();
-    vi.spyOn(session.events, "readOrdered").mockRejectedValueOnce(new Error("fixture IO"));
+    vi.spyOn(session.events, "readOrderedStrict").mockRejectedValueOnce(new Error("fixture IO"));
     expect((await checker.check(context())).result).toBe("block");
+    expect((await checker.check(context())).result).toBe("pass");
+  });
+
+  it("当前坏行修复后严格验证读取可恢复，不被历史诊断锁死", async () => {
+    await append();
+    const path = join(session.dir, "events.jsonl");
+    const original = await readFile(path, "utf8");
+    await appendFile(path, "INVALID_FAILURE_EVENT\n");
+    await session.events.readOrdered();
+    expect((await checker.check(context())).result).toBe("block");
+    await writeFile(path, original);
     expect((await checker.check(context())).result).toBe("pass");
   });
 
