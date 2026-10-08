@@ -211,6 +211,7 @@ export interface CoordinationRoundView {
   input_hash: string | null;
   agent_configuration_hash: string | null;
   source_hash: string | null;
+  verification_context_hash: string | null;
   proposal: CoordinationProposal | null;
   error: string | null;
   failure_stage: string | null;

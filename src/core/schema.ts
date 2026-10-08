@@ -249,11 +249,34 @@ export type WorkflowDef = z.infer<typeof WorkflowDefSchema>;
 export const WorkflowScopeSchema = z.object({ workflow_id: z.string().min(1), workflow_revision: z.string().length(64).optional() });
 export type WorkflowScope = z.infer<typeof WorkflowScopeSchema>;
 
+/** ADR-0044：协调者只接收受限机器观察，不携带日志或事件正文。 */
+export const CoordinationVerificationSchema = z.strictObject({
+  run_id: z.string().regex(ULID_RE).nullable(),
+  node_id: z.string().min(1).max(500),
+  verification_id: z.string().min(1).max(200),
+  event_id: z.string().regex(ULID_RE).nullable(),
+  status: z.enum(["missing", "invalid", "passed", "failed", "timeout", "cancelled"]),
+  current: z.boolean().nullable(),
+  reason: z.enum(["missing", "invalid_result", "unavailable", "stale_input", "run_cancelled", "current"]),
+  input_hash: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
+  command_hash: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
+  source_hash: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
+  exit_code: z.number().int().nullable(),
+}).refine((value) => value.current !== true || (value.event_id !== null && !["missing", "invalid"].includes(value.status)
+  && value.reason === "current" && value.run_id !== null && value.input_hash !== null && value.command_hash !== null), {
+  message: "当前有效验证必须携带完整结果身份",
+});
+export type CoordinationVerification = z.infer<typeof CoordinationVerificationSchema>;
+export const CoordinationVerificationsSchema = z.array(CoordinationVerificationSchema).max(128).refine((values) =>
+  new Set(values.map((value) => JSON.stringify([value.node_id, value.verification_id]))).size === values.length,
+  { message: "同一节点的验证观察不能重复" });
+
 /** ADR-0032：协调提议仅引用当前快照/工作流，不能携带任意命令或修改协议。 */
 export const CoordinationEvidenceSchema = z.discriminatedUnion("source", [
   z.strictObject({ source: z.literal("document"), id: z.string().min(1).max(500) }),
   z.strictObject({ source: z.literal("ledger"), id: z.string().regex(/^C-\d+$/) }),
   z.strictObject({ source: z.literal("workflow"), id: z.string().min(1).max(500) }),
+  z.strictObject({ source: z.literal("verification"), id: z.string().regex(ULID_RE) }),
 ]);
 const coordination_action_fields = {
   reason: z.string().trim().min(1).max(2_000),
@@ -574,6 +597,8 @@ const coordination_round_fields = {
   agent_configuration_hash: z.string().length(64).optional(),
   /** ADR-0043：独立协调轮次声明的源码范围摘要。 */
   source_hash: z.string().length(64).optional(),
+  /** ADR-0044：完整验证观察的摘要，正文不保存到轮次。 */
+  verification_context_hash: z.string().length(64).optional(),
   snapshot_id: z.string().length(64).optional(),
   snapshot_event_seq: z.number().int().nonnegative().optional(),
   snapshot_event_chain_hash: z.string().length(64).optional(),

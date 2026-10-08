@@ -3,7 +3,7 @@
  * 状态、时间线、账本、审批一律来自 server 投影接口；前端只转发命令与展示。
  * 事件 tab 用 SSE 实时订阅（组件卸载时关闭 EventSource），新事件到达时刷新概览与审批。
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement } from "react";
 import type {
   ApprovalItem,
@@ -104,6 +104,7 @@ export function RequirementDetail({ reqId, tab, onTab, onBack }: Props): ReactEl
   const [sdlcOptions, setSdlcOptions] = useState<SdlcSummary[]>([]);
   const [selectedSdlc, setSelectedSdlc] = useState<string>("");
   const [focused_doc, set_focused_doc] = useState<SnapshotDocName>("prd");
+  const [focused_event, set_focused_event] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -329,11 +330,11 @@ export function RequirementDetail({ reqId, tab, onTab, onBack }: Props): ReactEl
       {tab === "overview" ? <OverviewTab timeline={timeline} activeRun={activeRun} events={events} /> : null}
       {tab === "coordination" ? <CoordinationPanel req_id={reqId} default_sdlc={timeline?.sdlc_version !== null && timeline?.sdlc_version !== undefined ? `${timeline.sdlc_id}@${timeline.sdlc_version}` : ""}
         event_seq={events.at(-1)?.seq ?? 0} run_in_flight={runInFlight} onChanged={loadProjections} onRun={() => onTab("overview")}
-        onSource={(source, id) => { if (source === "document") { set_focused_doc(id.replace(/\.md$/, "") as SnapshotDocName); onTab("docs"); } else onTab(source === "ledger" ? "ledger" : "overview"); }} /> : null}
+        onSource={(source, id) => { if (source === "document") { set_focused_doc(id.replace(/\.md$/, "") as SnapshotDocName); onTab("docs"); } else if (source === "verification") { set_focused_event(id); onTab("events"); } else onTab(source === "ledger" ? "ledger" : "overview"); }} /> : null}
       {tab === "docs" ? <DocsTab reqId={reqId} docs={detail?.docs ?? null} initial_doc={focused_doc} /> : null}
       {tab === "ledger" ? <LedgerTab ledger={ledger} /> : null}
       {tab === "votes" ? <VotesTab votes={votes} /> : null}
-      {tab === "events" ? <EventsTab events={events} /> : null}
+      {tab === "events" ? <EventsTab events={events} focused_event={focused_event} /> : null}
       {tab === "approvals" ? (
         <ApprovalsTab approvals={approvals} deciding={deciding} onDecide={(item, choice) => void decide(item, choice)} />
       ) : null}
@@ -781,9 +782,18 @@ function VotesTab({ votes }: { votes: VoteSummary[] }): ReactElement {
 // 事件（SSE 实时）
 // ---------------------------------------------------------------------------
 
-function EventsTab({ events }: { events: StreamedEvent[] }): ReactElement {
+function EventsTab({ events, focused_event }: { events: StreamedEvent[]; focused_event: string | null }): ReactElement {
   const [expanded, setExpanded] = useState<readonly number[]>([]);
   const newestFirst = useMemo(() => [...events].sort((a, b) => b.seq - a.seq), [events]);
+  const revealed = useRef<string | null>(null);
+  useEffect(() => {
+    if (focused_event === null || revealed.current === focused_event) return;
+    const event = events.find((item) => item.event_id === focused_event);
+    if (event === undefined) return;
+    revealed.current = focused_event;
+    setExpanded((previous) => previous.includes(event.seq) ? previous : [...previous, event.seq]);
+    document.getElementById(`event-${focused_event}`)?.scrollIntoView({ block: "center" });
+  }, [events, focused_event]);
 
   const toggle = (seq: number): void => {
     setExpanded((prev) => (prev.includes(seq) ? prev.filter((item) => item !== seq) : [...prev, seq]));
@@ -801,7 +811,7 @@ function EventsTab({ events }: { events: StreamedEvent[] }): ReactElement {
           {newestFirst.map((event) => {
             const open = expanded.includes(event.seq);
             return (
-              <li key={event.event_id} className="event">
+              <li key={event.event_id} id={`event-${event.event_id}`} className="event">
                 <button type="button" className="event-row" onClick={() => toggle(event.seq)} aria-expanded={open}>
                   <span className="event-seq">#{event.seq}</span>
                   <span className="event-type mono">{event.type}</span>

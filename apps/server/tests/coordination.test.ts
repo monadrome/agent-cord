@@ -199,6 +199,97 @@ describe("协调提议源码身份", () => {
   });
 });
 
+describe("协调机器验证上下文", () => {
+  const waiting = { summary: "机器结果需独立核验", next_action: { kind: "wait", reason: "等待当前验证", evidence: [{ source: "workflow", id: "verify" }] }, risks: [] };
+  async function prepare() {
+    await source_workflow();
+    await config(JSON.stringify(waiting));
+    await server.agents.reload();
+    const run = await server.runs.start("REQ-CONTEXT", "source-coordination", 1);
+    await wait_for(async () => (await server.sessions.listApprovals("REQ-CONTEXT")).length === 1);
+    return run;
+  }
+  async function verify(run_id: string, status = "failed") {
+    const context = await request("GET", `/api/v1/requirements/REQ-CONTEXT/runs/${run_id}/nodes/verify/verification-context`);
+    expect(context.status).toBe(200);
+    const result = await request("POST", `/api/v1/requirements/REQ-CONTEXT/runs/${run_id}/verifications`, {
+      run_id, node_id: "verify", verification_id: "tests", input_hash: context.body.verification.input_hash,
+      command_hash: "f".repeat(64), status, exit_code: status === "passed" ? 0 : 1, summary: "PRIVATE_TEST_LOG",
+    }, ulid());
+    expect(result.status).toBe(200);
+    return result.body.event_id as string;
+  }
+
+  it("缺失/失败/通过观察进入真实 driver prompt，状态改变使旧提议过期", async () => {
+    const run = await prepare();
+    const driver = server.agents.resolver()("coordinator");
+    const original = driver.run.bind(driver);
+    const prompts: string[] = [];
+    vi.spyOn(driver, "run").mockImplementation(async function* (task) { prompts.push(task.prompt); yield* original(task); });
+    const missing = await source_round();
+    expect(prompts[0]).toContain('"status":"missing"');
+    await verify(run.run_id);
+    expect(await server.coordination.get("REQ-CONTEXT", missing.round_id)).toMatchObject({ status: "ok", current: false });
+    const failed = await source_round();
+    expect(prompts[1]).toContain('"status":"failed","current":true');
+    expect(prompts[1]).not.toContain("PRIVATE_TEST_LOG");
+    await verify(run.run_id, "passed");
+    expect(await server.coordination.get("REQ-CONTEXT", failed.round_id)).toMatchObject({ status: "ok", current: false });
+    const passed = await source_round();
+    expect(prompts[2]).toContain('"status":"passed","current":true');
+    expect(passed.verification_context_hash).not.toBe(failed.verification_context_hash);
+    expect((await server.sessions.readEvents("REQ-CONTEXT")).filter((event) => event.type === "human.decision.recorded")).toHaveLength(0);
+    expect((await server.sessions.listApprovals("REQ-CONTEXT"))[0]?.node_id).toBe("intake");
+  });
+
+  it("当前失败事件可作为严格提议来源，过期事件不再有效", async () => {
+    const run = await prepare();
+    const event_id = await verify(run.run_id);
+    await config(JSON.stringify({ ...waiting, next_action: { ...waiting.next_action, evidence: [{ source: "verification", id: event_id }] } }));
+    await server.agents.reload();
+    expect(await source_round()).toMatchObject({ status: "ok", current: true });
+    await verify(run.run_id, "passed");
+    expect(await source_round()).toMatchObject({ status: "failed", proposal: null, failure_stage: "output" });
+  });
+
+  it("模型运行期间仅机器验证变化也使提议 stale", async () => {
+    const run = await prepare();
+    await verify(run.run_id);
+    await config(JSON.stringify(waiting), 300);
+    await server.agents.reload();
+    const response = await start(ulid(), { sdlc_id: "source-coordination", sdlc_version: 1 });
+    const id = response.body.round.round_id;
+    await wait_for(async () => (await server.sessions.readEvents("REQ-CONTEXT")).some((event) => event.type === "coordinator.round.started" && (event.payload as any).round_id === id));
+    await verify(run.run_id, "passed");
+    expect(await done(id)).toMatchObject({ status: "stale", proposal: null, failure_stage: "freshness" });
+    expect(await source_round()).toMatchObject({ status: "ok", current: true });
+  });
+
+  it("采用 guard 在状态不变时也拒绝已更换的验证事件", async () => {
+    await source_workflow();
+    const binding = await server.sdlcs.get("source-coordination", 1);
+    const session = await server.sessions.open("REQ-CONTEXT");
+    const run_id = ulid();
+    server.index.insertRun({ run_id, req_id: session.req_id, sdlc_id: binding.sdlc_id, sdlc_version: 1, workflow_revision: binding.workflow_revision,
+      started_at: new Date().toISOString(), status: "running", finished_at: null, error: null });
+    await session.events.append({ event_id: ulid(), session_id: session.req_id, type: "workflow.run.started", schema_version: "1", actor: { kind: "human", id: "test" }, correlation_id: run_id,
+      payload: { run_id, workflow_id: binding.def.metadata.id, workflow_revision: binding.workflow_revision, sdlc_id: binding.sdlc_id, sdlc_version: 1 }, source: { adapter: "test" } });
+    const input = await server.runs.readNodeInput(binding.def, binding.def.spec.nodes[1]!, session, null, binding.workflow_revision);
+    const result = { run_id, workflow_id: binding.def.metadata.id, workflow_revision: binding.workflow_revision, node_id: "verify", verification_id: "tests", input_hash: input.input_hash, command_hash: "f".repeat(64), status: "passed", exit_code: 0 };
+    await server.sessions.recordVerification(session.req_id, result);
+    const round = await source_round();
+    expect(round.adoptable).toBe(true);
+    const launch = server.runs.start.bind(server.runs);
+    vi.spyOn(server.runs, "start").mockImplementation(async (...args) => {
+      await server.sessions.recordVerification(session.req_id, result);
+      return launch(...args);
+    });
+    expect((await adopt(round.round_id)).status).toBe(409);
+    expect(server.runs.listRuns(session.req_id)).toHaveLength(1);
+    expect((await server.sessions.readEvents(session.req_id)).filter((event) => event.type === "coordinator.round.adopted")).toHaveLength(0);
+  });
+});
+
 describe("协调提议受控采用", () => {
   it("采用当前 advance 提议启动绑定 SDLC，事实在节点派发前落盘，人工 gate 仍挂起", async () => {
     const round = await valid_round();

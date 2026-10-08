@@ -24,6 +24,8 @@
 
 源码绑定协调：[2026-10-08 真实源码协调](./2026-10-08-source-bound-coordination.md)，记录 PRD 不变、仅源码变化时旧轮次失效与真实 Claude 命名角色新会话。
 
+机器观察协调：[2026-10-08 机器验证上下文](./2026-10-08-verification-context-coordination.md)，记录真实测试失败/恢复、Claude 当前验证事件引用、严格来源拒绝及手机/桌面浏览器验收。
+
 | # | 文件 | 主题 | 核心结论 |
 |---|---|---|---|
 | 01 | [2026-09-24-01-orchestration-workflow-engines.md](./2026-09-24-01-orchestration-workflow-engines.md) | 多 agent 编排与工作流引擎 | 无引擎满足「YAML 图 + gate + 审批暂停 + git/文件为唯一 SSOT」的组合；允许外部状态源的仅 4 个（Vercel Workflow SDK 的 World 适配器最彻底）。编排内核自研，gate 状态机可用 XState v5；Inngest（SSPL）、Restate（BSL）许可排除 |

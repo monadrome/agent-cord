@@ -117,9 +117,10 @@ async function setupRun(options: { human_confirm?: boolean; inputs?: string[]; b
   return { runId: started.body.run.run_id, approvalId: approval.approval_id };
 }
 
-async function restart(): Promise<void> {
+async function restart(before_start?: () => Promise<void>): Promise<void> {
   await server.app.close();
   server.index.close();
+  await before_start?.();
   await listen();
 }
 
@@ -163,8 +164,7 @@ describe("结构化机器验证事实", () => {
     const { runId } = await setupRun({ inputs: ["src"], human_confirm: true });
     expect((await submitVerification(runId, "before-missing")).status).toBe(200);
     await waitFor(async () => (await server.sessions.listApprovals("REQ-VERIFY"))[0]?.kind === "human_confirm");
-    await rm(join(root, "src"), { recursive: true });
-    await restart();
+    await restart(() => rm(join(root, "src"), { recursive: true }));
     expect((await api("GET", "/api/v1/health")).body.ok).toBe(true);
     expect(server.runs.isActive("REQ-VERIFY")).toBe(false);
     expect((await server.runs.getRun(runId)).status).toBe("waiting_human");

@@ -167,6 +167,17 @@
 - 最终全量 649 测试 / 54 文件、build:all、typecheck、diff 检查通过。公开记录 docs/research/2026-10-08-source-bound-coordination.md；运行数据仅保留在临时工作区。
 - 最新预览在临时验收目录启动，health=true，最新轮次 current=true/旧轮次 current=false：`http://127.0.0.1:7307/#/requirements/REQ-SOURCE-CONTEXT/coordination`。启动后首个立即 health 请求早于 listen，确认进程和监听日志后再次核验通过。
 
+## 阶段 30：协调机器验证上下文（已实现并验证）
+
+- ADR-0044 先行，受限验证观察只包含当前 run/声明检查的最新机器状态与摘要，不注入 summary/日志。
+- 核心严格结构校验、verification 事件来源、input v3 身份、观察摘要 provenance 和完成/查询/采用重检已接入。
+- 88 个核心/投影/REST 定向测试通过，另有采用 guard 仅验证事件变化阻断回归；历史 run/发布版本、失败恢复、缺失/非法/不可读和取消均 fail-closed。
+- 控制台验证来源跳转到对应结果事件并展开；复用已有布局，准备缓存 Playwright/Chrome 截图验证。
+- 首次真实 Claude 因 workflow/human-intake（gate ID）引用被 failed/output 拒绝；明确 node.id 来源规则和单验证来源的验收约束后重跑，两轮引用当前失败/通过事件均 ok/current=true，人工审批 ID 保持、human.decision=0、doctor=true。
+- 首轮全量 672/673，通过前关闭源码删除与挂起验证重检竞争；将缺失输入的冷重启测试改为 app.close 完成后删除，再启动，独立 live 变更仍由既有测试覆盖。
+- 新增取消事实优先于登记更新的观察失效回归。最终全量 674 测试 / 55 文件、build:all、typecheck、diff 检查通过。
+- Playwright/Chrome 1440/390/320 无横向溢出/pageerror，验证来源跳转并展开对应 passed 事件；桌面/手机截图已查看。预览 `http://127.0.0.1:7308/#/requirements/REQ-VERIFICATION-CONTEXT/coordination`，截图和实际运行证据仅在临时目录，公开记录 docs/research/2026-10-08-verification-context-coordination.md。
+
 ## 阶段 22：机器验证 run 级隔离（已实现并验证）
 
 - [x] 将 `run_id` 注入 workflow CheckerContext

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ulid } from "ulid";
 import type { AgentDriver, AgentEvent, AgentTask, SessionHandle } from "../../src/core/ports.js";
 import { initSession } from "../../src/core/session.js";
-import { EVENT_PAYLOAD_SCHEMAS, type CoordinationProposal, type EventType, type WorkflowDef } from "../../src/core/schema.js";
+import { EVENT_PAYLOAD_SCHEMAS, type CoordinationProposal, type CoordinationVerification, type EventType, type WorkflowDef } from "../../src/core/schema.js";
 import { buildCoordinationPrompt, coordinationInputHash, createContextSessionAgent, parseCoordinationProposal } from "../../src/coordinator/session-agent.js";
 import { readSnapshot } from "../../src/coordinator/snapshot.js";
 
@@ -15,6 +15,13 @@ const def: WorkflowDef = { apiVersion: "agent-cord.dev/v1alpha1", kind: "Workflo
   { id: "plan", artifact: "design/plan.md", depends_on: ["intake"], gates: [] },
 ] } };
 const proposal: CoordinationProposal = { summary: "需求已经明确", next_action: { kind: "advance", node_id: "intake", reason: "先确认需求", evidence: [{ source: "document", id: "prd.md" }] }, risks: [] };
+const verification_def = structuredClone(def);
+verification_def.spec.nodes[0]!.gates = [{ id: "tests", role: { initiators: [], approvers: [] }, attach: { node: "intake", when: "post", triggers: [] },
+  checks: [{ ref: "verification-passed", with: { verification_id: "offline-tests" } }], pass: { require: "all", human_confirm: true }, on_fail: "escalate", write_back: [] }];
+const verification: CoordinationVerification = { run_id: "01ARZ3NDEKTSV4RRFFQ69G5F01", node_id: "intake", verification_id: "offline-tests", event_id: "01ARZ3NDEKTSV4RRFFQ69G5F02",
+  status: "failed", current: true, reason: "current", input_hash: "b".repeat(64), command_hash: "c".repeat(64), source_hash: null, exit_code: 1 };
+const failure_proposal: CoordinationProposal = { summary: "当前测试失败，需要修复后重验", next_action: { kind: "wait", reason: "机器结果失败，等待修复",
+  evidence: [{ source: "verification", id: verification.event_id! }] }, risks: [] };
 let root: string;
 let session: SessionHandle;
 beforeEach(async () => {
@@ -42,6 +49,72 @@ function coordinate(worker: AgentDriver, input: { signal?: AbortSignal; timeout_
 }
 
 describe("独立协调轮次", () => {
+  it("当前失败验证以受限数据进入 prompt，可作为 Draft 来源，轮次仅保存摘要", async () => {
+    const worker = driver([{ type: "result", data: { text: JSON.stringify(failure_proposal) } }]);
+    const observer = createContextSessionAgent({ resolveDriver: () => worker, workspaceRoot: root, read_verifications: async () => [verification] });
+    expect(await observer.coordinate(verification_def, session, { round_id: ulid(), agent: "test-coordinator" })).toMatchObject({ status: "ok", proposal: failure_proposal });
+    expect(worker.tasks[0]?.prompt).toContain(`verifications: ${JSON.stringify([verification])}`);
+    const completed = (await session.events.readOrdered()).find((event) => event.type === "coordinator.round.completed")!;
+    expect((completed.payload as any).verification_context_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(completed.payload).not.toHaveProperty("verifications");
+    expect(JSON.stringify(completed.payload)).not.toContain(verification.command_hash!);
+    const snapshot = await readSnapshot(session, { workflow_id: verification_def.metadata.id, files: ["prd.md", "design/plan.md"] });
+    expect((completed.payload as any).input_hash).toBe(coordinationInputHash(verification_def, snapshot, worker.configuration_hash!, undefined, null, [verification]));
+    expect(coordinationInputHash(verification_def, snapshot, worker.configuration_hash!, undefined, null, [])).toBe(coordinationInputHash(verification_def, snapshot, worker.configuration_hash!));
+  });
+
+  it.each(["unknown", "stale", "unavailable", "missing"])("%s 验证事件不能成为有效来源", async (kind) => {
+    const observation: CoordinationVerification = { ...verification,
+      ...(kind === "stale" ? { current: false, reason: "stale_input" as const } : {}),
+      ...(kind === "unavailable" ? { current: null, reason: "unavailable" as const } : {}),
+      ...(kind === "missing" ? { current: false, reason: "missing" as const, event_id: null, status: "missing" as const } : {}),
+    };
+    const output = kind === "unknown" ? { ...failure_proposal, next_action: { ...failure_proposal.next_action, evidence: [{ source: "verification", id: ulid() }] } } : failure_proposal;
+    const worker = driver([{ type: "result", data: { text: JSON.stringify(output) } }]);
+    const observer = createContextSessionAgent({ resolveDriver: () => worker, workspaceRoot: root, read_verifications: async () => [observation] });
+    expect(await observer.coordinate(verification_def, session, { round_id: ulid(), agent: "test-coordinator" })).toMatchObject({ status: "failed", proposal: null });
+    expect((await session.events.readOrdered()).find((event) => event.type === "coordinator.round.completed")?.payload).toMatchObject({ failure_stage: "output" });
+  });
+
+  it("验证状态在途改变使提议 stale，后续新轮次使用最新机器观察", async () => {
+    let observations = [verification];
+    const worker = driver();
+    worker.run = async function* (task) {
+      worker.tasks.push(task);
+      observations = [{ ...verification, event_id: "01ARZ3NDEKTSV4RRFFQ69G5F03", status: "passed", exit_code: 0 }];
+      yield { type: "result", data: { text: JSON.stringify({ ...proposal, next_action: { kind: "wait", reason: "等待机器验证", evidence: [{ source: "workflow", id: "intake" }] } }) } };
+    };
+    const observer = createContextSessionAgent({ resolveDriver: () => worker, workspaceRoot: root, read_verifications: async () => observations });
+    expect(await observer.coordinate(verification_def, session, { round_id: ulid(), agent: "test-coordinator" })).toMatchObject({ status: "stale", proposal: null });
+    expect((await observer.coordinate(verification_def, session, { round_id: ulid(), agent: "test-coordinator" })).status).toBe("ok");
+    expect(worker.tasks[1]?.prompt).toContain('"status":"passed"');
+  });
+
+  it.each(["logs", "duplicate", "undeclared", "too-many", "unreadable"])("非法宿主验证观察 %s 阻断派发，私有日志不进入事件", async (kind) => {
+    const worker = driver();
+    const observer = createContextSessionAgent({ resolveDriver: () => worker, workspaceRoot: root, read_verifications: async () => {
+      if (kind === "unreadable") throw new Error("无法读取机器观察");
+      if (kind === "logs") return [{ ...verification, summary: "PRIVATE_LOG" }] as any;
+      if (kind === "duplicate") return [verification, verification];
+      if (kind === "undeclared") return [{ ...verification, verification_id: "foreign-check" }];
+      return Array.from({ length: 129 }, (_, index) => ({ ...verification, verification_id: `tests-${index}` }));
+    } });
+    expect(await observer.coordinate(verification_def, session, { round_id: ulid(), agent: "test-coordinator" })).toMatchObject({ status: "failed", proposal: null });
+    expect(worker.tasks).toHaveLength(0);
+    expect(JSON.stringify(await session.events.readOrdered())).not.toContain("PRIVATE_LOG");
+  });
+
+  it("模型完成时验证观察无法读取，不能返回旧提议", async () => {
+    const worker = driver([{ type: "result", data: { text: JSON.stringify(failure_proposal) } }]);
+    let reads = 0;
+    const observer = createContextSessionAgent({ resolveDriver: () => worker, workspaceRoot: root, read_verifications: async () => {
+      if (++reads > 1) throw new Error("观察重检失败");
+      return [verification];
+    } });
+    expect(await observer.coordinate(verification_def, session, { round_id: ulid(), agent: "test-coordinator" })).toMatchObject({ status: "failed", proposal: null });
+    expect((await session.events.readOrdered()).find((event) => event.type === "coordinator.round.completed")?.payload).toMatchObject({ failure_stage: "freshness" });
+  });
+
   it("源码摘要纳入协调输入、prompt 和轮次 provenance，无范围保留原身份", async () => {
     const worker = driver();
     const source_hash = "d".repeat(64);

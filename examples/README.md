@@ -20,6 +20,8 @@ readonly worker 也绑定同节点声明范围的 source_hash：源码不变的�
 
 独立协调轮次使用整个绑定 SDLC 的声明范围并集，包括后续验证节点：REST round 的 source_hash 标识本轮源码。代码改变而 PRD 不变时，旧轮次 current=false、不可采用；新轮次基于新摘要建立会话。摘要只能证明输入身份，不能证明测试通过或模型结论正确。
 
+协调 prompt 同时包含当前 run 各声明验证的结构化观察，区分未验证、当前失败、当前通过和过期结果；summary/测试日志不注入。提议可以通过 `{source: verification, id: <当前结果 event_id>}` 引用事实，结果变化后旧提议失效。控制台“来源”链接直接展开该事件；人工 gate 继续等待人。
+
 ```bash
 curl -X POST http://127.0.0.1:7250/api/v1/sdlcs/agent-example/versions/publish \
   -H 'Idempotency-Key: publish-agent-example-1' -H 'Content-Type: application/json' \

@@ -124,6 +124,14 @@
 - workspace doctor 的 merge driver 检查不同于 session doctor，临时 git 仓库仍需注册本地 merge driver；完成该初始化后 HTTP/浏览器验收与 workspace doctor 全通过。
 - 读错误后的 UI 不能解锁编辑或显示“已与磁盘一致”，真实 404 才进入新文档状态；浏览器已验证错误、缺失、保存与恢复，控制台仍只展示 server 投影。
 
+## 实现校准（2026-10-08，协调机器验证上下文）
+
+- 独立协调只有 docs/ledger/progress/source_hash，未观察 verification.completed；机器结果单独更新不改变输入，模型无法区分未验证与当前失败。
+- 宿主按流程声明的 node/verification ID 投影当前 run 的最新事实，共用 readNodeInput 判断新鲜度；缺失、坏结果、旧 scope/run、源码变化、取消和读故障不能成为当前有效结果。
+- 严格观察最多 128 项，只保存身份、状态、摘要和原因枚举，不携带 summary 或测试日志。核心检查结构与声明，prompt/input v3、完成/查询/采用重检使用同一观察，轮次只落 verification_context_hash。
+- 当前失败结果可以引用 verification/event_id 如实提出 wait 或 ask_human；过期/缺失不能引用。控制台来源链接打开并展开对应结果事件，不改变人工 gate。
+- 定向核心/server 88 用例通过，另补仅证据 event_id 替换导致采用 guard 409 的回归，保留无观察时 v1/v2 兼容。
+
 ## 实现校准（2026-10-08，协调提议源码新鲜度）
 
 - 独立协调仍用文档/流程身份，源码变化没有改变 current/adoptable。5 个核心与 6 个 REST 反例先全部复现，在途代码变化仍返回 ok，采用 guard 也没有阻断。

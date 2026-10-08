@@ -12,6 +12,7 @@ import type { SessionService } from "./session-service.js";
 import { DEFAULT_SDLC_ID, type SdlcService } from "./sdlc-service.js";
 import type { RunService } from "./run-service.js";
 import { readVerificationSource, verificationSourceInputs } from "./verification-inputs.js";
+import { readCoordinationVerifications } from "./verification-context.js";
 
 interface ActiveCoordination {
   round_id: string;
@@ -31,7 +32,7 @@ function projectRounds(events: readonly EventEnvelope[], req_id: string): Coordi
         workflow_id: payload.workflow_id, driver: payload.driver, agent: payload.driver, status: "pending",
         workflow_revision: payload.workflow_revision ?? null,
         requested_at: event.timestamp, started_at: null, finished_at: null,
-        snapshot_id: null, input_hash: null, agent_configuration_hash: null, source_hash: null,
+        snapshot_id: null, input_hash: null, agent_configuration_hash: null, source_hash: null, verification_context_hash: null,
         proposal: null, error: null, failure_stage: null,
         current: null, adoptable: false, adoption_reason: null, adopted_run_id: null, adopted_at: null,
       });
@@ -44,7 +45,7 @@ function projectRounds(events: readonly EventEnvelope[], req_id: string): Coordi
       if ((payload.workflow_revision ?? null) !== round.workflow_revision) throw internalError("协调轮次的执行版本不一致");
       Object.assign(round, { driver: payload.driver, snapshot_id: payload.snapshot_id ?? round.snapshot_id,
         input_hash: payload.input_hash ?? round.input_hash, agent_configuration_hash: payload.agent_configuration_hash ?? round.agent_configuration_hash,
-        source_hash: payload.source_hash ?? round.source_hash });
+        source_hash: payload.source_hash ?? round.source_hash, verification_context_hash: payload.verification_context_hash ?? round.verification_context_hash });
       if (event.type === "coordinator.round.started") {
         round.status = "running";
         round.started_at = event.timestamp;
@@ -101,6 +102,7 @@ export class CoordinationService {
       resolve_ready(await this.get(req_id, active.round_id));
       await createContextSessionAgent({ resolveDriver: resolver, workspaceRoot: this.options.workspaceRoot,
         read_source_hash: (def) => this.read_source_hash(def),
+        read_verifications: (def, session, revision) => readCoordinationVerifications(def, session, revision, this.options.runs),
       }).coordinate(versioned.def, session, {
         round_id: active.round_id, agent: input.agent, signal: active.controller.signal,
         workflow_revision: versioned.workflow_revision,
@@ -159,13 +161,14 @@ export class CoordinationService {
       const session = await this.sessions.open(round.req_id);
       const snapshot = await readSnapshot(session, { workflow_id: workflow.metadata.id, workflow_revision: round.workflow_revision, files: workflow.spec.nodes.flatMap((node) => node.artifact === undefined ? [] : [node.artifact]) });
       const source_hash = await this.read_source_hash(workflow);
-      result.current = round.source_hash === source_hash && coordinationInputHash(workflow, snapshot, configuration_hash, undefined, source_hash) === round.input_hash;
-      if (!result.current) result.adoption_reason = "需求、源码、进度或 Agent 配置已变化，请重新协调";
+      const verifications = await readCoordinationVerifications(workflow, session, round.workflow_revision, this.options.runs);
+      result.current = round.source_hash === source_hash && coordinationInputHash(workflow, snapshot, configuration_hash, undefined, source_hash, verifications) === round.input_hash;
+      if (!result.current) result.adoption_reason = "需求、源码、验证、进度或 Agent 配置已变化，请重新协调";
       else if (this.sdlcs.isArchived(round.sdlc_id, round.sdlc_version)) result.adoption_reason = "绑定的 SDLC 版本已归档";
       else if (round.adopted_run_id !== null) result.adoption_reason = "提议已采用";
       else if (round.proposal.next_action.kind !== "advance") result.adoption_reason = "当前提议不启动 SDLC";
       else {
-        parseCoordinationProposal(JSON.stringify(round.proposal), workflow, snapshot);
+        parseCoordinationProposal(JSON.stringify(round.proposal), workflow, snapshot, verifications);
         result.adoptable = true;
       }
     } catch { result.adoption_reason = "无法验证当前协调依据，请刷新或重新协调"; }
@@ -258,6 +261,7 @@ export class CoordinationService {
         ...(round.input_hash !== null ? { input_hash: round.input_hash } : {}),
         ...(round.agent_configuration_hash !== null ? { agent_configuration_hash: round.agent_configuration_hash } : {}),
         ...(round.source_hash !== null ? { source_hash: round.source_hash } : {}),
+        ...(round.verification_context_hash !== null ? { verification_context_hash: round.verification_context_hash } : {}),
         status: cancelled ? "cancelled" : "failed", proposal: null,
         error: cancelled ? "协调轮次已取消" : "server 中断了协调轮次，请基于最新快照重新协调",
         failure_stage: "interrupted", duration_ms: Math.max(0, Date.now() - Date.parse(round.requested_at)) },

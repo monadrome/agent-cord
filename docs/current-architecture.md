@@ -115,6 +115,8 @@ intake → align → plan → implement → verify → review → done
 
 协调输入也绑定流程声明的源码范围并集：started/completed 与 REST view 暴露 source_hash，模型完成后和提议查询/采用前重检。PRD 未变而代码变更时旧提议仍会失效；摘要不可读时不可采用，修复相同内容后可重新核验。未声明范围保留文档范围身份（ADR-0043）。
 
+协调者还接收当前 run 的声明机器验证观察，区分 missing/failed/passed 与过期、取消或不可读结果。prompt 只携带严格元信息，不读取测试日志；观察参与 input v3，新结果使旧提议失效。模型可引用当前 verification event_id，控制台链接定位结果事件；引用不是 gate 放行依据（ADR-0044）。
+
 人工采用只接受当前有效 advance，重检位于 RunService 预留槽位内，采用事实落盘后进入绑定版本的整个 SDLC runner；其余提议不生成 gate 决策。查询新鲜度与历史完成状态分离，重复采用返回原 run。运行登记的 coordination_round_id 保留启动来源，恢复缺少匹配采用事实时 fail-closed，旧 SQLite 表自动兼容。
 
 ## 5. Server 和 API
