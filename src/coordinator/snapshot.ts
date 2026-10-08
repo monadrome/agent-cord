@@ -19,9 +19,11 @@ export interface SnapshotDoc {
   exists: boolean;
   /** 截断后的内容（上限 maxDocChars）；不存在或占位为空串 */
   content: string;
+  /** 首尾模式的原文尾部，与 content 前缀共同受 maxDocChars 限制。 */
+  tail_content?: string;
   /** 原始是否被截断（供 prompt 提示「还有全文可读」） */
   truncated: boolean;
-  /** 完整文件内容 hash；prompt 只携带 content 的截断部分 */
+  /** 完整文件内容 hash；prompt 只携带已采集的片段 */
   content_hash: string | null;
   /** 完整文件字符数 */
   content_length: number;
@@ -58,6 +60,8 @@ export interface RequirementSnapshot {
 export interface SnapshotOptions {
   /** 单文档纳入视图的上限（字符），默认 20000 */
   maxDocChars?: number;
+  /** 独立协调保留首尾；普通 worker 默认只采集前缀。 */
+  excerpt_mode?: "head" | "head_tail";
   /** workflow 声明的自定义 artifact；会与固定四个快照文档合并去重 */
   files?: readonly string[];
   /** 仅投影该 workflow 的节点进度；省略时保留 session 全部进度 */
@@ -69,6 +73,13 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+/** UTF-16 偏移范围，不在截断处拆开代理对。 */
+export function sliceDocumentExcerpt(content: string, start: number, end: number) {
+  if (start > 0 && content.charCodeAt(start) >= 0xdc00 && content.charCodeAt(start) <= 0xdfff) start++;
+  if (end < content.length && content.charCodeAt(end - 1) >= 0xd800 && content.charCodeAt(end - 1) <= 0xdbff) end--;
+  return { start, end: Math.max(start, end), text: content.slice(start, Math.max(start, end)) };
 }
 
 export async function readSnapshot(
@@ -86,15 +97,21 @@ export async function readSnapshot(
     let truncated = false;
     let contentHash: string | null = null;
     let contentLength = 0;
+    let tail_content: string | undefined;
     const raw = await readSessionDocument(session.dir, file);
     if (raw !== null) {
       exists = true;
       truncated = raw.length > maxDocChars;
       content = raw.slice(0, maxDocChars);
+      if (truncated && options.excerpt_mode === "head_tail") {
+        const head_chars = Math.floor(maxDocChars / 2);
+        content = sliceDocumentExcerpt(raw, 0, head_chars).text;
+        tail_content = sliceDocumentExcerpt(raw, raw.length - (maxDocChars - head_chars), raw.length).text;
+      }
       contentHash = sha256Hex(raw);
       contentLength = raw.length;
     }
-    docs.push({ file, exists, content, truncated, content_hash: contentHash, content_length: contentLength });
+    docs.push({ file, exists, content, ...(tail_content === undefined ? {} : { tail_content }), truncated, content_hash: contentHash, content_length: contentLength });
   }
 
   // 账本、进度与 provenance 必须来自同次事件读取，磁盘投影可滞后或缺失。

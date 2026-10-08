@@ -170,13 +170,17 @@ REST 的 `approval_id` 是等待事件 ULID；旧静态编码可解析但不允�
 
 `ContextSessionAgent.coordinate` 每轮重新采集当前 workflow 的需求文档、事件派生账本/进度/人工等待，调用 `driver.run` 新会话（readonly），不 resume 或注入历史事件/旧提议。上下文总字符预算与结果上限为 60000/32768，必需元信息超预算时拒绝派发。driver metadata 不作文本 fallback，明确空最终字符串不能回退。
 
+ADR-0046 的 readCoordinationSnapshot 共用独立协调采集策略：每份长文档在 20000 字符内保留首尾，普通 readSnapshot 默认仍只取前缀。总预算扣除固定元信息和片段索引后在有内容文档间均衡分配，短文档额度回流；截断不拆开 Unicode 代理对。prompt 的 document_excerpts 记录 file、included_chars、omitted_chars 与 ranges（UTF-16 原文偏移，起点包含、终点不包含），正文展示这些范围。未展示内容不能声称已核验；首尾片段也不保证包含中间所有关键要求。
+
 输出必须符合 `CoordinationProposalSchema`：summary、next_action、risks；next_action 是 advance / ask_human / wait / complete，每种都必须有 reason 和 evidence。evidence 引用存在的 snapshot document、无冲突 confirmed ledger entry、当前 workflow node 或 current=true 的最新机器验证 event_id。workflow ID 指 node.id，不指 gate.id。advance 只能指向执行器拓扑顺序第一个未退出且依赖已退出的节点，无待人工 gate；complete 要求全部退出且无等待；人工选项不能重复。未知字段、自由文本、围栏 JSON、未知来源或非法节点均 failed/output。存在性验证不等价于语义正确性。
 
 轮次事件与 worker 恢复完全分离：server requested 绑定 SDLC 版本，started/completed 记录 round_id、workflow_id、driver、snapshot provenance、input_hash、prompt_hash 与可选配置身份。语义 input_hash 排除事件序号与轮次自身事件，覆盖完整文档 hash、账本、进度/等待、workflow 和配置身份。结果返回前重检；变化记 stale，读取失败记 failed/freshness，均没有提议。completed 只在 ok 时携带提议，其余状态 proposal 为 null；不保存原始输出/上下文或 driver raw。
 
-ADR-0043 的 ContextSessionAgentOptions.read_source_hash(def) 将声明源码身份加入协调轮次：server 对绑定流程全部 verification-passed.with.inputs 取并集，prompt 元信息与 started/completed 保存 source_hash，绑定时 input_hash 用 v2 域（未声明仍为 v1）。完成、查询和采用 guard 重新扫描同一范围；代码变更导致 stale 或 current=false，无法判定时不可采用。中断恢复保留旧摘要但不重放模型调用。source_hash 不等价于测试通过，snapshot_id 仍记录文档/事件 provenance。
+ADR-0043 的 ContextSessionAgentOptions.read_source_hash(def) 将声明源码身份加入协调轮次：server 对绑定流程全部 verification-passed.with.inputs 取并集，prompt 元信息与 started/completed 保存 source_hash。该阶段曾使用绑定源码的 v2 域与无绑定的 v1 域，当前统一采用下述 v4 域。完成、查询和采用 guard 重新扫描同一范围；代码变更导致 stale 或 current=false，无法判定时不可采用。中断恢复保留旧摘要但不重放模型调用。source_hash 不等价于测试通过，snapshot_id 仍记录文档/事件 provenance。
 
-ADR-0044 的 read_verifications(def, session, revision) 为协调者提供最多 128 项严格机器观察。server 只保留当前 run/发布版本/声明检查的最新结果，共用 readNodeInput 校验 current；缺失、坏结果、过期、取消和读失败不能标为当前有效。观察包含 status/current/reason、事件 ID、输入/命令/源码摘要及退出码，不含 summary 或日志。有观察时 input_hash 用 v3 域，完成/查询/采用重检同一投影；轮次只落 verification_context_hash。当前失败事实可作为 verification 来源用于解释等待，但不能冒充 passed 或绕过人工 gate。来源点击在控制台打开并展开结果事件。
+ADR-0044 的 read_verifications(def, session, revision) 为协调者提供最多 128 项严格机器观察。server 只保留当前 run/发布版本/声明检查的最新结果，共用 readNodeInput 校验 current；缺失、坏结果、过期、取消和读失败不能标为当前有效。观察包含 status/current/reason、事件 ID、输入/命令/源码摘要及退出码，不含 summary 或日志。该阶段曾用 v3 域绑定观察，当前统一采用 v4；完成/查询/采用重检同一投影，轮次只落 verification_context_hash。当前失败事实可作为 verification 来源用于解释等待，但不能冒充 passed 或绕过人工 gate。来源点击在控制台打开并展开结果事件。
+
+当前 coordinationInputHash 使用 cord.coordination-input.v4，加入 context_policy=balanced-head-tail.v1，继续绑定完整原文 hash、配置、workflow、进度、声明源码与机器观察。查询/采用和模型完成共用首尾采集；旧 v1/v2/v3 成功轮次保留历史，但 current=false，须重新协调。片段正文和索引不落事件，事件只保留 prompt/input hash。已采用轮次的原 run 重放语义不变，不自动回滚已退出节点。
 
 REST 创建 `POST /requirements/:req_id/coordination` 输入 `{agent, sdlc_id?, sdlc_version?, timeout_ms?}`，返回 202；列表/读取使用 GET，取消 `POST .../:round_id/cancel` 先落 cancel_requested 再 abort。写命令使用 Idempotency-Key；跨 method/path 复用键返回 409，创建并发同键合并为一轮。每需求只允许一轮在途协调，resolver 在创建时固定，归档版本拒绝新轮次。事件写入失败必须报告宿主，不能伪造 completed。server 重启将未完成轮次落 failed/interrupted；已有取消请求则落 cancelled，不重放模型调用。
 

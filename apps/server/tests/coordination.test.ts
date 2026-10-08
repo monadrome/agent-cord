@@ -8,7 +8,7 @@ import { ulid } from "ulid";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp, type BuiltServer } from "@agent-cord/server";
 import type { CoordinationRoundView } from "@agent-cord/server/contracts";
-import { EVENT_PAYLOAD_SCHEMAS, type EventType } from "agent-cord";
+import { canonicalJson, sha256Hex, readSnapshot, EVENT_PAYLOAD_SCHEMAS, type EventType } from "agent-cord";
 
 const fixture = join(dirname(fileURLToPath(import.meta.url)), "../../../tests/driver/fixtures/fake-cli.mjs");
 const acp_fixture = join(dirname(fileURLToPath(import.meta.url)), "../../../tests/driver/fixtures/fake-acp-agent.mjs");
@@ -416,6 +416,32 @@ describe("协调提议受控采用", () => {
     expect((await adopt(round_id)).status).toBe(409);
   });
 
+  it("旧前缀策略的成功提议保留历史，重启后必须重新协调才可采用", async () => {
+    const current = await valid_round();
+    const session = await server.sessions.open("REQ-CONTEXT");
+    const binding = await server.sdlcs.get("simple-sdlc", 1);
+    const snapshot = await readSnapshot(session, { workflow_id: binding.def.metadata.id, workflow_revision: binding.workflow_revision,
+      files: binding.def.spec.nodes.flatMap((node) => node.artifact === undefined ? [] : [node.artifact]) });
+    const legacy_hash = sha256Hex(canonicalJson({ domain: "cord.coordination-input.v1", workflow: binding.def,
+      configuration_hash: current.agent_configuration_hash, max_prompt_chars: 60_000, workflow_revision: binding.workflow_revision,
+      req_id: snapshot.req_id, title: snapshot.title, docs: snapshot.docs.map(({ file, exists, content_hash }) => ({ file, exists, content_hash })),
+      ledger: snapshot.ledger, workflow_progress: { ...snapshot.workflow, waiting: snapshot.workflow.waiting ?? [] } }));
+    const round_id = ulid();
+    for (const [type, payload] of [
+      ["coordinator.round.requested", { round_id, workflow_id: binding.def.metadata.id, workflow_revision: binding.workflow_revision,
+        driver: "coordinator", sdlc_id: "simple-sdlc", sdlc_version: 1 }],
+      ["coordinator.round.completed", { round_id, workflow_id: binding.def.metadata.id, workflow_revision: binding.workflow_revision,
+        driver: "headless:coordinator", status: "ok", proposal, error: null, duration_ms: 1, input_hash: legacy_hash,
+        agent_configuration_hash: current.agent_configuration_hash }],
+    ] as const) await session.events.append({ event_id: ulid(), session_id: session.req_id, type, schema_version: "1",
+      actor: { kind: "system", id: "legacy" }, correlation_id: round_id, payload, source: { adapter: "test" } });
+    await restart();
+    expect(await server.coordination.get("REQ-CONTEXT", round_id)).toMatchObject({ status: "ok", proposal, current: false, adoptable: false });
+    expect((await adopt(round_id)).status).toBe(409);
+    expect(server.runs.listRuns("REQ-CONTEXT")).toHaveLength(0);
+    expect(await valid_round()).toMatchObject({ current: true, adoptable: true });
+  });
+
   it("采用事实必须匹配提议的 workflow/节点/输入，不能因错误引用伪装成已采用", async () => {
     const round = await valid_round();
     const session = await server.sessions.open("REQ-CONTEXT");
@@ -491,9 +517,13 @@ describe("Context Session Agent REST", () => {
       kind: "acp", bin: process.execPath, args: [acp_fixture, "--result-text", JSON.stringify(proposal), "--record", record_file],
     } } }));
     await server.agents.reload();
+    await request("PUT", "/api/v1/requirements/REQ-CONTEXT/docs/prd", { content: "CURRENT_CONTEXT\n" + "x".repeat(40_000) + "\nTAIL_ACP_VERSION_A" }, "long-acp-context");
     const first = await start();
     expect(await done(first.body.round.round_id)).toMatchObject({ status: "ok", proposal, driver: "acp:coordinator" });
-    await request("PUT", "/api/v1/requirements/REQ-CONTEXT/docs/prd", { content: "# PRD\nLATEST_ACP_CONTEXT" }, "update-acp-context");
+    await restart();
+    expect(await server.coordination.get("REQ-CONTEXT", first.body.round.round_id)).toMatchObject({ current: true, adoptable: true });
+    await request("PUT", "/api/v1/requirements/REQ-CONTEXT/docs/prd", { content: "LATEST_ACP_CONTEXT\n" + "x".repeat(40_000) + "\nTAIL_ACP_VERSION_B" }, "update-acp-context");
+    expect(await server.coordination.get("REQ-CONTEXT", first.body.round.round_id)).toMatchObject({ current: false, adoptable: false });
     const second = await start("acp-second-round");
     expect((await done(second.body.round.round_id)).status).toBe("ok");
     const records = (await readFile(record_file, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
@@ -501,7 +531,9 @@ describe("Context Session Agent REST", () => {
     expect(records.some((item) => item.event === "session/load")).toBe(false);
     const prompts = records.filter((item) => item.event === "prompt");
     expect(prompts[0].text).toContain("CURRENT_CONTEXT");
+    expect(prompts[0].text.includes("TAIL_ACP_VERSION_A")).toBe(true);
     expect(prompts[1].text).toContain("LATEST_ACP_CONTEXT");
+    expect(prompts[1].text.includes("TAIL_ACP_VERSION_B")).toBe(true);
     expect(prompts[1].text).not.toContain("CURRENT_CONTEXT");
   });
 

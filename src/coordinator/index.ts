@@ -18,3 +18,4 @@ export {
 export { createNodeRunner, type CoordinatorOptions } from "./coordinator.js";
 export { readApprovalContextHash } from "./checkpoint.js";
 export { createContextSessionAgent, buildCoordinationPrompt, parseCoordinationProposal, coordinationInputHash, type ContextSessionAgentOptions } from "./session-agent.js";
+export { readCoordinationSnapshot } from "./coordination-context.js";

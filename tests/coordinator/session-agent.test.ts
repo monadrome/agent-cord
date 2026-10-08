@@ -326,6 +326,67 @@ describe("独立协调轮次", () => {
 });
 
 describe("提议验证与上下文预算", () => {
+  it("长 PRD 的开头与最新尾部要求都进入独立协调，不改变默认 worker 快照", async () => {
+    const content = "HEAD_REQUIREMENT\n" + "x".repeat(40_000) + "\nLATEST_TAIL_REQUIREMENT";
+    await writeFile(join(session.dir, "prd.md"), content);
+    const worker = driver();
+    expect((await coordinate(worker)).status).toBe("ok");
+    expect(worker.tasks[0]?.prompt).toContain("HEAD_REQUIREMENT");
+    expect(worker.tasks[0]?.prompt.includes("LATEST_TAIL_REQUIREMENT")).toBe(true);
+    expect((await readSnapshot(session)).docs.find((doc) => doc.file === "prd.md")?.content).not.toContain("LATEST_TAIL_REQUIREMENT");
+  });
+
+  it("受限总预算同时覆盖各文档，片段范围可还原原文且显式披露省略", async () => {
+    await mkdir(join(session.dir, "design"));
+    const files = ["prd.md", "plan.md", "adr.md", "findings.md", "design/plan.md"];
+    const contents = new Map(files.map((file, index) => [file, `HEAD_${index}\n` + "x".repeat(40_000) + `\nTAIL_${index}`]));
+    for (const [file, content] of contents) await writeFile(join(session.dir, file), content);
+    const worker = driver();
+    const observer = createContextSessionAgent({ resolveDriver: () => worker, workspaceRoot: root, maxPromptChars: 12_000 });
+    expect((await observer.coordinate(def, session, { round_id: ulid(), agent: "test-coordinator" })).status).toBe("ok");
+    const prompt = worker.tasks[0]!.prompt;
+    expect(prompt.length).toBeLessThanOrEqual(12_000);
+    for (let index = 0; index < files.length; index++) {
+      expect(prompt.includes(`HEAD_${index}`)).toBe(true);
+      expect(prompt.includes(`TAIL_${index}`)).toBe(true);
+    }
+    const line = prompt.split("\n").find((item) => item.startsWith("document_excerpts: "));
+    expect(line).toBeDefined();
+    const entries = JSON.parse(line!.slice("document_excerpts: ".length));
+    expect(entries).toHaveLength(files.length);
+    for (const entry of entries) {
+      const content = contents.get(entry.file)!;
+      expect(entry.omitted_chars).toBeGreaterThan(0);
+      expect(entry.included_chars + entry.omitted_chars).toBe(content.length);
+      for (const [start, end] of entry.ranges) expect(prompt).toContain(content.slice(start, end));
+    }
+  });
+
+  it("末尾要求在模型调用期间变化记 stale，新轮次能看到新尾部", async () => {
+    const original = "HEAD_REQUIREMENT\n" + "x".repeat(40_000) + "\nTAIL_VERSION_A";
+    await writeFile(join(session.dir, "prd.md"), original);
+    const worker = driver();
+    let changed = false;
+    worker.run = async function* (task) {
+      worker.tasks.push(task);
+      if (!changed) { changed = true; await writeFile(join(session.dir, "prd.md"), original.replace("TAIL_VERSION_A", "TAIL_VERSION_B")); }
+      yield { type: "result", data: { text: JSON.stringify(proposal) } };
+    };
+    expect(await coordinate(worker)).toMatchObject({ status: "stale", proposal: null });
+    expect((await coordinate(worker)).status).toBe("ok");
+    expect(worker.tasks[0]?.prompt.includes("TAIL_VERSION_A")).toBe(true);
+    expect(worker.tasks[1]?.prompt.includes("TAIL_VERSION_B")).toBe(true);
+    expect(worker.tasks[1]?.prompt).not.toContain("TAIL_VERSION_A");
+  });
+
+  it.each([NaN, Infinity, -1, 100])("预算 %s 无效或不足时不派发，默认预算可恢复", async (maxPromptChars) => {
+    const worker = driver();
+    const observer = createContextSessionAgent({ resolveDriver: () => worker, workspaceRoot: root, maxPromptChars });
+    expect(await observer.coordinate(def, session, { round_id: ulid(), agent: "test-coordinator" })).toMatchObject({ status: "failed", proposal: null });
+    expect(worker.tasks).toHaveLength(0);
+    expect((await coordinate(worker)).status).toBe("ok");
+  });
+
   it("advance 只能选择执行器实际下一节点，不能选择拓扑中的另一个独立 ready 节点", async () => {
     const workflow = { ...def, spec: { nodes: [def.spec.nodes[0]!, { id: "parallel", depends_on: [], gates: [] }] } };
     const snapshot = await readSnapshot(session, { workflow_id: workflow.metadata.id });

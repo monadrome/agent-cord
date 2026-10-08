@@ -124,6 +124,13 @@
 - workspace doctor 的 merge driver 检查不同于 session doctor，临时 git 仓库仍需注册本地 merge driver；完成该初始化后 HTTP/浏览器验收与 workspace doctor 全通过。
 - 读错误后的 UI 不能解锁编辑或显示“已与磁盘一致”，真实 404 才进入新文档状态；浏览器已验证错误、缺失、保存与恢复，控制台仍只展示 server 投影。
 
+## 实现校准（2026-10-08，独立协调上下文覆盖）
+
+- 长文档完整 hash 改变不代表模型看到了变化内容：默认前 20000 字符和按序总预算会丢失末尾要求、挤掉后续报告。4 个核心/ACP 反例先全部复现。
+- readCoordinationSnapshot 保留首尾，剩余预算均衡分配并回流短文档额度；片段索引记录 UTF-16 原文范围、纳入数与省略数。模型完成/查询/采用共用策略，input v4 使旧策略提议失效。
+- 100 项定向与全量 713 测试 / 57 文件通过，build:all/typecheck 通过；含原文范围还原、Unicode、非法预算、在途尾部变更恢复、ACP 重启/新会话和旧轮次迁移。
+- 真实 Claude 两轮均 ok/current，summary 准确引用长 PRD、findings、自定义报告的三个 A/B 尾部标记，prompt=59950 字符。重启不变仍 current，更新使旧轮次失效；会话不同、无工具调用、无工作流副作用、doctor=true。原真实 Draft 实时核验仍人工未决。
+
 ## 实现校准（2026-10-08，验证证据一致性）
 
 - checker 与协调观察对结果契约有漂移：passed/非零退出码、坏摘要、坏最新 correlation、损坏行、外部 session 与取消事实均有放行风险；新增反例先复现 13 个失败。

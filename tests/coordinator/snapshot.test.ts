@@ -38,6 +38,20 @@ async function confirm_entry(): Promise<void> {
 }
 
 describe("快照一致性", () => {
+  it("显式首尾模式在单文档预算内采集原文两端，完整 hash 与默认模式相同", async () => {
+    const content = "HEAD\n" + "x".repeat(40_000) + "\nTAIL";
+    await writeFile(join(session.dir, "prd.md"), content);
+    const regular = await readSnapshot(session, { maxDocChars: 1_000 });
+    const balanced = await readSnapshot(session, { maxDocChars: 1_000, excerpt_mode: "head_tail" });
+    const excerpt = balanced.docs.find((doc) => doc.file === "prd.md")!;
+    expect(excerpt.content.startsWith("HEAD")).toBe(true);
+    expect(excerpt.tail_content?.endsWith("TAIL")).toBe(true);
+    expect(excerpt.content.length + excerpt.tail_content!.length).toBeLessThanOrEqual(1_000);
+    expect(excerpt.content_length).toBe(content.length);
+    expect(excerpt.content_hash).toBe(regular.docs.find((doc) => doc.file === "prd.md")?.content_hash);
+    expect(balanced.snapshot_id).toBe(regular.snapshot_id);
+  });
+
   it("账本来自最新事件，与 progress/hash 使用同一基线，读取不刷新旧投影文件", async () => {
     const projection_file = join(session.dir, "ledger.yaml");
     const old_projection = await readFile(projection_file, "utf8");

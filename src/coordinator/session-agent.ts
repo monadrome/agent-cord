@@ -6,7 +6,8 @@ import type { AgentDriver, ContextSessionAgent, CoordinationInput, CoordinationR
 import { AgentUsagePayloadSchema, CoordinationProposalSchema, CoordinationVerificationsSchema, type CoordinationVerification, type CoordinationProposal, type CoordinationStatus, type WorkflowDef } from "../core/schema.js";
 import { DEFAULT_TASK_TIMEOUT_MS } from "../driver/headless.js";
 import { topologicalOrder } from "../workflow/executor.js";
-import { readSnapshot, type RequirementSnapshot } from "./snapshot.js";
+import type { RequirementSnapshot } from "./snapshot.js";
+import { buildCoordinationDocuments, COORDINATION_CONTEXT_POLICY, readCoordinationSnapshot } from "./coordination-context.js";
 
 const ADAPTER = "context-session-agent";
 const ABORTED = Symbol("aborted");
@@ -30,7 +31,7 @@ export interface ContextSessionAgentOptions {
 /** 轮次自己的事件不会改变输入；文档、账本、进度与人工等待会改变。 */
 export function coordinationInputHash(def: WorkflowDef, snapshot: RequirementSnapshot, configuration_hash: string | null, max_prompt_chars = DEFAULT_MAX_PROMPT_CHARS, source_hash: string | null = null, verifications: readonly CoordinationVerification[] = []): string {
   return sha256Hex(canonicalJson({
-    domain: verifications.length > 0 ? "cord.coordination-input.v3" : source_hash === null ? "cord.coordination-input.v1" : "cord.coordination-input.v2", workflow: def, configuration_hash, max_prompt_chars,
+    domain: "cord.coordination-input.v4", context_policy: COORDINATION_CONTEXT_POLICY, workflow: def, configuration_hash, max_prompt_chars,
     ...(source_hash === null ? {} : { source_hash }),
     ...(verifications.length === 0 ? {} : { verifications }),
     ...(snapshot.workflow_revision !== undefined ? { workflow_revision: snapshot.workflow_revision } : {}),
@@ -71,11 +72,13 @@ export function parseCoordinationProposal(text: string, def: WorkflowDef, snapsh
 }
 
 export function buildCoordinationPrompt(def: WorkflowDef, snapshot: RequirementSnapshot, max_chars = DEFAULT_MAX_PROMPT_CHARS, source_hash: string | null = null, verifications: readonly CoordinationVerification[] = []): string {
+  if (!Number.isSafeInteger(max_chars) || max_chars < 0) throw new Error("协调上下文预算必须是非负安全整数");
   topologicalOrder(def);
   const fixed = [
     "# Context Session Agent：当前需求的协调者",
     "分析最新快照，提出下一步。只产 Draft；不调用工具、不写文件、不启动 worker、不放行 gate。不要读取事件流或旧会话历史。",
     "返回一个严格 JSON 对象，禁止 Markdown 围栏和额外解释。证据引用只允许本包的文档、无冲突 confirmed 条目、workflow 节点或 current=true 的验证 event_id。",
+    `context_policy: ${COORDINATION_CONTEXT_POLICY}\n文档按首尾片段提供，document_excerpts 标明 UTF-16 字符范围和省略数。未显示的内容不能声称已核验；材料不足时请选择 wait 或 ask_human。`,
     `workflow 来源的 id 只能是 node.id（${JSON.stringify(def.spec.nodes.map((node) => node.id))}），不能是 gate.id；verification 来源的 id 只能是 current=true 观察的 event_id。`,
     "advance 只可选择 eligible_nodes；该提议不代表机器 checker 或人工审批已放行。等待人工 gate 时请选择 ask_human 或 wait。",
     `req_id: ${snapshot.req_id}\ntitle: ${snapshot.title ?? "（未命名）"}`,
@@ -90,17 +93,7 @@ export function buildCoordinationPrompt(def: WorkflowDef, snapshot: RequirementS
     `response_schema: ${JSON.stringify(z.toJSONSchema(CoordinationProposalSchema))}`,
   ].join("\n\n");
   if (fixed.length > max_chars) throw new Error("协调输入的必需元信息超过上下文预算，请缩小 workflow 或账本");
-  const sections = [fixed];
-  let remaining = max_chars - fixed.length;
-  for (const doc of snapshot.docs) {
-    if (!doc.exists || doc.content.length === 0) continue;
-    const heading = `\n\n## 文档 ${doc.file}（片段；hash 标识完整原文）\n`;
-    if (remaining <= heading.length) break;
-    const content = doc.content.slice(0, remaining - heading.length);
-    sections.push(heading + content);
-    remaining -= heading.length + content.length;
-  }
-  return sections.join("");
+  return fixed + buildCoordinationDocuments(snapshot.docs, max_chars - fixed.length);
 }
 
 async function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T | typeof ABORTED> {
@@ -160,7 +153,7 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
     let source_hash: string | null = null;
     let verifications: CoordinationVerification[] = [];
     try {
-      snapshot = await readSnapshot(session, { workflow_id: def.metadata.id, workflow_revision: input.workflow_revision, files: def.spec.nodes.flatMap((node) => node.artifact === undefined ? [] : [node.artifact]) });
+      snapshot = await readCoordinationSnapshot(def, session, input.workflow_revision);
       Object.assign(base, { snapshot_id: snapshot.snapshot_id, snapshot_event_seq: snapshot.event_seq, snapshot_event_chain_hash: snapshot.event_chain_hash });
       source_hash = await read_source_hash(def);
       if (source_hash !== null) base["source_hash"] = source_hash;
@@ -251,7 +244,7 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
     try { proposal = parseCoordinationProposal(text, def, snapshot, verifications); }
     catch (error) { return complete("failed", null, error instanceof Error ? error.message : "协调输出校验失败", { ...extra, failure_stage: "output" }); }
     try {
-      const current = await readSnapshot(session, { workflow_id: def.metadata.id, workflow_revision: input.workflow_revision, files: def.spec.nodes.flatMap((node) => node.artifact === undefined ? [] : [node.artifact]) });
+      const current = await readCoordinationSnapshot(def, session, input.workflow_revision);
       const current_source = await read_source_hash(def);
       const current_verifications = await read_verifications(def, session, input.workflow_revision);
       if (input.signal?.aborted) return complete("cancelled", null, "协调轮次已取消", extra);

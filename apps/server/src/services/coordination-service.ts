@@ -3,7 +3,7 @@ import { ulid } from "ulid";
 import {
   CoordinatorRoundRequestedPayloadSchema, CoordinatorRoundStartedPayloadSchema,
   CoordinatorRoundCompletedPayloadSchema, createContextSessionAgent,
-  CoordinatorRoundAdoptedPayloadSchema, coordinationInputHash, parseCoordinationProposal, readSnapshot,
+  CoordinatorRoundAdoptedPayloadSchema, coordinationInputHash, parseCoordinationProposal, readCoordinationSnapshot,
   type AgentDriver, type EventEnvelope, type SessionHandle, type WorkflowDef,
 } from "agent-cord";
 import type { CoordinationRoundView, RunInfo, StartCoordinationInput } from "../contracts.js";
@@ -159,7 +159,7 @@ export class CoordinationService {
         return result;
       }
       const session = await this.sessions.open(round.req_id);
-      const snapshot = await readSnapshot(session, { workflow_id: workflow.metadata.id, workflow_revision: round.workflow_revision, files: workflow.spec.nodes.flatMap((node) => node.artifact === undefined ? [] : [node.artifact]) });
+      const snapshot = await readCoordinationSnapshot(workflow, session, round.workflow_revision);
       const source_hash = await this.read_source_hash(workflow);
       const verifications = await readCoordinationVerifications(workflow, session, round.workflow_revision, this.options.runs);
       result.current = round.source_hash === source_hash && coordinationInputHash(workflow, snapshot, configuration_hash, undefined, source_hash, verifications) === round.input_hash;
