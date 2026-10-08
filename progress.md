@@ -12,6 +12,7 @@
 - 浏览器首轮未启动：原 Playwright npm 缓存路径已清理且未找到其他缓存，临时目录单独安装工具恢复验收，不改应用依赖。预览 7311 与原真实 Draft 实时健康，原 gate 仍未决。
 - 临时 Playwright 1.58.2 与本机 Chrome 验收通过：1440/390/320 任务来源均定位并展开正确 event/run/status，无溢出/pageerror。重置滚动位置后桌面/手机截图已查看，无内容重叠。
 - 当前预览 `http://127.0.0.1:7311/#/requirements/REQ-TASK-OBSERVATION/coordination` 展示真实冷启动 wait Draft，current=true；事件/模型正文/截图仅留在临时目录。差异审查完成，进入提交与有界推送，持续目标保持 active。
+- 功能提交 `65270f9`，HTTP/2 推送成功（origin/exp/impl：e426eb9→65270f9），远端 ls-remote 确认同一 hash，工作区干净。预览实时三轮 ok、最新 current=true、旧两轮 false，审批 1、人工决定/节点退出 0；持续目标保持 active。
 
 ## 2026-10-08（阶段 33）
 
