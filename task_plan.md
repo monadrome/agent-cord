@@ -642,7 +642,7 @@
 - [x] server/源码身份/恢复、推荐模板与公开使用文档；浏览器发现指南不可见，补只读当前声明产物入口
 - [x] 成功/失败/恢复测试，最终 895 项 / 67 文件、build:all/typecheck/diff；隔离 ACP/headless 真子进程、真实 Codex 3 用例与 HTTP/1440/390/320 验收
 - [x] 功能本地提交 `2f0f541`（feat: deliver goals with host verification and automatic repair）
-- [x] 远端同步：HTTP/2 低速失败后，HTTP/1.1 有界推送成功，ls-remote 核验 `2f0f541a8b0eebcb7293529615c63efdfb6f1473`
+- [x] 远端同步：HTTP/2 低速失败后，HTTP/1.1 有界推送成功，最终 docs 收尾提交 `191b2a814a7461b020806cbb79b23ef4631a3ee5` 已由 ls-remote 核验
 
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
