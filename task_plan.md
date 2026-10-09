@@ -727,7 +727,7 @@
 - [x] retry API/service、当前 token、父子来源、失败终态与配置新鲜度校验
 - [x] 控制台重试操作、headless/ACP/超时/stale/冷恢复/请求中断回归
 - [x] 全量 1060 项 / 74 文件、typecheck/build:all/diff、隔离 HTTP/浏览器与公开文档
-- [x] 功能改动已验证，待小步提交与远端同步核验
+- [x] 功能提交 `1327314`，HTTP/2 推送成功，`ls-remote` 核验远端 hash 一致；工作区干净，完整持续目标 active
 
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 

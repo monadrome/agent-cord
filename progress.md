@@ -11,6 +11,7 @@
 - 138 项协调/授权/console 相关测试通过；新增 expected_input_hash 在模型快照捕获时再次校验原重试输入，记录后/捕获前漂移不调用模型。5 项最新定向通过。文档同步最终 token、human actor、固定配置与父子来源契约，准备全量与隔离 browser 操作验收。
 - 最新全量 1060 项 / 74 文件、typecheck/build:all/diff 通过；隔离 ACP/HTTP 配置修复后旧 token 409、retry round 父子来源、冷恢复和 1440/390/320 重试按钮路径通过。worker 首次 1、supervisor 重试 2、最终 worker 2、Goal 授权 1、gate 决策 0、done 退出 0、doctor=true；证据 `/tmp/cord-stage51-real-result.json` 与 `/tmp/cord-stage51-browser-result.json`，预览 PID 72974。
 - 失败重试新增 expected_input_hash 捕获前检查、request 后输入变化 interrupted、坏来源需求隔离；完整持续目标 active，进入提交与有界同步。
+- 功能提交 `1327314`（feat: retry failed goal coordination rounds）已用 HTTP/2 推送；独立 `ls-remote` 核验远端 `1327314af61dcaa11bfc795658446f652af865f9` 与本地一致。阶段 49/50/51 的积压提交一并同步，工作区保持干净，持续目标 active。
 
 ## 2026-10-09（阶段 50）
 
