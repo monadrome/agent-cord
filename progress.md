@@ -13,6 +13,7 @@
 - 原数据审计首次 doctor=false 仅为 ledger 投影漂移，事实/session/链/唯一性均通过；经已有 readLedger 重建后 doctor=true。原工作区审计通过，只有三次协调完成（违规两次、真实 Claude 一次），模型未重放、PRD/审批 ID 不变，人工决定/节点退出/worker/采用/用户取消为 0。
 - 最新源码 detached 预览 `http://127.0.0.1:7313/#/requirements/REQ-ROLE-BOUNDARY/coordination`（PID 14129），最新 wait current=true、两次违规 failed。Playwright/Chrome 1440/390/320 验证固定失败正文与边界、无提议/采用按钮、文档来源跳转，无溢出/pageerror，截图已查看无重叠。运行结果和截图仅在临时目录；README/协议/架构/ADR 索引与公开验收记录同步。
 - 最终差异审查与 git diff --check 通过，原真实 Draft 7306 实时健康、审批 1、人工决定 0、done 未退出；阶段 36 进入独立本地提交与有界远端同步，持续目标保持 active。
+- 功能提交 `787b387`，HTTP/2 有界推送成功（origin/exp/impl：cd9e75a→787b387）；ls-remote 实际 hash=787b387cb50df1fdf630a408f3fa7fd83eb342bb，与本地 HEAD 相同。阶段 35 的 `a802351`/`2317f8e` 一并同步，未改全局 Git 配置；持续目标保持 active。
 
 ## 2026-10-08（阶段 35）
 
@@ -31,6 +32,7 @@
 - 补齐后 46 项定向、完整 793 测试 / 62 文件、build:all/typecheck/git diff --check 通过。7312 预览无在途协调，重启到最新代码（PID 76112）后 started/completed/reused 仍各 1 条，最新 wait current=true、审批 1、人工决定/节点退出 0；7306 原真实 Draft 健康、人工待审、done 未退出。
 - 功能提交 `a802351`（23 文件），HTTP/2 有界推送退出码 128：低于 1 bytes/sec 持续 15 秒；远端 ls-remote 在 20 秒上限后终止，GitHub 443 独立连接检查 5 秒超时。本地提交保留，远端实际状态未确认；不重启原真实 Draft、不改全局 Git 配置。
 - 用户明确本项目可以小步提交，已记入计划的当前状态；后续按独立、已验证的增量提交，持续优化目标保持 active。
+- 后续阶段 36 推送 `787b387` 成功，已一并同步本阶段功能与记录提交，远端实际 hash 已由 ls-remote 核验。
 
 ## 2026-10-08（阶段 34）
 
