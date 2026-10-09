@@ -192,6 +192,10 @@ export type AnswerCoordinationInput = z.infer<typeof AnswerCoordinationInputSche
 export const RevokeCoordinationAnswerInputSchema = z.strictObject({ answer_event_id: z.string().regex(ULID_RE) });
 export type RevokeCoordinationAnswerInput = z.infer<typeof RevokeCoordinationAnswerInputSchema>;
 export interface CoordinationRoundView {
+  trigger?: "goal_blocked";
+  run_id?: string;
+  node_id?: string;
+  goal_event_id?: string;
   round_id: string;
   req_id: string;
   sdlc_id: string;

@@ -12,6 +12,7 @@ import type {
   EventType,
   GateDef,
   GateResult,
+  GoalBlockerTrigger,
   Ledger,
   VoteRecord,
   VoteVerdict,
@@ -193,6 +194,8 @@ export interface CoordinationInput {
   workflow_revision?: string;
   timeout_ms?: number;
   signal?: AbortSignal;
+  /** ADR-0058：只有 ask_human/wait 且引用此 blocker 的结果可接受。 */
+  goal_blocker?: GoalBlockerTrigger;
 }
 export interface CoordinationResult {
   round_id: string;

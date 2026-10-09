@@ -75,6 +75,22 @@ export interface RunServiceOptions {
   driverResolverForRun?: () => (name: string) => AgentDriver;
   /** worker agent 的工作目录（工作区根，即 cord/ 的上级） */
   workspaceRoot?: string;
+  /** ADR-0058：Goal 阻塞后的受限自动协调入口。 */
+  onGoalBlocked?: (context: GoalBlockedContext) => Promise<void>;
+}
+
+export interface GoalBlockedContext {
+  req_id: string;
+  run_id: string;
+  sdlc_id: string;
+  sdlc_version: number;
+  workflow_id: string;
+  workflow_revision: string | null;
+  node_id: string;
+  goal_event_id: string;
+  supervisor_agent: string;
+  supervisor_timeout_ms?: number;
+  signal?: AbortSignal;
 }
 
 /** ADR-0033：运行槽位内校验人工采用依据，事实落盘成功后才启动执行器。 */
@@ -102,6 +118,10 @@ export class RunService {
     this.sdlcs = sdlcs;
     this.index = index;
     this.options = options;
+  }
+
+  setGoalBlockedHandler(handler: (context: GoalBlockedContext) => Promise<void>): void {
+    this.options.onGoalBlocked = handler;
   }
 
   isActive(reqId: string): boolean {
@@ -596,6 +616,23 @@ export class RunService {
           && event.payload["run_id"] === run.run_id && event.payload["status"] === "blocked");
         this.safeFinish(run.run_id, status, status === "failed" && blocked_goal !== undefined ? String(asRecord(blocked_goal.payload)?.["reason"]) : null);
         await session.rebuildLedger();
+        if (!this.closing && status === "failed" && blocked_goal !== undefined && this.options.onGoalBlocked !== undefined) {
+          const blocked_payload = asRecord(blocked_goal.payload);
+          const node_id = typeof blocked_payload?.["node_id"] === "string" ? blocked_payload["node_id"] : null;
+          const node = node_id === null ? undefined : def.spec.nodes.find(item => item.id === node_id);
+          const supervisor_agent = node?.run?.goal?.supervisor_agent;
+          if (node_id !== null && node !== undefined && supervisor_agent !== undefined) {
+            try {
+              await this.options.onGoalBlocked({
+                req_id: session.req_id, run_id: run.run_id, sdlc_id: run.sdlc_id, sdlc_version: run.sdlc_version,
+                workflow_id: def.metadata.id, workflow_revision: run.workflow_revision ?? null, node_id, goal_event_id: blocked_goal.event_id,
+                supervisor_agent,
+                signal: controller.signal,
+                ...(node.run?.goal?.supervisor_timeout_ms === undefined ? {} : { supervisor_timeout_ms: node.run.goal.supervisor_timeout_ms }),
+              });
+            } catch { /* 自动升级失败不覆盖原 run failed 事实；协调视图保留失败或未启动状态。 */ }
+          }
+        }
       })
       .catch((error: unknown) => {
         this.safeFinish(run.run_id, "failed", error instanceof Error ? error.message : String(error));

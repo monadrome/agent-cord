@@ -13,7 +13,8 @@ describe("Agent 接入示例", () => {
     expect(topologicalOrder(def)).toEqual(["intake", "deliver", "done"]);
     const delivery = def.spec.nodes.find(node => node.id === "deliver")!;
     expect(registry.resolve(delivery.run!.agent).configuration_hash).toMatch(/^[0-9a-f]{64}$/);
-    expect(delivery.run!.goal).toMatchObject({ max_attempts: 3, no_progress_limit: 2 });
+    expect(delivery.run!.goal).toMatchObject({ max_attempts: 3, no_progress_limit: 2, supervisor_agent: "context-coordinator", supervisor_timeout_ms: 120000 });
+    expect(registry.resolve(delivery.run!.goal!.supervisor_agent!).configuration_hash).toMatch(/^[0-9a-f]{64}$/);
     expect(delivery.run!.goal!.checks.map(check => check.id)).toEqual(["offline-tests", "typecheck", "build"]);
     expect(def.spec.nodes.flatMap(node => node.gates).filter(gate => gate.pass.human_confirm).map(gate => gate.id)).toEqual(["human-review"]);
     expect(findUnknownCheckers(def, createBuiltinRegistry())).toEqual([]);

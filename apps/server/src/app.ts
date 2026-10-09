@@ -90,6 +90,10 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
     workspaceRoot: root,
   });
   const coordination = new CoordinationService(sessions, sdlcs, { workspaceRoot: root, resolver: () => agents.resolver(), runs, onError: (error) => app.log.error(error) });
+  runs.setGoalBlockedHandler(async (context) => {
+    try { await coordination.escalateGoalBlocker(context); }
+    catch (error) { app.log.error(error); }
+  });
 
   await runInit(root);
   await sdlcs.ensureDefaults();
@@ -99,6 +103,7 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
     await coordination.close();
   });
   const resumed = await runs.recover();
+  await coordination.recoverGoalBlockers();
   if (resumed.length > 0) app.log.info(`恢复未完成的 run：${resumed.join(", ")}`);
 
   // ---- 统一错误形状（ADR-0021 决策 7） -------------------------------------

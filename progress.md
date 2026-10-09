@@ -1,5 +1,17 @@
 # 工作进度
 
+## 2026-10-09（阶段 44）
+
+- 工作树干净、HEAD af7f259 同步；上一轮 Goal 状态感知已验证。本轮连接 blocked Goal 与 supervisor 自动升级，保持 Draft-only 与最终人工 gate。
+- ADR-0058 先行，run.goal 增可选 supervisor_agent/timeout，生产 RunService 回调在失败事实与终态落盘后发起受限协调；请求由系统 actor 记录 Goal/run/node 来源。
+- 补齐持久请求去重、在途协调等待重检与冷恢复缺请求补齐；已请求调用不重放，关闭信号中止等待避免服务关闭死锁。自动提议必须 ask_human/wait 并引用绑定 blocker，输入 hash 绑定该来源。
+- 首次用例未声明 gate 被发布校验拒绝，补正确人工 gate；第二次先读到 running，改为等待已验证终态。13 项自动升级与 5 项 Goal 观察通过，继续并发协调/关闭边界验收。
+- 新增 supervisor fixture 与 15 项自动升级测试，覆盖 headless/ACP、happy path、无 supervisor、坏输出、未知 agent、重复/并发/冷恢复、已有人工协调、输入变化 stale、取消、伪造来源和服务关闭。
+- 真实隔离 Codex HTTP 验收：自动 Goal blocker 生成 `goal_blocked` ask_human，run failed、人工决定 0、节点退出 0、supervisor 调用 1；重启同一 round 不重复调用，doctor=true。结果 `/tmp/cord-stage44-real-result.json`，预览 `http://127.0.0.1:57145/#/requirements/REQ-AUTO-ESC/coordination`。
+- 来源审查补齐：请求投影核验宿主 actor 与原 blocker，库直接重复触发也被拒绝；新增坏历史来源与 supervisor 超时回归。首次全量 917 项通过；最终继续核验新增用例。
+- Playwright/Chrome 1440/390/320 问题可见、选项可用、无采用按钮、Goal 来源跳转与 pageerror=0 通过。已补按钮 aria-label；事件页检查等待真实渲染，截图从页顶拍摄；桌面/320 截图已查看无覆盖。生产真实待审 Draft 均未答复或批准。
+- 最终全量 919 测试 / 70 文件、build:all/typecheck/git diff --check 通过；10 份公开文档的 147 个本地链接与 ADR-0058 七节/54 行通过。最新预览 PID 52961 核验来源有效、同一 round、supervisor 1 次、人工答复/决定 0。临时工具与截图不提交，原真实 Draft 保持未决，完整持续目标 active。
+
 ## 2026-10-09（阶段 43）
 
 - 阶段 42 真实 Goal 原型已验证；阶段记录与实现已合并到当前 HEAD f935896，远端已同步核验，工作树干净。

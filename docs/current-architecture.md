@@ -54,6 +54,8 @@ worker agent 子进程（ACP / 裸 headless CLI）
 
 ACP/headless 保持任务调用。coordinator/goal.ts 在 NodeRunner 内承载 run.goal：worker 产出代码与指南 → 宿主按声明 argv 执行检查 → 输入重检与指南审计 → 失败反馈修复或 ready。host-verification.ts 计算完整输出 hash、有界内存尾部并回收超时/取消进程组；失败原文不持久化。指南补入实际结果事件与命令元信息，当前源码与最终指南绑定验证输入。连续无进展、时长与尝试从 goal.attempt 事实恢复；卡点归 run failed 并公开原因。Context Session Agent 现在读取受限 Goal 状态；blocked/invalid/cancelled 会使 eligible_nodes 为空，只能产生带当前 Goal 事件证据的 ask_human/wait Draft，不会扩预算或放行 gate。
 
+Goal 声明 `supervisor_agent` 时，RunService 在 blocked 事实和 failed run 落盘后调用 CoordinationService 自动发起 `goal_blocked` 轮次。请求事实绑定 blocker event、run、node 和 workflow revision，服务重启补缺失请求且不重放已开始的 supervisor；在途人工协调先等待。协调失败不改变 run failed，输入变化使轮次 stale，人工回答仍走既有澄清接口。没有声明 supervisor 的流程保持旧行为。
+
 “Agent 协作 · Goal”模板默认使用该原型，旧发布流程保持原执行语义。缺宿主能力或 NodeRunner 的 Goal 拒绝跳过；正常闭环在未退出节点内完成，最终 post gate 保留人工。未退出 Goal 的同 run 冷恢复校验最新 ready、worker 完成引用、当前源码/指南与宿主验证事件，输入变化先重做；新 run 不复用旧 ready。独立监督、结构化人工卡点续跑和权限策略统一仍待后续实现，完整输出日志未持久化。
 
 ## 3. 数据和写入路径

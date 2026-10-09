@@ -214,7 +214,10 @@ export const GoalConfigSchema = z.strictObject({
   max_attempts: z.number().int().min(1).max(10).default(3),
   timeout_ms: z.number().int().positive().max(86_400_000).default(1_800_000),
   no_progress_limit: z.number().int().min(1).max(10).default(2),
-});
+  /** ADR-0058：Goal 阻塞后自动发起受限协调；未声明不调用 supervisor。 */
+  supervisor_agent: z.string().trim().min(1).max(200).optional(),
+  supervisor_timeout_ms: z.number().int().positive().max(600_000).optional(),
+}).refine(value => value.supervisor_timeout_ms === undefined || value.supervisor_agent !== undefined, "supervisor_timeout_ms 必须与 supervisor_agent 一起声明");
 export type GoalConfig = z.infer<typeof GoalConfigSchema>;
 export type GoalCommand = z.infer<typeof GoalCommandSchema>;
 
@@ -348,6 +351,12 @@ export const CoordinationExecutionContextSchema = z.strictObject({
 export type CoordinationExecutionContext = z.infer<typeof CoordinationExecutionContextSchema>;
 /** 观察 hook 输入允许省略有默认值的新字段，消费端始终归一化。 */
 export type CoordinationExecutionContextInput = z.input<typeof CoordinationExecutionContextSchema>;
+
+/** ADR-0058：自动协调只解释这个已持久化的 blocker。 */
+export const GoalBlockerTriggerSchema = z.strictObject({
+  run_id: z.string().regex(ULID_RE), node_id: z.string().min(1).max(500), goal_event_id: z.string().regex(ULID_RE),
+});
+export type GoalBlockerTrigger = z.infer<typeof GoalBlockerTriggerSchema>;
 
 /** ADR-0032：协调提议仅引用当前快照/工作流，不能携带任意命令或修改协议。 */
 export const CoordinationEvidenceSchema = z.discriminatedUnion("source", [
@@ -735,7 +744,11 @@ export const CoordinatorRoundRequestedPayloadSchema = z.looseObject({
   round_id: z.string().regex(ULID_RE), workflow_id: z.string().min(1), driver: z.string().min(1),
   workflow_revision: z.string().length(64).optional(),
   sdlc_id: z.string().min(1), sdlc_version: z.number().int().positive(),
-});
+  trigger: z.literal("goal_blocked").optional(),
+  run_id: z.string().regex(ULID_RE).optional(), node_id: z.string().min(1).optional(), goal_event_id: z.string().regex(ULID_RE).optional(),
+}).refine(value => value.trigger === undefined
+  ? value.run_id === undefined && value.node_id === undefined && value.goal_event_id === undefined
+  : value.run_id !== undefined && value.node_id !== undefined && value.goal_event_id !== undefined, "自动协调请求必须携带完整 Goal 来源");
 export const CoordinatorRoundCompletedPayloadSchema = z.looseObject({
   ...coordination_round_fields,
   status: CoordinationStatusSchema,

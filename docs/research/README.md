@@ -38,6 +38,8 @@ agent 外部行为：[2026-10-09 上下文版本](./2026-10-09-agent-context-rev
 
 自主交付：[2026-10-09 节点内 Goal](./2026-10-09-goal-node-delivery.md)，记录宿主命令、自主修复、指南证据、持久化预算、ACP/headless 真子进程、真实 Codex 与桌面/移动验收。
 
+自动卡点升级：[2026-10-09 Goal 自动协调](./2026-10-09-automatic-goal-escalation.md)，记录 supervisor 声明、持久来源、并发/恢复/关闭、真实 Codex 人工问题与浏览器来源导航。
+
 | # | 文件 | 主题 | 核心结论 |
 |---|---|---|---|
 | 01 | [2026-09-24-01-orchestration-workflow-engines.md](./2026-09-24-01-orchestration-workflow-engines.md) | 多 agent 编排与工作流引擎 | 无引擎满足「YAML 图 + gate + 审批暂停 + git/文件为唯一 SSOT」的组合；允许外部状态源的仅 4 个（Vercel Workflow SDK 的 World 适配器最彻底）。编排内核自研，gate 状态机可用 XState v5；Inngest（SSPL）、Restate（BSL）许可排除 |

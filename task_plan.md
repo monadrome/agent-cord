@@ -653,6 +653,16 @@
 - [x] 功能本地提交 `2f0f541`（feat: deliver goals with host verification and automatic repair）
 - [x] 远端同步：HTTP/2 低速失败后，HTTP/1.1 有界推送成功，最终 docs 收尾提交 `191b2a814a7461b020806cbb79b23ef4631a3ee5` 已由 ls-remote 核验
 
+## 阶段 44：Goal blocked 自动协调升级（已实现并验证）
+
+- [x] 核验上轮提交 af7f259 与干净工作树；上轮为已验证进展，持续目标 active
+- [x] ADR-0058 先行：supervisor 声明、系统触发来源、持久化去重与冷恢复，人工只处理卡点
+- [x] blocked Goal 自动轮次、来源/输入绑定、ask_human/wait 限制、关闭取消与控制台导航
+- [x] 成功/失败/无配置/并发/恢复/关闭/过期路径测试，定向离线验证
+- [x] 隔离真实 Codex/HTTP 与 1440/390/320 浏览器验收通过，公开文档同步
+- [x] 最终 919 测试 / 70 文件、typecheck/build:all/diff、147 个文档链接与 ADR-0058 七节/54 行通过
+- [ ] 小步提交推送并核验
+
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
 - [x] 核验当前分支与阶段 10；上一轮实现和远端同步属于已验证进展

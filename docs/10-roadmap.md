@@ -15,6 +15,8 @@
 
 阶段 43 已把第一步落为受限观察原型：Goal 状态进入协调输入身份，blocked/invalid/cancelled 禁止 advance，人工问题可引用当前 Goal 事件；尚未自动创建协调轮次或代替人提交澄清。
 
+阶段 44 已实现自动升级原型：声明 supervisor_agent 的 blocked Goal 会自动创建一次 goal_blocked 协调轮次；轮次只能形成带 blocker 证据的 ask_human/wait，服务重启/并发/关闭均有界处理。下一步是把结构化答复映射到“补充事实后重启 Goal”的显式人工命令，仍不自动批准。
+
 现有默认离线 SDLC 和已发布版本保持原语义，最终人工 gate 保留。以下保留历史 MVP/W1–M4 规划。
 
 ## 本章回答什么问题

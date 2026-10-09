@@ -4,6 +4,7 @@ import {
   CoordinatorRoundRequestedPayloadSchema, CoordinatorRoundStartedPayloadSchema,
   CoordinatorRoundCompletedPayloadSchema, createContextSessionAgent,
   CoordinatorRoundAdoptedPayloadSchema, coordinationInputHash, parseCoordinationProposal, readCoordinationSnapshot,
+  GoalAttemptCompletedPayloadSchema, GoalBlockerTriggerSchema, type GoalBlockerTrigger, matchesWorkflowScope,
   readSessionEvents, SessionEventReadError, CoordinatorRoundAnsweredPayloadSchema, CoordinatorRoundAnswerRevokedPayloadSchema, readClarificationAnswers, currentClarificationAnswers, projectClarifications, MAX_CLARIFICATION_QUESTIONS,
   type AgentDriver, type EventEnvelope, type SessionHandle, type WorkflowDef,
 } from "agent-cord";
@@ -11,7 +12,7 @@ import type { AnswerCoordinationInput, RevokeCoordinationAnswerInput, Coordinati
 import { badRequest, conflict, internalError, notFound } from "../errors.js";
 import type { SessionService } from "./session-service.js";
 import { DEFAULT_SDLC_ID, type SdlcService } from "./sdlc-service.js";
-import type { RunService } from "./run-service.js";
+import type { GoalBlockedContext, RunService } from "./run-service.js";
 import { readVerificationSource, verificationSourceInputs } from "./verification-inputs.js";
 import { readCoordinationVerifications } from "./verification-context.js";
 import { readCoordinationExecutionContext } from "./execution-context.js";
@@ -20,6 +21,18 @@ interface ActiveCoordination {
   round_id: string;
   controller: AbortController;
   promise: Promise<void>;
+}
+
+function roundGoalBlocker(round: CoordinationRoundView): GoalBlockerTrigger | undefined {
+  return round.trigger === undefined ? undefined : GoalBlockerTriggerSchema.parse({ node_id: round.node_id, run_id: round.run_id, goal_event_id: round.goal_event_id });
+}
+
+async function waitForRound(active: ActiveCoordination, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return;
+  let cancel: () => void = () => {};
+  const aborted = new Promise<void>(resolve => { cancel = resolve; signal.addEventListener("abort", cancel, { once: true }); });
+  try { await Promise.race([active.promise, aborted]); }
+  finally { signal.removeEventListener("abort", cancel); }
 }
 
 function projectRounds(events: readonly EventEnvelope[], req_id: string): CoordinationRoundView[] {
@@ -31,6 +44,14 @@ function projectRounds(events: readonly EventEnvelope[], req_id: string): Coordi
       const parsed = CoordinatorRoundRequestedPayloadSchema.safeParse(event.payload);
       if (!parsed.success) throw internalError("协调请求事件不符合契约");
       const payload = parsed.data;
+      if (payload.trigger === "goal_blocked") {
+        const blocker = events.find(item => item.event_id === payload.goal_event_id);
+        const goal = GoalAttemptCompletedPayloadSchema.safeParse(blocker?.payload);
+        if (event.actor.kind !== "system" || event.actor.id !== "goal-supervisor" || event.correlation_id !== payload.round_id
+          || blocker === undefined || blocker.type !== "goal.attempt.completed" || blocker.seq >= event.seq || blocker.correlation_id !== payload.node_id
+          || !goal.success || goal.data.status !== "blocked" || goal.data.run_id !== payload.run_id || goal.data.node_id !== payload.node_id
+          || !matchesWorkflowScope(goal.data, payload) || blocker.actor.kind !== "system" || blocker.source.adapter !== "goal-runner") throw internalError("自动协调请求的 Goal 来源不可验证");
+      }
       rounds.set(payload.round_id, {
         round_id: payload.round_id, req_id, sdlc_id: payload.sdlc_id, sdlc_version: payload.sdlc_version,
         workflow_id: payload.workflow_id, driver: payload.driver, agent: payload.driver, status: "pending",
@@ -40,6 +61,7 @@ function projectRounds(events: readonly EventEnvelope[], req_id: string): Coordi
         proposal: null, error: null, failure_stage: null,
         current: null, adoptable: false, adoption_reason: null, adopted_run_id: null, adopted_at: null,
         answer: null, answerable: false, answer_reason: null, answer_revocable: false,
+        ...(payload.trigger === undefined ? {} : { trigger: payload.trigger, run_id: payload.run_id, node_id: payload.node_id, goal_event_id: payload.goal_event_id }),
       });
     } else if (event.type === "coordinator.round.started" || event.type === "coordinator.round.completed") {
       const parsed = event.type === "coordinator.round.started" ? CoordinatorRoundStartedPayloadSchema.safeParse(event.payload) : CoordinatorRoundCompletedPayloadSchema.safeParse(event.payload);
@@ -90,12 +112,14 @@ export class CoordinationService {
   private readonly storage_errors = new Map<string, string>();
   private readonly adoption = new Map<string, Promise<RunInfo>>();
   private readonly answering = new Map<string, { round_id: string; signature: string; promise: Promise<CoordinationRoundView> }>();
+  private readonly escalations = new Map<string, Promise<void>>();
+  private readonly closing_controller = new AbortController();
   private closing = false;
 
   constructor(private readonly sessions: SessionService, private readonly sdlcs: SdlcService,
     private readonly options: { workspaceRoot: string; resolver: () => (name: string) => AgentDriver; runs: RunService; onError?: (error: unknown) => void }) {}
 
-  start(req_id: string, input: StartCoordinationInput): Promise<CoordinationRoundView> {
+  start(req_id: string, input: StartCoordinationInput, goal_blocker?: GoalBlockerTrigger): Promise<CoordinationRoundView> {
     if (this.closing) return Promise.reject(conflict("服务正在关闭"));
     if (this.active.has(req_id)) return Promise.reject(conflict(`需求 ${req_id} 已有在途协调轮次`));
     const active: ActiveCoordination = { round_id: ulid(), controller: new AbortController(), promise: Promise.resolve() };
@@ -110,10 +134,12 @@ export class CoordinationService {
       await this.readEvents(session);
       const versioned = await this.sdlcs.get(input.sdlc_id ?? DEFAULT_SDLC_ID, input.sdlc_version);
       if (this.sdlcs.isArchived(versioned.sdlc_id, versioned.version)) throw conflict("归档 SDLC 版本不能启动新协调轮次");
+      if (goal_blocker !== undefined) await this.validateGoalBlocker(req_id, input, goal_blocker, versioned.def, versioned.workflow_revision);
       await session.events.append({
         event_id: ulid(), session_id: req_id, type: "coordinator.round.requested", schema_version: "1",
-        actor: { kind: "human", id: "local-human" }, correlation_id: active.round_id,
-        payload: { round_id: active.round_id, workflow_id: versioned.def.metadata.id, workflow_revision: versioned.workflow_revision, driver: input.agent, sdlc_id: versioned.sdlc_id, sdlc_version: versioned.version },
+        actor: goal_blocker === undefined ? { kind: "human", id: "local-human" } : { kind: "system", id: "goal-supervisor" }, correlation_id: active.round_id,
+        payload: CoordinatorRoundRequestedPayloadSchema.parse({ round_id: active.round_id, workflow_id: versioned.def.metadata.id, workflow_revision: versioned.workflow_revision, driver: input.agent, sdlc_id: versioned.sdlc_id, sdlc_version: versioned.version,
+          ...(goal_blocker === undefined ? {} : { trigger: "goal_blocked", ...goal_blocker }) }),
         source: { adapter: "console-server" },
       });
       requested = true;
@@ -125,6 +151,7 @@ export class CoordinationService {
       }).coordinate(versioned.def, session, {
         round_id: active.round_id, agent: input.agent, signal: active.controller.signal,
         workflow_revision: versioned.workflow_revision,
+        ...(goal_blocker === undefined ? {} : { goal_blocker }),
         ...(input.timeout_ms !== undefined ? { timeout_ms: input.timeout_ms } : {}),
       });
     })().catch((error: unknown) => {
@@ -192,13 +219,14 @@ export class CoordinationService {
       const source_hash = await this.read_source_hash(workflow);
       const verifications = await readCoordinationVerifications(workflow, session, round.workflow_revision, this.options.runs);
       const execution_context = await readCoordinationExecutionContext(workflow, session, round.workflow_revision, this.options.runs);
-      result.current = round.source_hash === source_hash && coordinationInputHash(workflow, snapshot, configuration_hash, undefined, source_hash, verifications, execution_context) === round.input_hash;
+      const goal_blocker = roundGoalBlocker(round);
+      result.current = round.source_hash === source_hash && coordinationInputHash(workflow, snapshot, configuration_hash, undefined, source_hash, verifications, execution_context, goal_blocker) === round.input_hash;
       if (!result.current) result.adoption_reason = "需求、源码、验证、进度或 Agent 配置已变化，请重新协调";
       else if (this.sdlcs.isArchived(round.sdlc_id, round.sdlc_version)) result.adoption_reason = "绑定的 SDLC 版本已归档";
       else if (round.adopted_run_id !== null) result.adoption_reason = "提议已采用";
       else if (round.proposal.next_action.kind !== "advance") result.adoption_reason = "当前提议不启动 SDLC";
       else {
-        parseCoordinationProposal(JSON.stringify(round.proposal), workflow, snapshot, verifications, execution_context);
+        parseCoordinationProposal(JSON.stringify(round.proposal), workflow, snapshot, verifications, execution_context, goal_blocker);
         result.adoptable = true;
       }
       const action = round.proposal.next_action;
@@ -207,7 +235,7 @@ export class CoordinationService {
         else if (round.answer_reason != null) result.answer_reason = round.answer_reason;
         else if (!result.current || this.sdlcs.isArchived(round.sdlc_id, round.sdlc_version)) result.answer_reason = result.adoption_reason;
         else if ((snapshot.clarifications?.length ?? 0) >= MAX_CLARIFICATION_QUESTIONS && !snapshot.clarifications?.some((answer) => answer.question === action.question)) result.answer_reason = "当前澄清问题已达到容量上限";
-        else { parseCoordinationProposal(JSON.stringify(round.proposal), workflow, snapshot, verifications, execution_context); result.answerable = true; result.answer_reason = null; }
+        else { parseCoordinationProposal(JSON.stringify(round.proposal), workflow, snapshot, verifications, execution_context, goal_blocker); result.answerable = true; result.answer_reason = null; }
       }
     } catch { result.adoption_reason = "无法验证当前协调依据，请刷新或重新协调"; }
     return result;
@@ -278,6 +306,84 @@ export class CoordinationService {
   private async read_source_hash(def: WorkflowDef): Promise<string | null> {
     const inputs = [...new Set(def.spec.nodes.flatMap(verificationSourceInputs))].sort();
     return (await readVerificationSource(this.options.workspaceRoot, inputs)).source_hash;
+  }
+
+  /** 以持久化 request 去重；已有轮次结束后再核验 blocker，避免丢失升级。 */
+  escalateGoalBlocker(context: GoalBlockedContext): Promise<void> {
+    if (this.closing) return Promise.resolve();
+    const signal = context.signal === undefined ? this.closing_controller.signal : AbortSignal.any([context.signal, this.closing_controller.signal]);
+    const key = JSON.stringify([context.req_id, context.goal_event_id]);
+    const pending = this.escalations.get(key);
+    if (pending !== undefined) return pending;
+    const operation = (async () => {
+      for (;;) {
+        while (this.active.has(context.req_id)) {
+          await waitForRound(this.active.get(context.req_id)!, signal);
+          if (signal.aborted) return;
+        }
+        const session = await this.sessions.open(context.req_id);
+        const events = await this.readEvents(session);
+        for (const event of events) if (event.type === "coordinator.round.requested") {
+          const request = CoordinatorRoundRequestedPayloadSchema.parse(event.payload);
+          if (request.trigger === "goal_blocked" && request.goal_event_id === context.goal_event_id) return;
+        }
+        const run = await this.options.runs.latestRun(context.req_id, events);
+        if (run?.run_id !== context.run_id || run.status !== "failed" || run.workflow_revision !== context.workflow_revision) return;
+        if (signal.aborted) return;
+        if (this.active.has(context.req_id)) continue;
+        await this.start(context.req_id, { agent: context.supervisor_agent, sdlc_id: context.sdlc_id, sdlc_version: context.sdlc_version,
+          ...(context.supervisor_timeout_ms === undefined ? {} : { timeout_ms: context.supervisor_timeout_ms }) },
+        { node_id: context.node_id, run_id: context.run_id, goal_event_id: context.goal_event_id });
+        return;
+      }
+    })().finally(() => { if (this.escalations.get(key) === operation) this.escalations.delete(key); });
+    this.escalations.set(key, operation);
+    return operation;
+  }
+
+  private async validateGoalBlocker(req_id: string, input: StartCoordinationInput, trigger: GoalBlockerTrigger, def: WorkflowDef, workflow_revision: string): Promise<void> {
+    const source = GoalBlockerTriggerSchema.parse(trigger);
+    const events = await this.readEvents(await this.sessions.open(req_id));
+    if (events.some(event => {
+      if (event.type !== "coordinator.round.requested") return false;
+      const request = CoordinatorRoundRequestedPayloadSchema.parse(event.payload);
+      return request.trigger === "goal_blocked" && request.goal_event_id === source.goal_event_id;
+    })) throw conflict("该 Goal blocker 已请求协调，不重复调用 supervisor");
+    const run = await this.options.runs.latestRun(req_id, events);
+    const node = def.spec.nodes.find(item => item.id === source.node_id);
+    if (run?.run_id !== source.run_id || run.status !== "failed" || run.workflow_revision !== workflow_revision
+      || node?.run?.goal?.supervisor_agent !== input.agent) throw conflict("自动 Goal 升级的运行或 supervisor 已变化");
+    const scope = { workflow_id: def.metadata.id, workflow_revision };
+    const event = events.filter(item => ["goal.attempt.started", "goal.attempt.completed"].includes(item.type)
+      && matchesWorkflowScope(item.payload, scope) && item.payload["run_id"] === source.run_id && item.payload["node_id"] === source.node_id).at(-1);
+    const parsed = GoalAttemptCompletedPayloadSchema.safeParse(event?.payload);
+    if (event?.event_id !== source.goal_event_id || event.type !== "goal.attempt.completed" || event.correlation_id !== source.node_id
+      || !parsed.success || parsed.data.status !== "blocked" || event.actor.kind !== "system" || event.source.adapter !== "goal-runner") throw conflict("自动 Goal 升级的 blocker 来源不符合契约");
+  }
+
+  /** 冷恢复只补没有请求事实的 blocker；已开始的模型调用不重放。 */
+  async recoverGoalBlockers(): Promise<void> {
+    for (const req_id of await this.sessions.listIds()) {
+      try {
+        const session = await this.sessions.open(req_id); const events = await this.readEvents(session);
+        const run = await this.options.runs.latestRun(req_id, events);
+        if (run === null || run.status !== "failed" || run.workflow_revision == null) continue;
+        const versioned = await this.sdlcs.get(run.sdlc_id, run.sdlc_version);
+        if (versioned.workflow_revision !== run.workflow_revision || this.sdlcs.isArchived(run.sdlc_id, run.sdlc_version)) continue;
+        for (const node of versioned.def.spec.nodes) {
+          const goal = node.run?.goal;
+          if (goal?.supervisor_agent === undefined) continue;
+          const event = events.filter(item => ["goal.attempt.started", "goal.attempt.completed"].includes(item.type)
+            && matchesWorkflowScope(item.payload, { workflow_id: versioned.def.metadata.id, workflow_revision: run.workflow_revision ?? undefined })
+            && item.payload["run_id"] === run.run_id && item.payload["node_id"] === node.id).at(-1);
+          const value = GoalAttemptCompletedPayloadSchema.safeParse(event?.payload);
+          if (event === undefined || !value.success || value.data.status !== "blocked") continue;
+          await this.escalateGoalBlocker({ req_id, run_id: run.run_id, sdlc_id: run.sdlc_id, sdlc_version: run.sdlc_version,
+            workflow_id: versioned.def.metadata.id, workflow_revision: run.workflow_revision, node_id: node.id, goal_event_id: event.event_id,
+            supervisor_agent: goal.supervisor_agent, ...(goal.supervisor_timeout_ms === undefined ? {} : { supervisor_timeout_ms: goal.supervisor_timeout_ms }) });
+        }
+      } catch (error) { this.options.onError?.(error); }
+    }
   }
 
   adopt(req_id: string, round_id: string): Promise<RunInfo> {
@@ -391,9 +497,11 @@ export class CoordinationService {
 
   async close(): Promise<void> {
     this.closing = true;
+    this.closing_controller.abort();
     const active = [...this.active.values()];
     for (const round of active) round.controller.abort();
     await Promise.all(active.map((round) => round.promise));
     await Promise.allSettled([...this.answering.values()].map((answer) => answer.promise));
+    await Promise.allSettled([...this.escalations.values()]);
   }
 }
