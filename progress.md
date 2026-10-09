@@ -15,6 +15,8 @@
 - 交接续接核对全部差异和临时实际验收证据；补查发现原完成 attempt 超过 max_attempts 时，直接观察为 invalid，但 checkpoint/复用引用未拒绝。新增原引用、worker 重跑后恢复和 server invalid→reused 三项反例，先验证再修复。
 - 三项新反例全部失败，确认缺口；补齐 checkpoint 与原完成引用的重试上限校验，未改 schema/ports。原引用和原生 worker 的失败→重跑→有效复用、server invalid→reused 将一并回归。
 - 补齐后 46 项定向、完整 793 测试 / 62 文件、build:all/typecheck/git diff --check 通过。7312 预览无在途协调，重启到最新代码（PID 76112）后 started/completed/reused 仍各 1 条，最新 wait current=true、审批 1、人工决定/节点退出 0；7306 原真实 Draft 健康、人工待审、done 未退出。
+- 功能提交 `a802351`（23 文件），HTTP/2 有界推送退出码 128：低于 1 bytes/sec 持续 15 秒；远端 ls-remote 在 20 秒上限后终止，GitHub 443 独立连接检查 5 秒超时。本地提交保留，远端实际状态未确认；不重启原真实 Draft、不改全局 Git 配置。
+- 用户明确本项目可以小步提交，已记入计划的当前状态；后续按独立、已验证的增量提交，持续优化目标保持 active。
 
 ## 2026-10-08（阶段 34）
 

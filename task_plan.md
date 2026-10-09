@@ -17,6 +17,8 @@
 
 方案已定稿（`docs/proposal-console-platform.md`）。2026-09-25 完成 MVP 实现：npm workspaces（根 + apps/server + apps/console）、REST/SSE API、默认 SDLC（simple-sdlc v1）、SDLC validate/publish、幂等键、server 重启恢复。工作区原有未提交改动（事件协议增强 + merge driver）全部保留，未做破坏性 git 操作。
 
+持续优化允许小步提交（用户于 2026-10-08 明确）：每个独立且通过验证的改动可单独提交并推送，推送失败时保留本地提交、记录具体原因并继续可独立开展的工作。
+
 ## 未决问题
 
 - ~~是否先做本地单用户模式~~ → 已定：本地单用户（ADR-0021 决策 8），多用户鉴权留待后续 ADR。
@@ -532,13 +534,15 @@
 - [x] 核心/server/恢复、真实 Claude 两轮、worker 仅调用一次与浏览器两步来源验收
 - [x] 最终全量 790 测试 / 62 文件与构建通过，桌面/手机无溢出/重叠，原真实 Draft 保持人工待审
 - [x] 交接审查补齐原完成重试上限校验，三项反例复现后修复；最终 793 测试 / 62 文件、build:all/typecheck/diff 检查通过，预览重启后无新 worker 调用或人工决定
-- [ ] 阶段 35 本地提交、HTTP/2 有界推送与远端实际 hash 核验
+- [x] 阶段 35 功能本地提交 `a802351`（`feat: record worker checkpoint reuse provenance`）
+- [ ] HTTP/2 推送与远端实际 hash 核验：本轮推送因低于 1 bytes/sec 持续 15 秒失败，远端查询 20 秒超时，GitHub 443 连接测试也超时；保留本地提交待网络恢复
 
 ### 阶段 35 边界
 
 - reused 不是新执行或 gate 放行，原完成只表示记录时通过宿主复用校验。
 - 旧无 run_id 必须有新的显式绑定才作当前来源；无当前身份的库模式仍只记录 notes。
 - 旧 server 协调域须重新协调，纯 hash/reducer 不变。最终验证通过，进入提交推送，持续目标保持 active。
+- 功能已本地提交，HTTP/2 推送与远端核验失败；远端实际状态未确认，不将阶段收尾视为整个持续目标完成。
 
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
