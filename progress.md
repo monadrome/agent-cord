@@ -6,6 +6,7 @@
 - ADR-0066 先行：opt-in usage_budget（input/output token、cost），按合法 task.completed 累计，超限后 blocked/budget，不进入下一次 worker；unknown usage 不当零，未声明保持旧行为。
 - 已实现 GoalUsageBudget/GoalUsageTotals、跨 task 累计和超限 blocker；ready 共用解析拒绝缺失/篡改/超限 usage 证据。新增 usage 边界/unknown/ready 反例，定向 61 项通过。
 - 最终全量 1063 项 / 74 文件、typecheck/build:all/diff 通过；usage 是 opt-in，未声明 Goal 行为不变。阶段 52 进入提交与有界同步，完整费用结算、动态扩额、workspace 总额及权限治理仍待后续。
+- 功能提交 `7c732f6`（feat: enforce observable goal usage budgets）已用 HTTP/2 推送；独立 `ls-remote` 核验远端 `7c732f6937efb5e9d238bfec9409555907f80974` 一致。阶段 52 实现同步完成，完整持续目标 active。
 
 ## 2026-10-09（阶段 51）
 

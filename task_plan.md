@@ -736,7 +736,7 @@
 - [x] usage schema/累计/超限 blocker 事实与 ready/冷恢复共享校验
 - [x] ACP/headless/未声明兼容/多次 task/边界回归与文档
 - [x] 全量 1063 项 / 74 文件、typecheck/build:all/diff；定向 usage/ready 回归
-- [ ] 小步提交推送与远端核验
+- [x] 功能提交 `7c732f6`，HTTP/2 推送和 `ls-remote` 核验一致；工作区干净，完整持续目标 active
 
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
