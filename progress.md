@@ -11,6 +11,7 @@
 - 修正后定向恢复/已有尝试回归通过；全量 1026 项 / 74 文件、typecheck/build:all/diff 再次通过。隔离 ACP/HTTP 预览 `/tmp/cord-stage49-real-result.json` 与 Playwright `/tmp/cord-stage49-browser-result.json` 重新生成，桌面/390/320 无溢出/pageerror，旧失败文案清除，原 run/审批/预算保持。
 - 阶段 49 功能与验收完成，进入小步提交与远端同步；持续目标仍 active，完整验收覆盖、跨 driver 权限和资源治理继续后续阶段。
 - 最后独立冷启动保持原审批/worker 2、doctor=true；最新预览 62439/PID 65661，证据已更新。原真实 7306 审批 1/gate 决策 0/done 退出 0。同步 README 顶部旧能力描述与 API/协议目录，进入提交。
+- 功能提交 `1565439`（feat: recover authorized goals without renewing budgets）。HTTP/1.1 推送报低于 1 bytes/sec 持续 15 秒；独立 ls-remote 达到 20 秒上限；HTTP/2 推送报低于 1 bytes/sec 持续 10 秒。远端同步未确认，本地 tracking ahead 1；保留提交并记录原因，不因网络故障回滚或阻断下一阶段独立功能。完整持续目标 active。
 
 ## 2026-10-09（阶段 48）
 
