@@ -6,7 +6,7 @@
 
 `run.goal` 可选声明 `usage_budget`，约束 input/output token 或 cost。宿主累计同一 run/node 的合法 `agent.task.completed.usage`；超过任一上限后，当前 task 终态落盘，Goal blocked/budget，不进入下一次自动 worker 尝试，也不自动扩预算。预算不改变次数、总时长、无进展和最终人工 gate 语义。
 
-没有声明预算的 Goal 保持原行为。声明预算但 driver 不报告 usage 时，宿主记录 unknown_tasks，不把未知当零；未观测指标不被伪造为已消耗。预算证据进入 Goal completed payload，prompt 只携带预算边界，不携带原始日志或用量正文。
+没有声明预算的 Goal 保持原行为。声明预算但 driver 不报告 usage 时，宿主记录 unknown_tasks，不把未知当零，并 fail-closed 为 budget blocker；未观测指标不被伪造为已消耗。预算证据进入 Goal completed payload，prompt 只携带预算边界，不携带原始日志或用量正文。
 
 ## Review 定位
 

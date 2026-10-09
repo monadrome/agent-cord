@@ -147,7 +147,7 @@ Goal 可选声明 `supervisor_agent` 与 `supervisor_timeout_ms`。同一 run/no
 
 ADR-0065：`POST .../coordination/:round_id/retry` 接收 `{input_hash}` 与 Idempotency-Key。服务端 coordination_retry 投影提供当前 token/available/reason/子 round，只对最新失败/timeout/stale/cancelled 或未答复 ok/current=false 的 Goal 升级轮次可用。修复同别名 supervisor 配置后可读取新 token 明确授权；token 绑定当前协调输入、父完成事件与发布超时。request 增加完整 retry_of_round_id/retry_input_hash/retry_configuration_hash，用 human actor/console-server；初始自动请求仍 system/goal-supervisor。校验父子来源、同 blocker/版本/agent 和唯一直接子请求，派发前固定 resolver 与输入重检，旧 token 409。相同父/token 重放返回原子 round，后续只能从最新失败子 round 重试；冷中断不重放模型，坏来源隔离该需求。重试不启动 worker、不增加 Goal 预算、不代答/批准 gate，答复后的 Goal 授权共用请求来源校验。
 
-ADR-0066：Goal 可选 `usage_budget`（`max_input_tokens`/`max_output_tokens`/`max_cost_usd` 至少一项）。宿主累计同一 run/node 的合法 `agent.task.completed.usage`，缓存 token 不重复计入 input；超限在当前 task 终态后写 Goal blocked/budget 与 `usage_totals`，停止后续自动 worker，不扩额度。usage 缺失记录 unknown_tasks，不当零；未声明预算保持兼容。预算进入 Goal 输入身份/ready 审计，不能替代业务验收、厂商费用结算或 OS 隔离。
+ADR-0066：Goal 可选 `usage_budget`（`max_input_tokens`/`max_output_tokens`/`max_cost_usd` 至少一项）。宿主累计同一 run/node 的合法 `agent.task.completed.usage`，缓存 token 不重复计入 input；超限或声明预算下 usage 未知，在当前 task 终态后写 Goal blocked/budget 与 `usage_totals`，停止后续自动 worker，不扩额度。未声明预算保持兼容。预算进入 Goal 输入身份/ready 审计，不能替代业务验收、厂商费用结算或 OS 隔离。
 
 Goal 问题记录当前有效人工答复后，view.goal_retry 提供 available/reason、当前 input_hash 与已发布 max_attempts/timeout_ms；不复用答复前协调 hash。`POST .../:round_id/retry-goal` 要求幂等键、answer_event_id 和该输入 token，是独立执行授权。宿主运行槽位内与授权落盘前再次核验，先写 workflow.run.started.goal_retry_round_id，再写人工 goal.retry.authorized，最后派发。授权记录 round、新/旧 run、node、blocker、答复、input_hash 和预算；新 run 使用原发布额度，旧 Goal 失败与已退出节点保留。worker 使用固定 resolver；代码/事实/配置变化时旧 token 409，刷新后可授权当前版本。
 

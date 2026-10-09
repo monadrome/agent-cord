@@ -112,6 +112,15 @@ describe("Goal 自主交付", () => {
     expect((await runner.runNode(node, session, ctx)).status).toBe("ok");
     expect((await latest_goal()).payload).toMatchObject({ status: "ready", usage_totals: { input_tokens: 10, output_tokens: 2, observed_tasks: 1, unknown_tasks: 0 } });
   });
+  it("声明 usage 预算但 driver 不报告 usage 时 fail-closed，不继续自动尝试", async () => {
+    let calls = 0;
+    const agent: AgentDriver = { name: "fake", configuration_hash: "a".repeat(64), async *run() {
+      calls += 1; await writeFile(join(root, "value.txt"), "fixed"); yield { type: "result", data: { text: report, session_id: `unknown-${calls}` } };
+    }, async *resume() {} };
+    const def = definition({ usage_budget: { max_input_tokens: 10 } }); const { runner, node, ctx } = setup(def, agent);
+    expect((await runner.runNode(node, session, ctx)).status).toBe("failed"); expect(calls).toBe(1);
+    expect((await latest_goal()).payload).toMatchObject({ status: "blocked", failure_kind: "budget", usage_totals: { unknown_tasks: 1, input_tokens: null } });
+  });
   it("多条件共享检查仍须逐项绑定完整实际结果，部分成功继续自主修复", async () => {
     const def = definition({ checks: [
       { id: "value-test", bin: process.execPath, args: ["-e", "if(require('node:fs').readFileSync('value.txt','utf8').trim()!=='fixed')process.exit(1)"] },

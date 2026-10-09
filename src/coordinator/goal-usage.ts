@@ -22,9 +22,10 @@ export function accumulateGoalUsage(events: readonly EventEnvelope[], run_id: st
     cost_usd: cost_seen ? cost_usd : null, observed_tasks, unknown_tasks });
 }
 
-export function usageBudgetExceeded(budget: GoalUsageBudget | undefined, totals: GoalUsageTotals): "input_tokens" | "output_tokens" | "cost_usd" | null {
+export function usageBudgetExceeded(budget: GoalUsageBudget | undefined, totals: GoalUsageTotals): "input_tokens" | "output_tokens" | "cost_usd" | "unknown_usage" | null {
   if (budget === undefined) return null;
   const parsed = GoalUsageBudgetSchema.parse(budget);
+  if (totals.unknown_tasks > 0) return "unknown_usage";
   if (parsed.max_input_tokens !== undefined && totals.input_tokens !== null && totals.input_tokens > parsed.max_input_tokens) return "input_tokens";
   if (parsed.max_output_tokens !== undefined && totals.output_tokens !== null && totals.output_tokens > parsed.max_output_tokens) return "output_tokens";
   if (parsed.max_cost_usd !== undefined && totals.cost_usd !== null && totals.cost_usd > parsed.max_cost_usd) return "cost_usd";
