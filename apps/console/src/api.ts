@@ -19,6 +19,7 @@ import type {
   RequirementDetail,
   RequirementSummary,
   RunInfo,
+  GoalRecoveryView,
   SdlcSummary,
   SdlcTemplate,
   SdlcValidationResult,
@@ -117,6 +118,7 @@ export interface RunResponse {
   request_id: string;
   run: RunInfo;
 }
+export interface GoalRecoveryResponse { request_id: string; recovery: GoalRecoveryView }
 export interface CoordinationResponse {
   request_id: string;
   round: CoordinationRoundView;
@@ -302,6 +304,8 @@ export interface ApiClient {
   retryGoal(reqId: string, roundId: string, input: RetryGoalInput, key?: string): Promise<RunResponse>;
   /** 取消 run（ADR-0025）：幂等，已终态返回现状 */
   cancelRun(runId: string, reason?: string, key?: string): Promise<RunResponse>;
+  getGoalRecovery(runId: string): Promise<GoalRecoveryResponse>;
+  recoverGoal(runId: string, input_hash: string, key?: string): Promise<RunResponse>;
   decideApproval(
     reqId: string,
     approvalId: string,
@@ -366,6 +370,8 @@ export function createClient(baseUrl = ""): ApiClient {
         `/api/v1/runs/${encodeURIComponent(runId)}/cancel`,
         writeInit("POST", reason !== undefined ? { reason } : {}, key),
       ),
+    getGoalRecovery: runId => request<GoalRecoveryResponse>(baseUrl, `/api/v1/runs/${encodeURIComponent(runId)}/goal-recovery`),
+    recoverGoal: (runId, input_hash, key) => request<RunResponse>(baseUrl, `/api/v1/runs/${encodeURIComponent(runId)}/goal-recovery`, writeInit("POST", { input_hash }, key)),
     decideApproval: (reqId, approvalId, choice, key) =>
       request<DecideApprovalResponse>(baseUrl, decidePath(reqId, approvalId), writeInit("POST", { choice }, key)),
 

@@ -8,7 +8,7 @@ agent-cord 是一个多 agent 共识协作基座：把需求、决策、证据�
 
 **默认 Goal 驱动的自主 Draft 交付。** 用户给出目标后，系统在约定权限与预算内自主完成实现、自测、失败修复和交付整理，交付代码、当前版本的实际测试证据及 human review 指南。happy path 无需中途人工干预；真实卡点再升级，最终 review、合入、发布及关键权限仍由人控制。
 
-已实现覆盖 ACP/headless 的节点内 Goal 原型：`run.goal` 声明源码、验证命令和资源上限，宿主实际检查、自动反馈修复并补入指南证据。“Agent 协作”模板默认使用 Goal；既有发布版本保持原行为。独立协调的自主监督与人工卡点续跑仍待实现。详见 [核心 feature](./docs/core-features.md)、[Goal 示例](./examples/goal-sdlc.yaml) 和 [ADR-0056](./docs/adr/ADR-0056-goal-node-execution.md)。
+已实现覆盖 ACP/headless 的节点内 Goal 原型：`run.goal` 声明源码、验证命令和资源上限，宿主实际检查、自动反馈修复并补入指南证据。“Agent 协作”模板默认使用 Goal；自动卡点协调、人工答复后续跑及原授权恢复原型已接通。完整验收条件覆盖与跨 driver 资源治理待完善。详见 [核心 feature](./docs/core-features.md)、[Goal 示例](./examples/goal-sdlc.yaml) 和 [ADR-0056](./docs/adr/ADR-0056-goal-node-execution.md)。
 
 ## 能做什么
 
@@ -31,6 +31,7 @@ agent-cord 是一个多 agent 共识协作基座：把需求、决策、证据�
 - 在协调页处理 Goal 人工问题后，可独立授权原发布预算并“重新执行 Goal”；新 run 绑定答复、阻塞和当前输入，过期/撤回/重复授权被核验，最终 review 仍由人完成。
 - ACP worker 可在 agents.yaml 声明 read/edit 文件范围预授权；请求的结构化 kind/absolute locations 全部匹配时一次授权，正常工具请求无需逐次人工调度。未知/越界请求取消并形成权限卡点，只读任务保留原拒绝行为。
 - Goal ready 的 worker/宿主测试来源由恢复和协调共用核验；协调观察区分历史就绪与当前有效性，代码/指南过期、取消或不可读取时不会引用为当前交付证据。
+- 原授权 Goal 中断或冷配置漂移后，恢复原配置可在详情页恢复同一 run；请求绑定当前输入、checkpoint 与身份，保留原次数/截止时间，仍有效交付恢复到原人工审批（[ADR-0063](./docs/adr/ADR-0063-goal-recovery-command.md)）。
 - 用独立盲评投票处理适合自动化的决策点，分歧和高风险情况升级人工。
 - 通过 Fastify server 和 React 控制台查看需求、编辑文档、观察事件、启动 run、处理人工 gate，并管理 SDLC 的草稿、版本、归档与模板库。
 
@@ -177,6 +178,8 @@ POST /requirements/:req_id/coordination/:round_id/cancel
 POST /requirements/:req_id/coordination/:round_id/adopt   # 人工采用并启动绑定 SDLC，202
 POST /requirements/:req_id/coordination/:round_id/retry-goal # 人工答复后授权新预算，202
 POST /runs/:run_id/cancel                     # 幂等；已终态返回现状
+GET  /runs/:run_id/goal-recovery              # 原授权 Goal 的恢复依据与剩余预算
+POST /runs/:run_id/goal-recovery              # 当前 token + Idempotency-Key，恢复原 run，202
 GET  /requirements/:req_id/timeline
 GET  /requirements/:req_id/artifacts?path=review.md # 只读当前 SDLC 声明产物
 GET  /requirements/:req_id/ledger

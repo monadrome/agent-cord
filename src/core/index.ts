@@ -14,6 +14,7 @@ export {
   GoalAttemptStartedPayloadSchema,
   GoalAttemptCompletedPayloadSchema,
   GoalRetryAuthorizedPayloadSchema,
+  GoalRecoveryRequestedPayloadSchema,
   AnchorSchema,
   CliMessageReceivedPayloadSchema,
   ConfidenceSourceSchema,

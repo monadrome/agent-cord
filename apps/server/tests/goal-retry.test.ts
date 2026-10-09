@@ -5,9 +5,10 @@ import { fileURLToPath } from "node:url";
 import { stringify } from "yaml";
 import { ulid } from "ulid";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { GoalRetryAuthorizedPayloadSchema, readGoalRetryAgentIdentity, readGoalRetryAuthorization, type EventEnvelope } from "agent-cord";
+import { GoalRetryAuthorizedPayloadSchema, readGoalRecoveryRequest, readGoalRetryAgentIdentity, readGoalRetryAuthorization, type EventEnvelope } from "agent-cord";
 import { buildApp, type BuiltServer } from "@agent-cord/server";
 import type { RunStartGuard } from "../src/services/run-service.js";
+import { createClient } from "../../console/src/api.js";
 
 const worker = fileURLToPath(new URL("../../../tests/driver/fixtures/goal-worker.mjs", import.meta.url));
 const supervisor = fileURLToPath(new URL("../../../tests/driver/fixtures/goal-supervisor.mjs", import.meta.url));
@@ -33,13 +34,13 @@ async function configure(always_fail = false) {
     supervisor: { kind: "headless", bin: process.execPath, args: [supervisor, "{{prompt}}"] },
   } }));
 }
-async function prepare() {
+async function prepare(max_attempts = 1) {
   await configure();
   server = await buildApp({ root });
   const yaml = stringify({ apiVersion: "agent-cord.dev/v1alpha1", kind: "Workflow", metadata: { id: "goal-retry" }, spec: { nodes: [
     { id: "intake", artifact: "prd.md" },
     { id: "deliver", artifact: "review.md", depends_on: ["intake"], run: { agent: "worker", goal: {
-      inputs: ["value.txt"], max_attempts: 1, no_progress_limit: 1, timeout_ms: 20000, supervisor_agent: "supervisor", supervisor_timeout_ms: 5000,
+      inputs: ["value.txt"], max_attempts, no_progress_limit: 1, timeout_ms: 20000, supervisor_agent: "supervisor", supervisor_timeout_ms: 5000,
       checks: [{ id: "value-test", bin: process.execPath, args: ["-e", "if(require('node:fs').readFileSync('value.txt','utf8') !== 'fixed') process.exit(1)"], timeout_ms: 2000 }],
     } }, gates: [{ id: "human-review", role: {}, attach: { node: "deliver", when: "post" }, checks: [{ ref: "verification-passed", with: { verification_id: "value-test" } }], pass: { human_confirm: true }, on_fail: "block" }] },
     { id: "done", depends_on: ["deliver"] },
@@ -58,7 +59,211 @@ async function answer() {
   return { view: updated, input: { answer_event_id: updated.answer.event_id, input_hash: updated.goal_retry.input_hash } };
 }
 
+async function interruptedRetry(max_attempts = 1) {
+  await prepare(max_attempts); const { view, input } = await answer();
+  const original = server!.runs.start.bind(server!.runs);
+  const start = vi.spyOn(server!.runs, "start").mockImplementation(async (req_id, id, version, guard) => original(req_id, id, version, {
+    ...guard!, record: async (session, run_id) => { await guard!.record(session, run_id); throw Error("授权后中断，未派发"); },
+  }));
+  try { expect((await api("POST", command(view.round_id), input)).status).toBe(500); }
+  finally { start.mockRestore(); }
+  return (await facts()).find(event => event.type === "goal.retry.authorized")!.payload["run_id"] as string;
+}
+
 describe("人工授权 Goal 续跑", () => {
+  it("公开恢复入口在配置还原后继续同 run/审批，不重授预算", async () => {
+    await prepare(); const { view, input } = await answer(); const response = await api("POST", command(view.round_id), input);
+    const run_id = response.body.run.run_id; const url = "/runs/" + run_id + "/goal-recovery";
+    await waitFor(async () => (await api("GET", "/requirements/REQ-RETRY/approvals")).body.approvals.length === 1);
+    const approval = (await api("GET", "/requirements/REQ-RETRY/approvals")).body.approvals[0];
+    await configure(true); await restart();
+    expect((await api("GET", url)).body.recovery.available).toBe(false);
+    await configure(); await server!.agents.reload();
+    const recovery = (await api("GET", url)).body.recovery;
+    expect(recovery).toMatchObject({ available: true, ready_current: true, remaining_attempts: 0, run_id });
+    const restored = await api("POST", url, { input_hash: recovery.input_hash });
+    expect(restored.status, JSON.stringify(restored.body)).toBe(202); expect(restored.body.run.run_id).toBe(run_id);
+    expect(restored.body.run.status).toBe("waiting_human"); expect(await workerCalls()).toBe(2);
+    expect(restored.body.run).toMatchObject({ error: null, finished_at: null });
+    expect((await api("GET", "/requirements/REQ-RETRY/approvals")).body.approvals[0].approval_id).toBe(approval.approval_id);
+    expect((await facts()).filter(event => event.type === "goal.recovery.requested")).toHaveLength(1);
+    expect((await facts()).filter(event => event.type === "workflow.run.started")).toHaveLength(2);
+    expect((await api("POST", url, { input_hash: recovery.input_hash })).status).toBe(202);
+    expect((await facts()).filter(event => event.type === "goal.recovery.requested")).toHaveLength(1);
+    const recovery_events = await facts(); const request = readGoalRecoveryRequest(recovery_events, run_id)!;
+    for (const change of [
+      { actor: { kind: "agent", id: "worker" } }, { source: { adapter: "worker" } }, { correlation_id: ulid() },
+      { payload: { ...request.event.payload, authorization_event_id: ulid() } },
+      { payload: { ...request.event.payload, checkpoint_event_id: null } },
+      { payload: { ...request.event.payload, prior_request_event_id: ulid() } },
+      { payload: { ...request.event.payload, node_input_hash: "a".repeat(64) } },
+    ]) expect(() => readGoalRecoveryRequest(recovery_events.map(event => event.event_id === request.event.event_id ? { ...event, ...change } as EventEnvelope : event), run_id)).toThrow();
+    await restart(); expect(await workerCalls()).toBe(2);
+  });
+
+  it("恢复写失败不派发；同 token 并发只记录一次请求，重放不重复调用", async () => {
+    const run_id = await interruptedRetry(); const url = "/runs/" + run_id + "/goal-recovery";
+    const recovery = (await api("GET", url)).body.recovery;
+    expect(recovery).toMatchObject({ available: true, remaining_attempts: 1, deadline_at: null, ready_current: false });
+    const session = await server!.sessions.open("REQ-RETRY"); const original = session.events.append.bind(session.events);
+    const append = vi.spyOn(session.events, "append").mockImplementation(async draft => {
+      if (draft.type === "goal.recovery.requested") throw Error("恢复请求 fsync 失败"); return original(draft);
+    });
+    try { expect((await api("POST", url, { input_hash: recovery.input_hash })).status).toBe(500); }
+    finally { append.mockRestore(); }
+    expect(await workerCalls()).toBe(1); expect(server!.runs.isActive("REQ-RETRY")).toBe(false);
+    expect((await facts()).filter(event => event.type === "goal.recovery.requested")).toHaveLength(0);
+    const responses = await Promise.all([api("POST", url, { input_hash: recovery.input_hash }, "recover-a"), api("POST", url, { input_hash: recovery.input_hash }, "recover-b")]);
+    expect(responses.map(response => response.status)).toEqual([202, 202]);
+    await waitFor(async () => (await api("GET", "/requirements/REQ-RETRY/approvals")).body.approvals.length === 1);
+    expect(await workerCalls()).toBe(2); expect((await facts()).filter(event => event.type === "goal.recovery.requested")).toHaveLength(1);
+    expect((await api("POST", url, { input_hash: recovery.input_hash }, "recover-a")).body).toEqual(responses[0]!.body);
+    expect((await api("POST", url, { input_hash: recovery.input_hash })).status).toBe(202);
+    expect((await facts()).filter(event => event.type === "goal.retry.authorized")).toHaveLength(1);
+  });
+
+  it.each([false, true])("恢复请求落盘后中断且输入变化=%s，冷恢复只派发有效原请求", async changed => {
+    const run_id = await interruptedRetry(); const url = "/runs/" + run_id + "/goal-recovery";
+    const recovery = (await api("GET", url)).body.recovery;
+    const old_value = await readFile(join(root, "value.txt"), "utf8");
+    const session = await server!.sessions.open("REQ-RETRY"); const original = session.events.append.bind(session.events);
+    const append = vi.spyOn(session.events, "append").mockImplementation(async draft => {
+      const result = await original(draft); if (draft.type === "goal.recovery.requested") throw Error("恢复请求已落盘，模拟中断"); return result;
+    });
+    try { expect((await api("POST", url, { input_hash: recovery.input_hash })).status).toBe(500); }
+    finally { append.mockRestore(); }
+    if (changed) await writeFile(join(root, "value.txt"), "changed-after-request");
+    await restart();
+    if (changed) {
+      expect(await workerCalls()).toBe(1); expect((await server!.runs.getRun(run_id)).status).toBe("failed");
+      await writeFile(join(root, "value.txt"), old_value);
+      const current = (await api("GET", url)).body.recovery;
+      expect(current.available).toBe(true); expect(current.input_hash).not.toBe(recovery.input_hash);
+      expect((await api("POST", url, { input_hash: current.input_hash })).status).toBe(202);
+    }
+    await waitFor(async () => (await api("GET", "/requirements/REQ-RETRY/approvals")).body.approvals.length === 1);
+    expect(await workerCalls()).toBe(2); expect((await facts()).filter(event => event.type === "workflow.run.started")).toHaveLength(2);
+    expect(readGoalRecoveryRequest(await facts(), run_id)?.consumed).toBe(true);
+    expect((await facts()).filter(event => event.type === "human.decision.recorded")).toHaveLength(0);
+  });
+
+  it("旧恢复 token/未授权/取消/非当前 run 拒绝，已归档版本仍可恢复原授权", async () => {
+    const run_id = await interruptedRetry(); const url = "/runs/" + run_id + "/goal-recovery";
+    const recovery = (await api("GET", url)).body.recovery;
+    const session = await server!.sessions.open("REQ-RETRY"); const prd = await readFile(join(session.dir, "prd.md"), "utf8");
+    await writeFile(join(session.dir, "prd.md"), prd + "\n变更目标");
+    expect((await api("POST", url, { input_hash: recovery.input_hash })).status).toBe(409);
+    expect(await workerCalls()).toBe(1);
+    await writeFile(join(session.dir, "prd.md"), prd);
+    const latest = (await api("GET", url)).body.recovery;
+    await server!.sdlcs.archive("goal-retry", 1);
+    expect((await api("POST", url, { input_hash: latest.input_hash })).status).toBe(202);
+    await waitFor(async () => (await api("GET", "/requirements/REQ-RETRY/approvals")).body.approvals.length === 1);
+    const missing = await api("GET", "/runs/" + ulid() + "/goal-recovery"); expect(missing.status).toBe(404);
+    const original_id = (await facts()).find(event => event.type === "goal.retry.authorized")!.payload["failed_run_id"] as string;
+    expect((await api("POST", "/runs/" + original_id + "/goal-recovery", { input_hash: "a".repeat(64) })).status).toBe(409);
+    await server!.runs.cancel(run_id);
+    expect((await api("GET", url)).body.recovery.available).toBe(false);
+  });
+
+  it("有效 ready 可超时后恢复人审，但 stale ready 的耗尽预算和 blocked 不能恢复", async () => {
+    await prepare(); const { view, input } = await answer(); const retry = await api("POST", command(view.round_id), input);
+    const run_id = retry.body.run.run_id; const url = "/runs/" + run_id + "/goal-recovery";
+    await waitFor(async () => (await api("GET", "/requirements/REQ-RETRY/approvals")).body.approvals.length === 1);
+    await configure(true); await restart(); await configure(); await server!.agents.reload();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60000);
+    try {
+      expect((await api("GET", url)).body.recovery).toMatchObject({ available: true, ready_current: true, remaining_attempts: 0 });
+      await writeFile(join(root, "value.txt"), "stale-ready");
+      const stale = (await api("GET", url)).body.recovery;
+      expect(stale.available).toBe(false); expect(stale.reason).toContain("预算");
+      expect((await api("POST", url, { input_hash: "a".repeat(64) })).status).toBe(409);
+    } finally { clock.mockRestore(); }
+    expect(await workerCalls()).toBe(2);
+  });
+
+  it("typed client 通过真实 HTTP 恢复同 run，幂等重放、输入约束和错误均透传", async () => {
+    const run_id = await interruptedRetry();
+    await server!.app.listen({ port: 0, host: "127.0.0.1" });
+    const address = server!.app.server.address(); if (address === null || typeof address === "string") throw Error("没有监听端口");
+    const client = createClient("http://127.0.0.1:" + address.port);
+    const recovery = (await client.getGoalRecovery(run_id)).recovery;
+    await expect(client.recoverGoal(run_id, "a".repeat(64))).rejects.toMatchObject({ status: 409 });
+    const response = await client.recoverGoal(run_id, recovery.input_hash!, "typed-recovery");
+    expect((await client.recoverGoal(run_id, recovery.input_hash!, "typed-recovery"))).toEqual(response);
+    expect(response.run.run_id).toBe(run_id);
+    await waitFor(async () => (await client.getApprovals("REQ-RETRY")).approvals.length === 1);
+    expect((await client.getRequirement("REQ-RETRY")).requirement.goal_recovery?.available).toBe(false);
+    expect(await workerCalls()).toBe(2);
+    await expect(client.getGoalRecovery(ulid())).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("恢复记录前配置漂移拒绝，记录后热重载仍执行固定配置", async () => {
+    const run_id = await interruptedRetry(); const url = "/runs/" + run_id + "/goal-recovery";
+    const recovery = (await api("GET", url)).body.recovery;
+    const original = server!.runs.readNodeInput.bind(server!.runs); let switched = false;
+    const read = vi.spyOn(server!.runs, "readNodeInput").mockImplementation(async (...args) => {
+      const input = await original(...args); if (!switched) { switched = true; await configure(true); await server!.agents.reload(); } return input;
+    });
+    try { expect((await api("POST", url, { input_hash: recovery.input_hash })).status).toBe(409); }
+    finally { read.mockRestore(); }
+    expect((await facts()).filter(event => event.type === "goal.recovery.requested")).toHaveLength(0); expect(await workerCalls()).toBe(1);
+    await configure(); await server!.agents.reload();
+    const session = await server!.sessions.open("REQ-RETRY"); const original_append = session.events.append.bind(session.events);
+    const append = vi.spyOn(session.events, "append").mockImplementation(async draft => {
+      const event = await original_append(draft); if (draft.type === "goal.recovery.requested") { await configure(true); await server!.agents.reload(); } return event;
+    });
+    try { expect((await api("POST", url, { input_hash: recovery.input_hash })).status).toBe(202); }
+    finally { append.mockRestore(); }
+    await waitFor(async () => (await api("GET", "/requirements/REQ-RETRY/approvals")).body.approvals.length === 1);
+    expect(await workerCalls()).toBe(2);
+  });
+
+  it("已有尝试的恢复保留原 deadline 与剩余次数，索引删除不重复 worker", async () => {
+    const run_id = await interruptedRetry(3); const url = "/runs/" + run_id + "/goal-recovery";
+    const recovery = (await api("GET", url)).body.recovery;
+    const session = await server!.sessions.open("REQ-RETRY"); const original = session.events.append.bind(session.events);
+    const append = vi.spyOn(session.events, "append").mockImplementation(async draft => {
+      const event = await original(draft); if (draft.type === "goal.attempt.started" && draft.payload["run_id"] === run_id) throw Error("尝试已开始，派发前中断"); return event;
+    });
+    try {
+      expect((await api("POST", url, { input_hash: recovery.input_hash })).status).toBe(202);
+      await waitFor(async () => !server!.runs.isActive("REQ-RETRY"));
+    } finally { append.mockRestore(); }
+    expect(await workerCalls()).toBe(1);
+    const current = (await api("GET", url)).body.recovery;
+    expect(current).toMatchObject({ available: true, remaining_attempts: 2, ready_current: false });
+    const deadline = current.deadline_at;
+    expect((await api("POST", url, { input_hash: current.input_hash })).status).toBe(202);
+    await waitFor(async () => (await api("GET", "/requirements/REQ-RETRY/approvals")).body.approvals.length === 1);
+    const attempts = (await facts()).filter(event => event.type === "goal.attempt.started" && event.payload["run_id"] === run_id);
+    expect(attempts.map(event => event.payload["attempt"])).toEqual([1, 2]); expect(await workerCalls()).toBe(2);
+    await server!.app.close(); server!.index.close(); server = undefined;
+    await rm(join(root, "cord", ".index"), { recursive: true, force: true }); server = await buildApp({ root });
+    expect(await workerCalls()).toBe(2);
+    expect((await api("GET", url)).body.recovery.deadline_at).toBe(deadline);
+    expect((await server.runs.getRun(run_id)).status).toBe("waiting_human");
+  });
+
+  it("已消费恢复不能使 blocked Goal 自动循环，坏恢复请求冷启动 fail-closed", async () => {
+    const run_id = await interruptedRetry(); const url = "/runs/" + run_id + "/goal-recovery";
+    const recovery = (await api("GET", url)).body.recovery;
+    const session = await server!.sessions.open("REQ-RETRY"); const original = session.events.append.bind(session.events);
+    const append = vi.spyOn(session.events, "append").mockImplementation(async draft => {
+      const event = await original(draft); if (draft.type === "goal.recovery.requested") await writeFile(join(root, ".goal-worker-calls"), "0"); return event;
+    });
+    try { expect((await api("POST", url, { input_hash: recovery.input_hash })).status).toBe(202); }
+    finally { append.mockRestore(); }
+    await waitFor(async () => !server!.runs.isActive("REQ-RETRY"));
+    expect((await api("GET", url)).body.recovery.reason).toContain("阻塞");
+    const calls = await workerCalls(); await restart(); expect(await workerCalls()).toBe(calls);
+    expect((await api("POST", url, { input_hash: "a".repeat(64) })).status).toBe(409);
+    const events = await facts(); await server!.app.close(); server!.index.close(); server = undefined;
+    await writeFile(join(session.dir, "events.jsonl"), events.map(event => JSON.stringify(event.type === "goal.recovery.requested" ? { ...event, source: { adapter: "agent" } } : event)).join("\n") + "\n");
+    server = await buildApp({ root }); expect(await workerCalls()).toBe(calls);
+    expect((await server.runs.getRun(run_id)).error).toContain("恢复请求");
+  });
+
   it("A/B/A 重载窗口中，校验与派发始终使用同一配置", async () => {
     await prepare(); const { view, input } = await answer();
     const authorized_hash = server!.agents.resolver()("worker").configuration_hash;

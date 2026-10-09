@@ -23,6 +23,7 @@ import {
   AnswerCoordinationInputSchema,
   RevokeCoordinationAnswerInputSchema,
   RetryGoalInputSchema,
+  RecoverGoalInputSchema,
   UpdateDocInputSchema,
   ReadArtifactInputSchema,
   ValidateSdlcInputSchema,
@@ -250,6 +251,8 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
     const binding = await defFor(reqId);
     const detail = await sessions.detail(reqId, runs.isActive(reqId), binding?.def ?? null, binding?.workflow_revision);
     detail.active_run = runs.activeRunId(reqId) !== null ? await runs.getRun(runs.activeRunId(reqId) ?? "") : null;
+    const latest = await runs.latestRun(reqId);
+    detail.goal_recovery = latest?.goal_retry_round_id != null ? await runs.goalRecovery(latest.run_id) : null;
     return { request_id: requestId(req), requirement: detail };
   });
 
@@ -340,6 +343,18 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
   app.get("/api/v1/runs/:run_id", async (req) => {
     const { run_id: runId } = req.params as { run_id: string };
     return { request_id: requestId(req), run: await runs.getRun(runId) };
+  });
+
+  app.get("/api/v1/runs/:run_id/goal-recovery", async req => {
+    const { run_id } = req.params as { run_id: string };
+    return { request_id: requestId(req), recovery: await runs.goalRecovery(run_id) };
+  });
+  app.post("/api/v1/runs/:run_id/goal-recovery", { config: { idempotency: true } }, async (req, reply) => {
+    const { run_id } = req.params as { run_id: string };
+    const input = parseOrThrow(RecoverGoalInputSchema, req.body);
+    const run = await runs.recoverGoal(run_id, input.input_hash);
+    reply.code(202);
+    return { request_id: requestId(req), run };
   });
 
   // ---- 机器验证事实（ADR-0040） -------------------------------------------

@@ -60,6 +60,8 @@ Goal 声明 `supervisor_agent` 时，RunService 在 blocked 事实和 failed run
 
 续跑在首次校验前固定 resolver，授权保存 worker/supervisor/节点输入 hash；RunService 的首次派发、冷恢复与审批共用 coordinator/goal-retry.ts 身份归因。热重载不改变在途 agent，冷配置漂移拒绝派发/放行，恢复原配置后可显式恢复原 run 与预算；旧授权须有合法任务来源。过期审批不通过普通 start 重授次数/时长（ADR-0062）。
 
+原授权 run 的恢复通过 `RunService.goalRecovery/recoverGoal` 暴露 REST。恢复投影重新读取原授权、worker 身份、checkpoint、当前输入与 ready 证据，显示剩余次数和第一次尝试推导的截止时间。`goal.recovery.requested` 是恢复意图事实，不是完成或人工放行事实；写入后仍需 resolver 与输入重检。冷启动发现未消费请求时只恢复该 run，消费后不循环；同 token 重放返回原 run，普通 start 永远不替代该操作（ADR-0063）。
+
 “Agent 协作 · Goal”模板默认使用该原型，旧发布流程保持原执行语义。缺宿主能力或 NodeRunner 的 Goal 拒绝跳过；正常闭环在未退出节点内完成，最终 post gate 保留人工。未退出 Goal 的同 run 冷恢复校验最新 ready、worker 完成引用、当前源码/指南与宿主验证事件，输入变化先重做；新 run 不复用旧 ready。完整独立监督与跨 driver 权限策略仍待完善，自动卡点/受控续跑已接入，完整输出日志未持久化。
 
 ready 的来源由 coordinator/goal-evidence.ts 共用解析，runner 与 execution-context 不分别猜测完成。宿主核验 worker、产物写入与随后全部声明验证的命令/零退出/输入身份、最新引用及取消；协调在此基础上重读当前源码与指南，返回 current/freshness_reason，历史 ready 不冒称当前有效。过期/不可读/非法 ready 不能作 goal evidence；blocked/retrying 仍是当前 run 的执行事实。完整观察与 round 输入身份绑定，冷活动槽位变化也会使旧提议过期，需要新轮次（ADR-0061）。

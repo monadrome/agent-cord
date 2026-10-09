@@ -4,11 +4,12 @@
  * 事件 tab 用 SSE 实时订阅（组件卸载时关闭 EventSource），新事件到达时刷新概览与审批。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, RotateCcw } from "lucide-react";
 import type { ReactElement } from "react";
 import type {
   ApprovalItem,
   GateState,
+  GoalRecoveryView,
   LedgerEntryView,
   LedgerView,
   RequirementDetail as RequirementDetailView,
@@ -99,6 +100,7 @@ export function RequirementDetail({ reqId, tab, onTab, onBack }: Props): ReactEl
   const [notice, setNotice] = useState<string | null>(null);
   const [streamError, setStreamError] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
+  const [recovery, setRecovery] = useState<GoalRecoveryView | null>(null);
   const [runBusy, setRunBusy] = useState(false);
   const [deciding, setDeciding] = useState<string | null>(null);
   /** 可启动的 SDLC 选项（`<sdlc_id>@<version>` 编码）；缺省 = server 默认 SDLC */
@@ -136,6 +138,7 @@ export function RequirementDetail({ reqId, tab, onTab, onBack }: Props): ReactEl
       setApprovals(approvalsResult.approvals);
       setLedger(ledgerResult.ledger);
       setVotes(votesResult.votes);
+      setRecovery(detailResult.requirement.goal_recovery ?? null);
       setError(null);
     } catch (cause) {
       setError(describeError(cause));
@@ -147,6 +150,7 @@ export function RequirementDetail({ reqId, tab, onTab, onBack }: Props): ReactEl
     setTimeline(null);
     setLedger(null);
     setApprovals([]);
+    setRecovery(null);
     setVotes([]);
     setEvents([]);
     void loadProjections();
@@ -245,6 +249,17 @@ export function RequirementDetail({ reqId, tab, onTab, onBack }: Props): ReactEl
     }
   };
 
+  const recoverRun = async (): Promise<void> => {
+    if (recovery?.available !== true || recovery.input_hash === null) return;
+    setRunBusy(true); setRunError(null);
+    try {
+      await api.recoverGoal(recovery.run_id, recovery.input_hash);
+      setNotice("已提交 Goal 恢复请求，继续使用原授权与预算");
+      await loadProjections();
+    } catch (cause) { setRunError(describeError(cause)); }
+    finally { setRunBusy(false); }
+  };
+
   const activeRun = detail?.active_run ?? null;
   const runInFlight = activeRun !== null && (activeRun.status === "running" || activeRun.status === "waiting_human");
 
@@ -305,6 +320,11 @@ export function RequirementDetail({ reqId, tab, onTab, onBack }: Props): ReactEl
               取消 run
             </button>
           ) : null}
+          {recovery?.available === true && recovery.input_hash !== null ? (
+            <button type="button" className="btn btn-plain goal-recovery-button" disabled={runBusy || runInFlight} onClick={() => void recoverRun()}>
+              <RotateCcw size={16} aria-hidden="true" />{runBusy ? "恢复中…" : "恢复原 Goal"}
+            </button>
+          ) : null}
         </div>
       </header>
 
@@ -312,6 +332,14 @@ export function RequirementDetail({ reqId, tab, onTab, onBack }: Props): ReactEl
       <ErrorBanner message={runError} onClose={() => setRunError(null)} />
       <ErrorBanner message={streamError} onClose={() => setStreamError(null)} />
       <NoticeBanner message={notice} />
+      {recovery !== null && detail?.active_run === null && timeline?.run?.status === "failed" ? (
+        <div className="muted small goal-recovery-summary">
+          <span>原 Goal · 剩余 {recovery.remaining_attempts ?? "—"} 次</span>
+          {recovery.deadline_at !== null ? <span> · 截止 {formatTime(recovery.deadline_at)}</span> : null}
+          {recovery.ready_current ? <span> · 交付证据有效</span> : null}
+          {recovery.reason !== null ? <p>{recovery.reason}</p> : null}
+        </div>
+      ) : null}
 
       <nav className="tabs" aria-label="详情子视图">
         {DETAIL_TABS.map((item) => (

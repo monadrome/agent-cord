@@ -424,6 +424,7 @@ export const EVENT_TYPES = [
   "goal.attempt.started",
   "goal.attempt.completed",
   "goal.retry.authorized",
+  "goal.recovery.requested",
   "coordinator.round.started",
   "coordinator.round.requested",
   "coordinator.round.completed",
@@ -743,6 +744,15 @@ export const GoalRetryAuthorizedPayloadSchema = z.strictObject({
 }).refine(value => [value.agent_configuration_hash, value.supervisor_configuration_hash, value.node_input_hash]
   .filter(hash => hash !== undefined).length % 3 === 0, "Goal 授权配置与输入身份必须完整声明");
 
+/** ADR-0063：恢复原授权，不授予新次数/时长，也不等同人工 gate 决定。 */
+export const GoalRecoveryRequestedPayloadSchema = z.strictObject({
+  workflow_id: z.string().min(1), workflow_revision: z.string().regex(/^[0-9a-f]{64}$/),
+  run_id: z.string().regex(ULID_RE), node_id: z.string().min(1), authorization_event_id: z.string().regex(ULID_RE),
+  checkpoint_event_id: z.string().regex(ULID_RE).nullable(), prior_request_event_id: z.string().regex(ULID_RE).nullable(),
+  input_hash: z.string().regex(/^[0-9a-f]{64}$/), node_input_hash: z.string().regex(/^[0-9a-f]{64}$/),
+  agent_configuration_hash: z.string().regex(/^[0-9a-f]{64}$/),
+});
+
 const coordination_round_fields = {
   round_id: z.string().regex(ULID_RE),
   workflow_id: z.string().min(1),
@@ -831,6 +841,7 @@ export const EVENT_PAYLOAD_SCHEMAS: Partial<Record<EventType, z.ZodType>> = {
   "goal.attempt.started": GoalAttemptStartedPayloadSchema,
   "goal.attempt.completed": GoalAttemptCompletedPayloadSchema,
   "goal.retry.authorized": GoalRetryAuthorizedPayloadSchema,
+  "goal.recovery.requested": GoalRecoveryRequestedPayloadSchema,
   "coordinator.round.started": CoordinatorRoundStartedPayloadSchema,
   "coordinator.round.requested": CoordinatorRoundRequestedPayloadSchema,
   "coordinator.round.completed": CoordinatorRoundCompletedPayloadSchema,

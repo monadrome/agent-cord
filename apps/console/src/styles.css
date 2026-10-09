@@ -165,6 +165,13 @@ p {
   align-items: center;
 }
 
+.goal-recovery-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+}
+
 /* ---- 按钮 ---- */
 .btn {
   padding: 8px 14px;

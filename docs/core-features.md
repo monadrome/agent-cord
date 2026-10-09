@@ -1,6 +1,6 @@
 # 核心 Feature：默认 Goal 驱动的自主 Draft 交付
 
-> 状态：已采纳的产品与架构基线（2026-10-09）；节点内 Goal、自动卡点升级及人工答复后的续跑原型已实现，完整验收覆盖与资源治理待完善。当前能力见 [当前架构](./current-architecture.md)，原则见 [ADR-0055](./adr/ADR-0055-goal-driven-draft-delivery.md)，原型协议见 [ADR-0056](./adr/ADR-0056-goal-node-execution.md)。
+> 状态：已采纳的产品与架构基线（2026-10-09）；节点内 Goal、自动卡点升级、人工答复后的续跑及原授权恢复原型已实现，完整验收覆盖与资源治理待完善。当前能力见 [当前架构](./current-architecture.md)，原则见 [ADR-0055](./adr/ADR-0055-goal-driven-draft-delivery.md)，原型协议见 [ADR-0056](./adr/ADR-0056-goal-node-execution.md)。
 
 ## 1. 默认认知
 
@@ -95,6 +95,7 @@ flowchart LR
 | `run.retry` 的失败摘要、次数与退避 | 已实现；成功任务后的验证失败尚不会自动触发实现修复闭环 |
 | 节点内 Goal、宿主实际验证/修复、指南结构审计与实际证据、次数/时长/无进展边界 | 原型已实现；显式 run.goal，推荐 Agent 模板默认采用 |
 | 人工卡点处理后的续跑 | 原型已实现；有效答复后独立授权原发布预算与当前输入，新 run 重新自测；授权绑定实际 worker 配置，冷漂移拒绝，配置还原后显式恢复原 run/预算，保留旧失败和最终 review（[ADR-0062](./adr/ADR-0062-goal-retry-agent-identity.md)） |
+| 原授权 Goal 恢复 | 原型已实现；GET/POST 恢复依据绑定原授权、checkpoint、当前输入和配置身份，持久化请求后恢复同一 run；保留原 deadline/次数，幂等/冷恢复 fail-closed（[ADR-0063](./adr/ADR-0063-goal-recovery-command.md)） |
 | ACP 文件操作范围预授权 | 已实现可写任务 read/edit 的结构化位置核验与 allow_once；未知/越界拒绝，只读不变 |
 | 完整验收覆盖判定、跨 driver 权限策略、费用/token 预算与动态额度调整 | 待完善；ACP 文件策略不覆盖 execute/网络或替代 OS 沙箱，不能冒称完整权限/资源治理 |
 | blocked Goal 自动协调升级 | 原型已实现；显式 supervisor_agent 触发一次 ask_human/wait Draft，重启/并发去重 |

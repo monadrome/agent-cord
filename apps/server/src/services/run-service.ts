@@ -23,8 +23,15 @@ import {
   matchesWorkflowScope,
   readGoalRetryAuthorization,
   readGoalRetryAgentIdentity,
+  readGoalRecoveryRequest,
+  goalRecoveryInputHash,
+  goalRecoveryCheckpoint,
   GoalRetryAuthorizedPayloadSchema,
   GoalAttemptCompletedPayloadSchema,
+  GoalRecoveryRequestedPayloadSchema,
+  GoalAttemptStartedPayloadSchema,
+  resolveGoalReadiness,
+  readSessionDocument,
   type AgentDriver,
   type Anchor,
   type EventEnvelope,
@@ -34,7 +41,7 @@ import {
   type SessionHandle,
   type WorkflowDef,
 } from "agent-cord";
-import type { RunInfo, RunStatus } from "../contracts.js";
+import type { GoalRecoveryView, RunInfo, RunStatus } from "../contracts.js";
 import { conflict, notFound } from "../errors.js";
 import { runRowToInfo, type IndexStore, type RunRow } from "./index-store.js";
 import { decodeApprovalId, scanPendingApprovals, type SessionService } from "./session-service.js";
@@ -117,6 +124,7 @@ export class RunService {
   private readonly decided = new Map<string, string>();
   private readonly decision_queue = new Map<string, Promise<unknown>>();
   private recovery_queue: Promise<unknown> = Promise.resolve();
+  private readonly goal_recovering = new Map<string, { input_hash: string; promise: Promise<RunInfo> }>();
   private closing = false;
 
   constructor(sessions: SessionService, sdlcs: SdlcService, index: IndexStore, options: RunServiceOptions = {}) {
@@ -144,6 +152,7 @@ export class RunService {
     const active = [...this.active.values()];
     for (const run of active) run.controller.abort();
     await Promise.all(active.map((run) => run.promise));
+    await Promise.all([...this.goal_recovering.values()].map(operation => operation.promise.catch(() => undefined)));
     await this.recovery_queue.catch(() => undefined);
   }
 
@@ -451,10 +460,15 @@ export class RunService {
       if (this.closing) break;
       if (run_id !== undefined && run.run_id !== run_id) continue;
       if (this.active.has(run.req_id)) continue;
-      const explicit_retry_recovery = run_id !== undefined && run.status === "failed" && run.goal_retry_round_id != null;
-      if (run.status !== "running" && run.status !== "waiting_human" && !explicit_retry_recovery) continue;
       const session = await this.sessions.open(run.req_id);
       const events = await session.events.readOrdered();
+      let pending_recovery = false;
+      if (run.goal_retry_round_id != null) {
+        try { const request = readGoalRecoveryRequest(events, run.run_id); pending_recovery = request !== null && !request.consumed; }
+        catch (error) { this.index.finishRun(run.run_id, "failed", new Date().toISOString(), error instanceof Error ? error.message : "Goal 恢复请求不可验证"); continue; }
+      }
+      const explicit_retry_recovery = (run_id !== undefined || pending_recovery) && run.status === "failed" && run.goal_retry_round_id != null;
+      if (run.status !== "running" && run.status !== "waiting_human" && !explicit_retry_recovery) continue;
       const started = events.filter((event) => event.type === "workflow.run.started").map((event) => WorkflowRunStartedPayloadSchema.safeParse(event.payload)).find((parsed) =>
         parsed.success && parsed.data.run_id === run.run_id && parsed.data.sdlc_id === run.sdlc_id && parsed.data.sdlc_version === run.sdlc_version
         && parsed.data.coordination_round_id === (run.coordination_round_id ?? undefined) && parsed.data.goal_retry_round_id === (run.goal_retry_round_id ?? undefined) && parsed.data.workflow_revision === run.workflow_revision);
@@ -494,6 +508,7 @@ export class RunService {
       if (run.goal_retry_round_id != null) {
         try {
           await this.assertGoalRetryIdentity(session, events, run, versioned.def, driverResolver);
+          if (pending_recovery && is_current) await this.readGoalRecoveryState(run, driverResolver);
         } catch (error) {
           this.index.finishRun(run.run_id, "failed", new Date().toISOString(), error instanceof Error ? error.message : "Goal 续跑授权不可验证，拒绝恢复派发");
           continue;
@@ -548,7 +563,7 @@ export class RunService {
         continue;
       }
       if (run.status === "waiting_human" && !recorded_decision && !recorded_verification) continue;
-      if (finalStatus !== null && !(finalStatus === "waiting_human" && (recorded_decision || recorded_verification))) {
+      if (finalStatus !== null && !(finalStatus === "waiting_human" && (recorded_decision || recorded_verification)) && !(pending_recovery && finalStatus === "failed")) {
         this.index.finishRun(run.run_id, finalStatus, new Date().toISOString(), null);
         continue;
       }
@@ -562,7 +577,7 @@ export class RunService {
   }
 
   /** 授权身份在恢复与人审共用；首次派发还须保持人工确认的节点输入。 */
-  private async assertGoalRetryIdentity(session: SessionHandle, events: readonly EventEnvelope[], run: RunRow, def: WorkflowDef, resolver?: (name: string) => AgentDriver): Promise<void> {
+  private async assertGoalRetryIdentity(session: SessionHandle, events: readonly EventEnvelope[], run: RunRow, def: WorkflowDef, resolver?: (name: string) => AgentDriver, validate_recovery = true): Promise<void> {
     if (run.goal_retry_round_id == null) return;
     let event;
     try { event = readGoalRetryAuthorization(events, run.run_id); }
@@ -579,6 +594,11 @@ export class RunService {
     if (!identity.worker_started) {
       const current = await this.readNodeInput(def, node, session, identity.configuration_hash, run.workflow_revision ?? undefined);
       if (current.input_hash !== identity.node_input_hash) throw conflict("Goal 续跑首次派发前输入已变化，拒绝执行旧授权");
+    }
+    const recovery = readGoalRecoveryRequest(events, run.run_id);
+    if (validate_recovery && recovery !== null && !recovery.consumed) {
+      const current = await this.readNodeInput(def, node, session, identity.configuration_hash, run.workflow_revision ?? undefined);
+      if (recovery.request.agent_configuration_hash !== identity.configuration_hash || recovery.request.node_input_hash !== current.input_hash) throw conflict("Goal 恢复请求尚未执行，输入已变化，请刷新后重新恢复");
     }
   }
 
@@ -791,6 +811,122 @@ export class RunService {
     const row = this.index.getRun(runId);
     if (row === null) throw notFound(`run 不存在：${runId}`);
     return runRowToInfo(row);
+  }
+
+  /** 读取原授权 Goal 的恢复依据；不创建新 run，也不改变事件事实。 */
+  async goalRecovery(runId: string): Promise<GoalRecoveryView> {
+    const run = this.index.getRun(runId);
+    if (run === null) throw notFound(`run 不存在：${runId}`);
+    const view: GoalRecoveryView = { run_id: runId, available: false, reason: null, input_hash: null, node_id: null,
+      authorization_event_id: null, remaining_attempts: null, deadline_at: null, ready_current: false };
+    try {
+      const resolver = this.options.driverResolverForRun?.() ?? this.options.driverResolver;
+      const state = await this.readGoalRecoveryState(run, resolver);
+      Object.assign(view, state.view);
+    } catch (error) { view.reason = error instanceof Error ? error.message : "无法核验 Goal 恢复依据"; }
+    return view;
+  }
+
+  private async readGoalRecoveryState(run: RunRow, resolver?: (name: string) => AgentDriver, reservation?: AbortController) {
+    if (this.closing) throw conflict("服务正在关闭");
+    if (run.goal_retry_round_id == null) throw conflict("当前 run 不是人工授权的 Goal 续跑");
+    if (run.status === "completed" || run.status === "cancelled") throw conflict("run 已结束，不能恢复");
+    const active = this.active.get(run.req_id);
+    if (active !== undefined && active.controller !== reservation) throw conflict("需求仍有执行体，请等待当前 run 收束");
+    const session = await this.sessions.open(run.req_id); const events = await session.events.readOrdered();
+    if ((await this.latestRun(run.req_id, events))?.run_id !== run.run_id) throw conflict("只能恢复当前 run，旧 run 已被替代");
+    const versioned = await this.sdlcs.get(run.sdlc_id, run.sdlc_version);
+    if (run.workflow_revision !== versioned.workflow_revision) throw conflict("绑定 SDLC 执行版本已变化");
+    const scope = { workflow_id: versioned.def.metadata.id, workflow_revision: versioned.workflow_revision, run_id: run.run_id };
+    if (events.some(event => event.type === "workflow.run.cancelled" && matchesWorkflowScope(event.payload, scope) && event.payload["run_id"] === run.run_id)) throw conflict("run 已取消，不能恢复");
+    await this.assertGoalRetryIdentity(session, events, run, versioned.def, resolver, false);
+    const auth_event = readGoalRetryAuthorization(events, run.run_id)!;
+    const auth = GoalRetryAuthorizedPayloadSchema.parse(auth_event.payload);
+    const node = versioned.def.spec.nodes.find(item => item.id === auth.node_id)!;
+    const goal = node.run!.goal!;
+    if (events.some(event => event.type === "workflow.node.exited" && matchesWorkflowScope(event.payload, scope) && event.payload["node_id"] === node.id)) throw conflict("原 Goal 节点已退出，不能重复恢复");
+    const identity = readGoalRetryAgentIdentity(events, run.run_id, node);
+    const assert_current_configuration = () => {
+      if (reservation === undefined) return;
+      const current = this.options.driverResolverForRun?.() ?? this.options.driverResolver;
+      if (current?.(node.run!.agent).configuration_hash !== identity.configuration_hash) throw conflict("恢复授权记录前 worker 配置已变化，请刷新");
+    };
+    assert_current_configuration();
+    const input = await this.readNodeInput(versioned.def, node, session, identity.configuration_hash, versioned.workflow_revision);
+    const checkpoint = goalRecoveryCheckpoint(events, { ...scope, node_id: node.id });
+    let ready_current = false;
+    if (checkpoint?.type === "goal.attempt.completed" && asRecord(checkpoint.payload)?.["status"] === "ready") {
+      const evidence = resolveGoalReadiness(checkpoint, events, node, scope);
+      const guide = await readSessionDocument(session.dir, node.artifact!);
+      ready_current = evidence !== null && guide !== null && evidence.input_hash === input.input_hash
+        && evidence.source_hash === input.source_hash && evidence.artifact_hash === sha256Hex(guide);
+    }
+    const starts = events.filter(event => event.type === "goal.attempt.started" && matchesWorkflowScope(event.payload, scope)
+      && event.payload["run_id"] === run.run_id && event.payload["node_id"] === node.id);
+    const attempt = Math.max(0, ...starts.map(event => GoalAttemptStartedPayloadSchema.parse(event.payload).attempt));
+    const remaining_attempts = Math.max(0, goal.max_attempts - attempt);
+    const deadline_ms = starts[0] === undefined ? null : Date.parse(starts[0].timestamp) + goal.timeout_ms;
+    if (deadline_ms !== null && !Number.isFinite(deadline_ms)) throw conflict("Goal 原截止时间不可验证");
+    if (!ready_current) {
+      if (checkpoint?.type === "goal.attempt.completed" && asRecord(checkpoint.payload)?.["status"] === "blocked") throw conflict("Goal 已阻塞，需要人工处理卡点后独立授权新预算");
+      if (remaining_attempts === 0 || (deadline_ms !== null && deadline_ms <= Date.now())) throw conflict("Goal 原尝试或时长预算已耗尽，恢复不能重置");
+    }
+    const prior = readGoalRecoveryRequest(events, run.run_id);
+    const current_input = await this.readNodeInput(versioned.def, node, session, identity.configuration_hash, versioned.workflow_revision);
+    if (current_input.input_hash !== input.input_hash) throw conflict("读取恢复依据期间输入已变化，请刷新");
+    assert_current_configuration();
+    const request_input = { ...scope, node_id: node.id, authorization_event_id: auth_event.event_id,
+      checkpoint_event_id: checkpoint?.event_id ?? null, prior_request_event_id: prior?.event.event_id ?? null,
+      node_input_hash: input.input_hash, agent_configuration_hash: identity.configuration_hash };
+    const view: GoalRecoveryView = { run_id: run.run_id, available: run.status === "failed" || run.status === "blocked", reason: run.status === "waiting_human" ? "原 run 已在等待人工处理" : run.status === "running" ? "原 run 正在等待自动恢复" : null,
+      input_hash: goalRecoveryInputHash(request_input), node_id: node.id, authorization_event_id: auth_event.event_id,
+      remaining_attempts, deadline_at: deadline_ms === null ? null : new Date(deadline_ms).toISOString(), ready_current };
+    return { session, events, versioned, request_input, view };
+  }
+
+  /** 持久化恢复意图后继续原 run；恢复失败只保留请求事实，不授予新预算。 */
+  recoverGoal(runId: string, input_hash: string): Promise<RunInfo> {
+    const pending = this.goal_recovering.get(runId);
+    if (pending !== undefined) return pending.input_hash === input_hash ? pending.promise : Promise.reject(conflict("已有不同依据的 Goal 恢复正在处理"));
+    const operation = this.recoverGoalOnce(runId, input_hash).finally(() => { if (this.goal_recovering.get(runId)?.promise === operation) this.goal_recovering.delete(runId); });
+    this.goal_recovering.set(runId, { input_hash, promise: operation });
+    return operation;
+  }
+
+  private async recoverGoalOnce(runId: string, input_hash: string): Promise<RunInfo> {
+    if (this.closing) throw conflict("服务正在关闭");
+    const run = this.index.getRun(runId);
+    if (run === null) throw notFound(`run 不存在：${runId}`);
+    const existing = this.active.get(run.req_id);
+    const controller = new AbortController();
+    const resolver = this.options.driverResolverForRun?.() ?? this.options.driverResolver;
+    if (existing === undefined) this.active.set(run.req_id, { run_id: runId, req_id: run.req_id, promise: Promise.resolve(), controller, driverResolver: resolver });
+    let launched = false;
+    try {
+      const session = await this.sessions.open(run.req_id); const events = await session.events.readOrdered();
+      const prior = readGoalRecoveryRequest(events, runId);
+      if (prior?.request.input_hash === input_hash) return this.getRun(runId);
+      if (existing !== undefined) throw conflict("需求仍有执行体，不能恢复");
+      const state = await this.readGoalRecoveryState(run, resolver, controller);
+      if (!state.view.available || state.view.input_hash !== input_hash) throw conflict(state.view.reason ?? "Goal 恢复依据已变化，请刷新");
+      const checked = await this.readGoalRecoveryState(run, resolver, controller);
+      if (checked.view.input_hash !== input_hash) throw conflict("Goal 恢复依据在核验期间已变化");
+      const payload = GoalRecoveryRequestedPayloadSchema.parse({ ...checked.request_input, input_hash });
+      await session.events.append({ event_id: ulid(), session_id: run.req_id, type: "goal.recovery.requested", schema_version: "1",
+        actor: { kind: "human", id: "local-human" }, correlation_id: runId, payload, source: { adapter: "console-server" } });
+      if (this.closing) throw conflict("服务正在关闭，恢复请求已保留，等待冷恢复");
+      await this.assertGoalRetryIdentity(session, await session.events.readOrdered(), run, state.versioned.def, resolver);
+      if (state.view.ready_current && this.computeFinalStatus(await session.events.readOrdered(), state.versioned.def, runId, run.workflow_revision!) === "waiting_human") {
+        this.index.setRunStatus(runId, "waiting_human");
+      } else {
+        this.index.setRunStatus(runId, "running");
+        this.launch(session, run, state.versioned.def, controller, resolver);
+        launched = true;
+      }
+      return this.getRun(runId);
+    } finally {
+      if (!launched && this.active.get(run.req_id)?.controller === controller) this.active.delete(run.req_id);
+    }
   }
 
   listRuns(reqId?: string): RunInfo[] {

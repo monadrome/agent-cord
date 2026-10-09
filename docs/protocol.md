@@ -30,6 +30,7 @@
 | `verification.completed` | 宿主/CI 机器验证结果（带输入与输出摘要 hash） |
 | `goal.attempt.started` / `goal.attempt.completed` | 节点内 Goal 尝试与交付状态（ready / retrying / blocked / cancelled） |
 | `goal.retry.authorized` | 人工答复后授权新 run，绑定原 blocker/答复/当前输入与发布预算 |
+| `goal.recovery.requested` | 原授权恢复意图，绑定原 run、授权/checkpoint 与当前输入；不重授预算或放行 |
 | `coordinator.round.*` | 独立协调轮次（requested / started / completed / cancel_requested）与人工采用（adopted） |
 | `human.*` | 人工选择记录 |
 
@@ -143,6 +144,8 @@ Goal 可选声明 `supervisor_agent` 与 `supervisor_timeout_ms`。同一 run/no
 Goal 问题记录当前有效人工答复后，view.goal_retry 提供 available/reason、当前 input_hash 与已发布 max_attempts/timeout_ms；不复用答复前协调 hash。`POST .../:round_id/retry-goal` 要求幂等键、answer_event_id 和该输入 token，是独立执行授权。宿主运行槽位内与授权落盘前再次核验，先写 workflow.run.started.goal_retry_round_id，再写人工 goal.retry.authorized，最后派发。授权记录 round、新/旧 run、node、blocker、答复、input_hash 和预算；新 run 使用原发布额度，旧 Goal 失败与已退出节点保留。worker 使用固定 resolver；代码/事实/配置变化时旧 token 409，刷新后可授权当前版本。
 
 ADR-0062 要求在首次校验前捕获 resolver，校验、授权和实际派发使用同一快照，并在授权前核对当前 worker/supervisor 身份。新 goal.retry.authorized 完整保存 agent_configuration_hash、supervisor_configuration_hash、node_input_hash；旧事件可三者全缺省，部分字段声明无效，聚合 input_hash 域仍为 v1。冷恢复与人工审批核验授权 worker 身份，漂移 failed/409；首次 worker 派发前还须节点输入相同。旧授权仅从首条合法、因果后续的 worker 任务归因，缺来源或坏来源拒绝。还原原配置后显式恢复同 run，保留原次数/时长；旧审批失效只重检原授权 run，不能借普通 start 新建预算。有效已开始 Goal 的正常输出不被视为首次派发输入篡改。
+
+ADR-0063 增加 `GET/POST /api/v1/runs/:run_id/goal-recovery`。GET 返回 server 核验的 available、恢复 token、node、授权 event、剩余次数、原 deadline 和 ready_current；POST 只接受当前 token 与 Idempotency-Key。请求先写 `goal.recovery.requested`，再继续原 run；不创建新 run、不增加 max_attempts/timeout、不自动通过 gate。原配置/输入漂移、取消、非当前/非授权 run、已退出节点、blocked 或已耗尽且 ready 过期均拒绝。当前 ready 仍有效时可恢复到原人工审批，保留审批 ID；请求落盘后中断由冷恢复继续，坏来源 fail-closed。控制台只展示 server 提供的恢复按钮和原因。
 
 同 round 的同依据重复命令返回已有 run，不再授予预算；不同依据 409。没有答复、已撤回/被新同题选择替代、版本归档、来源/输入不可读均不可授权。新预算只绑定已发布上限，不支持请求携带任意预算字段。授权写失败不派发，只有当前同轮次 failed 且无授权/worker started 事实的半成品启动可通过新命令重试；5xx 未确认仍需新幂等键。冷恢复用 readGoalRetryAuthorization 校验授权前的因果链、预算与派发顺序，缺失/坏授权 fail-closed。授权后的答复撤回不自动取消已启动 run，取消使用原接口（ADR-0059）。
 

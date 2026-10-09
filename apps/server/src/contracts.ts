@@ -59,6 +59,7 @@ export interface RequirementDetail extends RequirementSummary {
   docs: Record<SnapshotDocName, boolean>;
   artifacts?: Array<{ path: string; available: boolean }>;
   active_run: RunInfo | null;
+  goal_recovery?: GoalRecoveryView | null;
 }
 export const ReadArtifactInputSchema = z.strictObject({ path: z.string().min(1).max(500) });
 
@@ -115,6 +116,20 @@ export interface LedgerView {
 // ---------------------------------------------------------------------------
 
 export type RunStatus = "running" | "waiting_human" | "completed" | "blocked" | "failed" | "cancelled";
+
+export const RecoverGoalInputSchema = z.strictObject({ input_hash: z.string().regex(/^[0-9a-f]{64}$/) });
+export type RecoverGoalInput = z.infer<typeof RecoverGoalInputSchema>;
+export interface GoalRecoveryView {
+  run_id: string;
+  available: boolean;
+  reason: string | null;
+  input_hash: string | null;
+  node_id: string | null;
+  authorization_event_id: string | null;
+  remaining_attempts: number | null;
+  deadline_at: string | null;
+  ready_current: boolean;
+}
 
 export interface RunInfo {
   run_id: string;

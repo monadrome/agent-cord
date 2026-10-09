@@ -167,7 +167,11 @@ export class IndexStore {
   }
 
   setRunStatus(runId: string, status: RunStatus): void {
-    this.db.prepare("UPDATE runs SET status = ? WHERE run_id = ?").run(status, runId);
+    if (status === "running" || status === "waiting_human") {
+      this.db.prepare("UPDATE runs SET status = ?, finished_at = NULL, error = NULL WHERE run_id = ?").run(status, runId);
+    } else {
+      this.db.prepare("UPDATE runs SET status = ? WHERE run_id = ?").run(status, runId);
+    }
   }
 
   getRun(runId: string): RunRow | null {

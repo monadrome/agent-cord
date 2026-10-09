@@ -1,5 +1,17 @@
 # 工作进度
 
+## 2026-10-09（阶段 49）
+
+- HEAD 94179bf 干净且与 origin 同步；上一轮身份修复为实际进展。配置还原后仅内部 recover 可调用，公开操作只能新 start 或重放 retry-goal，缺少原 run 恢复。
+- ADR-0063 先行：恢复 current token/持久请求/服务端剩余预算与依据投影，原 run 恢复，不自动放行。请求后中断可按有效未消费意图恢复，blocked/耗尽不进入循环。
+- 已实现 core 恢复事件与来源解析、GET/POST 恢复入口、请求落盘后冷恢复、同 run/预算与服务端投影、typed client/控制台恢复按钮。首个公开反例在入口缺失时先失败，补齐导出后通过；类型检查修正 unknown payload 访问后通过。
+- 定向 26 项续跑/恢复通过：冷漂移还原同审批、写失败、并发/幂等、请求落盘后中断、输入变更、归档原版本恢复、取消/未授权/旧 token 和耗尽预算。尚未完成全量与浏览器验收。
+- 全量 1026 项 / 74 文件、typecheck/build:all/diff 通过；隔离 HTTP/ACP 与 Playwright 1440/390/320 通过恢复按钮、旧 token 409、同 run/同审批、2 次 worker/1 次恢复请求/0 gate 决策/0 done 退出/无 pageerror。截图与证据 `/tmp/cord-stage49-*`，预览 PID 45217。
+- 浏览器查看发现恢复后的派生 run error 仍显示授权中断旧文案；修正 `setRunStatus(running/waiting_human)` 清除派生 finished/error，历史事件仍保留，准备重新跑定向/构建后提交。
+- 修正后定向恢复/已有尝试回归通过；全量 1026 项 / 74 文件、typecheck/build:all/diff 再次通过。隔离 ACP/HTTP 预览 `/tmp/cord-stage49-real-result.json` 与 Playwright `/tmp/cord-stage49-browser-result.json` 重新生成，桌面/390/320 无溢出/pageerror，旧失败文案清除，原 run/审批/预算保持。
+- 阶段 49 功能与验收完成，进入小步提交与远端同步；持续目标仍 active，完整验收覆盖、跨 driver 权限和资源治理继续后续阶段。
+- 最后独立冷启动保持原审批/worker 2、doctor=true；最新预览 62439/PID 65661，证据已更新。原真实 7306 审批 1/gate 决策 0/done 退出 0。同步 README 顶部旧能力描述与 API/协议目录，进入提交。
+
 ## 2026-10-09（阶段 48）
 
 - d787af0 工作树干净、与本地 origin 同步；上一轮完成 Goal ready 共用核验，属于实际进展。
