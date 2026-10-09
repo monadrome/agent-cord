@@ -10,6 +10,7 @@
 - 最终全量 963 测试 / 73 文件、build:all/typecheck/diff 通过。隔离真实 HTTP 首次因空正文携带 JSON content-type 被拒绝，已修正并清理旧进程；新工作区完整验证拒绝→显式策略重载→一次授权→host passed→人审未决，worker 2、决定/退出 0、冷恢复同审批不重复、doctor=true。
 - Playwright/Chrome 1440/390/320 Agent 页只显示预授权读/写数量，私有标记不可见；搜索、最终审批、无溢出/pageerror 通过，桌面与 320 截图已查看。证据 /tmp/cord-stage46-real-result.json 与 browser-result，预览 59645/PID 27074；不调用付费模型、不操作真实未决 gate。
 - 提交前 10 份公开文档的 154 个本地链接与 ADR-0060 七节/56 行通过，diff 检查通过。原真实 Draft 7306 实时审批 1、gate 决定 0、done 未退出；进入小步提交和有界同步，完整持续目标 active。
+- 功能提交 `6d9279f`（feat: preauthorize scoped ACP file operations），HTTP/1.1 有界推送成功 9079288 → 6d9279f，ls-remote 核验远端 `6d9279f5e7f37fafff1a763af755690df8c6673d`。阶段 45 记录提交 9079288 的同步不确定性已解除；本阶段完成文件范围权限原型，跨 driver 命令/网络权限与完整资源治理仍待继续。
 
 ## 2026-10-09（阶段 45）
 
