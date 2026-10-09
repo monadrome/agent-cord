@@ -66,6 +66,8 @@ Goal 声明 `supervisor_agent` 时，RunService 在 blocked 事实和 failed run
 
 ready 的来源由 coordinator/goal-evidence.ts 共用解析，runner 与 execution-context 不分别猜测完成。宿主核验 worker、产物写入与随后全部声明验证的命令/零退出/输入身份、最新引用及取消；协调在此基础上重读当前源码与指南，返回 current/freshness_reason，历史 ready 不冒称当前有效。过期/不可读/非法 ready 不能作 goal evidence；blocked/retrying 仍是当前 run 的执行事实。完整观察与 round 输入身份绑定，冷活动槽位变化也会使旧提议过期，需要新轮次（ADR-0061）。
 
+Goal 可选 acceptance 声明条件到 check ID 的映射。宿主完成检查后生成指南矩阵与 ready.acceptance_evidence，goal-acceptance.ts 派生并核验全集；共用 readiness 拒绝遗漏/错引用，协调当前 ready hook 也必须匹配发布条件。模型自报矩阵不被消费为通过事实，默认模板的三条件仅代表工程基线，业务充分性仍需 review（ADR-0064）。
+
 ## 3. 数据和写入路径
 
 每个需求对应 `cord/<req-id>/`：

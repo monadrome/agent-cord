@@ -133,6 +133,10 @@ console 读取失败保持编辑/保存禁用，不能声明已与磁盘一致�
 
 `goal.attempt.started/completed` 绑定 workflow/run/node 与 attempt；首个 started.timestamp 锁定同 run 总时长，已开始但中断的尝试也消耗预算。completed 的 ready 包含 completion_event_id、input/source/artifact hash 及 verification_event_ids；retrying/blocked 含 failure_kind、原因与可选 progress_hash（源码+失败集合，指南文字变化不算代码进展）。宿主审计“变更 / 验收 / 风险”非空章节，补入实际命令证据，再把 verification.completed 绑定最终指南输入；补写期间源码/需求变化不能记 ready。完整输出不持久化，失败尾部只作内存反馈，Goal prompt_excerpt 不含原命令输出。
 
+ADR-0064：run.goal 可选 `acceptance: [{id, criterion, checks}]`（1–16 项），条件 ID 唯一、说明非空、检查引用唯一且非空；必须引用已声明检查并覆盖全部检查，非法映射发布前拒绝。宿主在实际检查和指南审计通过后生成“宿主验收覆盖”矩阵；ready.acceptance_evidence 按发布条件顺序保存 `{acceptance_id, verification_event_ids}`，同条件内顺序与 checks 一致。声明清单时证据必须全集一致，缺项/错序/未知/重复/失败结果拒绝；无清单历史不新增字段、不声称覆盖。协调观察只传合法宿主映射并受 current/freshness_reason 约束；当前 ready hook 缺覆盖在调用前拒绝。映射与条件文本进入 workflow/input 身份。矩阵证明关联检查实际通过，不能证明测试对业务条件充分或 PRD 所有语义已声明。
+
+声明验收条件的 Goal post 人审和冷恢复等待共用合法 ready 来源，缺覆盖时拒绝放行/恢复，即使现有 verification-passed 仍为 pass。pre gate、无清单流程及历史已退出节点保持既有语义。
+
 Goal 复用只接受同 run 最新 ready、原完成引用、当前输入/指南和声明命令对应的最新宿主验证事实全部一致；成功 task 本身不足以让 Goal 节点退出。新 run 的未退出 Goal 重新验证；既有退出事实仍按发布执行版本隔离。最终 post gate 保持原语义；检查脚本与依赖仍是授权工作区的信任边界，不承诺 OS 隔离或对恶意 worker 的证据防篡改。
 
 协调执行观察同时投影每个 `run.goal` 节点的 `goals`：`missing/started/retrying/ready/blocked/cancelled/invalid`、尝试/预算、failure_kind、截断 reason、输入/产物 hash 和验证事件 ID。原始 worker 正文、日志和命令输出不进入协调上下文。`goal` evidence 只能引用当前 Goal 事件；当前 blocked/invalid/cancelled 会使 `eligible_nodes=[]`，任何 advance 由宿主拒绝，Context Session Agent 只能提出 ask_human 或 wait。人工选择仍进入既有澄清事实，不等于增加预算、授权或放行 gate（ADR-0057）。

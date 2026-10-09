@@ -22,6 +22,7 @@ export { readApprovalContextHash } from "./checkpoint.js";
 export { readGoalRetryAuthorization, readGoalRetryAgentIdentity } from "./goal-retry.js";
 export { goalRecoveryInputHash, goalRecoveryCheckpoint, readGoalRecoveryRequest } from "./goal-recovery.js";
 export { resolveGoalReadiness, type GoalReadinessEvidence } from "./goal-evidence.js";
+export { goalAcceptanceIsComplete } from "./goal-acceptance.js";
 export { createContextSessionAgent, buildCoordinationPrompt, parseCoordinationProposal, coordinationInputHash, type ContextSessionAgentOptions } from "./session-agent.js";
 export { readCoordinationSnapshot } from "./coordination-context.js";
 export { readClarificationAnswers, currentClarificationAnswers, projectClarifications, MAX_CLARIFICATION_QUESTIONS, type SnapshotClarification, type ClarificationAnswer } from "./clarifications.js";

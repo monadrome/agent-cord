@@ -62,6 +62,54 @@ function setup(def: WorkflowDef, agent: AgentDriver) {
 async function latest_goal() { return (await session.events.readOrdered()).filter(e => e.type === "goal.attempt.completed").at(-1)!; }
 
 describe("Goal 自主交付", () => {
+  it("发布验收清单拒绝未知检查、遗漏基线、重复条件或空映射", () => {
+    const acceptance = [{ id: "business-value", criterion: "业务值满足当前 PRD", checks: ["value-test"] }];
+    expect(definition({ acceptance }).spec.nodes[0]!.run!.goal).toMatchObject({ acceptance });
+    for (const value of [[], [{ ...acceptance[0], checks: [] }], [{ ...acceptance[0], checks: ["unknown"] }],
+      [acceptance[0], acceptance[0]], [{ ...acceptance[0], criterion: " " }], [{ ...acceptance[0], checks: ["value-test", "value-test"] }]]) {
+      expect(() => definition({ acceptance: value })).toThrow();
+    }
+    expect(() => definition({ checks: [
+      { id: "value-test", bin: process.execPath }, { id: "omitted", bin: process.execPath },
+    ], acceptance })).toThrow();
+  });
+
+  it("宿主按验收清单生成实测矩阵，模型自报通过不能替代失败命令", async () => {
+    const acceptance = [{ id: "business-value", criterion: "业务值 fixed | 无额外换行", checks: ["value-test"] }];
+    const agent = driver(async attempt => { await writeFile(join(root, "value.txt"), attempt === 1 ? "broken" : "fixed"); return report + "\n验收清单全部通过。"; });
+    const def = definition({ acceptance }); const { runner, ctx, node } = setup(def, agent);
+    expect((await runner.runNode(node, session, ctx)).status).toBe("ok");
+    expect(agent.prompts).toHaveLength(2); expect(agent.prompts[0]).toContain("business-value");
+    const events = await session.events.readOrdered(); const ready = await latest_goal();
+    const passed = events.filter(event => event.type === "verification.completed" && event.payload["status"] === "passed");
+    expect(ready.payload["acceptance_evidence"]).toEqual([{ acceptance_id: "business-value", verification_event_ids: [passed[0]!.event_id] }]);
+    expect(events.filter(event => event.type === "goal.attempt.completed" && event.payload["status"] !== "ready").every(event => event.payload["acceptance_evidence"] === undefined)).toBe(true);
+    const guide = await readFile(join(session.dir, "review.md"), "utf8");
+    expect(guide).toContain("## 宿主验收覆盖"); expect(guide).toContain("business-value");
+    expect(guide).toContain("fixed \\| 无额外换行"); expect(guide).toContain(passed[0]!.event_id);
+  });
+  it("多条件共享检查仍须逐项绑定完整实际结果，部分成功继续自主修复", async () => {
+    const def = definition({ checks: [
+      { id: "value-test", bin: process.execPath, args: ["-e", "if(require('node:fs').readFileSync('value.txt','utf8').trim()!=='fixed')process.exit(1)"] },
+      { id: "exact-bytes", bin: process.execPath, args: ["-e", "if(require('node:fs').readFileSync('value.txt','utf8')!=='fixed')process.exit(1)"] },
+    ], acceptance: [
+      { id: "business-value", criterion: "业务值 fixed", checks: ["value-test"] },
+      { id: "exact-delivery", criterion: "精确字节无额外换行", checks: ["value-test", "exact-bytes"] },
+    ] });
+    const agent = driver(async attempt => { await writeFile(join(root, "value.txt"), attempt === 1 ? "fixed\n" : "fixed"); return report; });
+    const { runner, node, ctx } = setup(def, agent);
+    expect((await runner.runNode(node, session, ctx)).status).toBe("ok"); expect(agent.prompts).toHaveLength(2);
+    const facts = await session.events.readOrdered(); const checks = facts.filter(event => event.type === "verification.completed");
+    expect(checks.map(event => event.payload["status"])).toEqual(["passed", "failed", "passed", "passed"]);
+    expect((await latest_goal()).payload["acceptance_evidence"]).toEqual([
+      { acceptance_id: "business-value", verification_event_ids: [checks[2]!.event_id] },
+      { acceptance_id: "exact-delivery", verification_event_ids: [checks[2]!.event_id, checks[3]!.event_id] },
+    ]);
+    const completion = facts.filter(event => event.type === "agent.task.completed").at(-1)!;
+    expect(await runner.isCompletionReusable!(node, session, ctx, completion)).toBe(true);
+    await writeFile(join(root, "value.txt"), "new-code"); expect(await runner.isCompletionReusable!(node, session, ctx, completion)).toBe(false);
+  });
+
   it("ready 后输入变化且尝试耗尽，blocked 引用已消费编号，不凭空新增尝试", async () => {
     const agent = driver(async () => { await writeFile(join(root, "value.txt"), "fixed"); return report; });
     const def = definition({ max_attempts: 1 }); const { runner, node, ctx } = setup(def, agent);

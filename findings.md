@@ -1,5 +1,11 @@
 # 调研发现
 
+## 实现校准（2026-10-09，Goal 验收覆盖）
+
+- checks 全绿只能证明命令结果；review 三章节非空没有逐项验收条件/证据关联。宿主需生成验收矩阵，不能信 worker 自报全覆盖。
+- 可选发布 acceptance 映射到 check ID，拒绝未知/遗漏/重复，宿主 ready 保存实际 verification ID；共享 readiness 解析继续约束恢复与协调。
+- 工程基线和业务条件须区分；映射与真实通过并不证明测试逻辑充分或 PRD 全部语义已声明，人审仍必需。
+
 ## 实现校准（2026-10-09，原 Goal 恢复操作）
 
 - 配置身份漂移会把原授权 run 登记为 failed；恢复原配置后只有内部 RunService.recover 能恢复。公开 retry-goal 幂等返回原 run，普通 start 授予新 run，用户没有保留原预算的操作入口。

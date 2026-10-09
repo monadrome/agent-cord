@@ -106,6 +106,11 @@ const AGENT_COLLAB: WorkflowDef = {
           goal: { inputs: ["src", "apps", "tests", "package.json", "package-lock.json", "tsconfig.json", "vitest.config.ts"],
             max_attempts: 3, timeout_ms: 1_800_000, no_progress_limit: 2,
             supervisor_agent: "context-coordinator", supervisor_timeout_ms: 120_000,
+            acceptance: [
+              { id: "offline-regression", criterion: "工程基线：全部离线回归通过", checks: ["offline-tests"] },
+              { id: "strict-types", criterion: "工程基线：各 workspace 类型检查通过", checks: ["typecheck"] },
+              { id: "buildable-draft", criterion: "工程基线：内核与控制台构建通过", checks: ["build"] },
+            ],
             checks: [
               { id: "offline-tests", bin: "npm", args: ["test"], timeout_ms: 180_000 },
               { id: "typecheck", bin: "npm", args: ["run", "typecheck"], timeout_ms: 120_000 },

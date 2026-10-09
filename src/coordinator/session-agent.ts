@@ -9,6 +9,15 @@ import { DEFAULT_TASK_TIMEOUT_MS } from "../driver/headless.js";
 import { topologicalOrder } from "../workflow/executor.js";
 import type { RequirementSnapshot } from "./snapshot.js";
 import { buildCoordinationDocuments, COORDINATION_CONTEXT_POLICY, readCoordinationSnapshot } from "./coordination-context.js";
+import { goalAcceptanceIsComplete } from "./goal-acceptance.js";
+
+function assertGoalAcceptance(def: WorkflowDef, execution_context?: CoordinationExecutionContext): void {
+  for (const observation of execution_context?.goals ?? []) {
+    if (observation.current !== true && observation.acceptance_evidence === undefined) continue;
+    const goal = def.spec.nodes.find(node => node.id === observation.node_id)?.run?.goal;
+    if (goal === undefined || !goalAcceptanceIsComplete(goal, observation.acceptance_evidence, observation.verification_event_ids)) throw new Error("协调 Goal 验收覆盖与发布条件不一致");
+  }
+}
 
 const ADAPTER = "context-session-agent";
 const ABORTED = Symbol("aborted");
@@ -67,6 +76,7 @@ function assertGoalBlocker(execution_context: CoordinationExecutionContext | und
 
 /** 只接受完整 JSON；来源存在性与 workflow 依赖是宿主判定，不能由模型自报。 */
 export function parseCoordinationProposal(text: string, def: WorkflowDef, snapshot: RequirementSnapshot, verifications: readonly CoordinationVerification[] = [], execution_context?: CoordinationExecutionContext, goal_blocker?: GoalBlockerTrigger): CoordinationProposal {
+  assertGoalAcceptance(def, execution_context);
   let value: unknown;
   try { value = JSON.parse(text); } catch { throw new Error("协调结果必须是完整 JSON 对象"); }
   const parsed = CoordinationProposalSchema.safeParse(value);
@@ -95,6 +105,7 @@ export function parseCoordinationProposal(text: string, def: WorkflowDef, snapsh
 }
 
 export function buildCoordinationPrompt(def: WorkflowDef, snapshot: RequirementSnapshot, max_chars = DEFAULT_MAX_PROMPT_CHARS, source_hash: string | null = null, verifications: readonly CoordinationVerification[] = [], execution_context?: CoordinationExecutionContext, goal_blocker?: GoalBlockerTrigger): string {
+  assertGoalAcceptance(def, execution_context);
   if (!Number.isSafeInteger(max_chars) || max_chars < 0) throw new Error("协调上下文预算必须是非负安全整数");
   topologicalOrder(def);
   if (goal_blocker !== undefined) assertGoalBlocker(execution_context, goal_blocker);
@@ -152,6 +163,7 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
       throw new Error("协调 Goal 观察必须完整覆盖声明的 Goal 节点");
     }
     parsed.data.goals.sort((a, b) => a.node_id < b.node_id ? -1 : a.node_id > b.node_id ? 1 : 0);
+    assertGoalAcceptance(def, parsed.data);
     return parsed.data;
   }
 

@@ -53,6 +53,25 @@ beforeEach(async () => {
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
 describe("协调器 Goal 观察", () => {
+  it("有验收清单的 ready 观察必须有完整覆盖，hook 缺项在模型调用前拒绝", async () => {
+    const with_acceptance = structuredClone(def);
+    with_acceptance.spec.nodes[0]!.run!.goal!.acceptance = [{ id: "baseline", criterion: "当前声明测试通过", checks: ["tests"] }];
+    const execution = structuredClone(blocked); const verification_id = ulid();
+    execution.goals[0] = { ...execution.goals[0]!, status: "ready", current: true, freshness_reason: "current", failure_kind: null,
+      artifact_hash: "c".repeat(64), verification_event_ids: [verification_id], acceptance_evidence: [{ acceptance_id: "baseline", verification_event_ids: [verification_id] }] };
+    const proposal = { summary: "等待最终 review", next_action: { kind: "wait", reason: "声明验收检查已通过", evidence: [{ source: "goal", id: blocked_id }] }, risks: [] };
+    const snap = await snapshot();
+    expect(parseCoordinationProposal(JSON.stringify(proposal), with_acceptance, snap, [], execution).next_action.kind).toBe("wait");
+    expect(buildCoordinationPrompt(with_acceptance, snap, undefined, null, [], execution)).toContain("acceptance_evidence");
+    delete execution.goals[0]!.acceptance_evidence;
+    expect(() => parseCoordinationProposal(JSON.stringify(proposal), with_acceptance, snap, [], execution)).toThrow(/验收覆盖/);
+    expect(() => buildCoordinationPrompt(with_acceptance, snap, undefined, null, [], execution)).toThrow(/验收覆盖/);
+    let calls = 0;
+    const worker: AgentDriver = { name: "observer", configuration_hash: "d".repeat(64), async *run() { calls++; yield { type: "result", data: { text: JSON.stringify(proposal) } }; }, async *resume() {} };
+    const agent = createContextSessionAgent({ resolveDriver: () => worker, workspaceRoot: root, read_execution_context: async () => execution });
+    expect(await agent.coordinate(with_acceptance, session, { round_id: ulid(), agent: worker.name })).toMatchObject({ status: "failed", proposal: null });
+    expect(calls).toBe(0);
+  });
   it("只有已核验的 ready 可引用，ready 新鲜度变化使旧协调身份失效", async () => {
     const execution = structuredClone(blocked);
     execution.goals[0] = { ...execution.goals[0], status: "ready", current: true, freshness_reason: "current", artifact_hash: "c".repeat(64), verification_event_ids: [ulid()] };

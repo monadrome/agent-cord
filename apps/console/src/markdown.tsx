@@ -137,8 +137,15 @@ function splitTableRow(line: string): string[] | null {
   const trimmed = line.trim();
   if (!trimmed.includes("|")) return null;
   const withoutEdges = trimmed.replace(/^\|/, "").replace(/\|$/, "");
-  const cells = withoutEdges.split("|").map((cell) => cell.trim());
-  return cells.length >= 2 ? cells : null;
+  const cells: string[] = [""];
+  for (let index = 0; index < withoutEdges.length; index++) {
+    const char = withoutEdges[index]!;
+    if (char === "\\" && ["|", "\\"].includes(withoutEdges[index + 1] ?? "")) {
+      cells[cells.length - 1] += withoutEdges[++index]!;
+    } else if (char === "|") cells.push("");
+    else cells[cells.length - 1] += char;
+  }
+  return cells.length >= 2 ? cells.map(cell => cell.trim()) : null;
 }
 
 function safeHref(value: string): string | null {
@@ -181,7 +188,8 @@ function renderInline(value: string, keyPrefix: string): ReactNode[] {
 }
 
 function renderText(value: string, keyPrefix: string): ReactNode[] {
-  const lines = value.split("\n");
+  const entities: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&#96;": "`" };
+  const lines = value.replace(/&amp;|&lt;|&gt;|&#96;/g, entity => entities[entity]!).split("\n");
   return lines.flatMap((line, index) => (index === 0 ? [line] : [<br key={`${keyPrefix}-br-${index}`} />, line]));
 }
 

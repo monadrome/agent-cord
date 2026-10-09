@@ -10,6 +10,7 @@ import type { WorkflowNode } from "../workflow/executor.js";
 import { matchesWorkflowScope } from "../workflow/scope.js";
 import { runHostCheck, type HostCheckResult } from "../workflow/host-verification.js";
 import { resolveGoalReadiness } from "./goal-evidence.js";
+import { goalAcceptanceEvidence, renderGoalAcceptance } from "./goal-acceptance.js";
 import { executionInputHash } from "./checkpoint.js";
 import { readSnapshot } from "./snapshot.js";
 import type { CoordinatorOptions } from "./coordinator.js";
@@ -107,7 +108,7 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
           try { current = await identity(node, session, ctx); }
           catch { await finish("blocked", "无法读取 Goal 的当前需求、源码或配置身份", { failure_kind: "environment" }); return { status: "failed" }; }
           await append(session, ctx, "goal.attempt.started", GoalAttemptStartedPayloadSchema.parse(base(ctx, attempt)));
-          const instructions = `## Goal 交付契约\n自主实现当前需求的代码 Draft。宿主将实际运行声明检查；一次回复结束不代表目标完成。\n源码范围：${JSON.stringify(goal.inputs)}\n检查：${JSON.stringify(goal.checks)}\n最终指南必须含非空的二级标题：变更、验收、风险，写明变更定位、验收依据与未覆盖项。不要合入、发布或批准 gate。\n${feedback}`;
+          const instructions = `## Goal 交付契约\n自主实现当前需求的代码 Draft。宿主将实际运行声明检查；一次回复结束不代表目标完成。\n源码范围：${JSON.stringify(goal.inputs)}\n检查：${JSON.stringify(goal.checks)}\n${goal.acceptance === undefined ? "" : `发布验收条件：${JSON.stringify(goal.acceptance)}\n逐项实现验收条件；宿主生成真实证据矩阵，不以模型自报通过放行。\n`}最终指南必须含非空的二级标题：变更、验收、风险，写明变更定位、验收依据与未覆盖项。不要合入、发布或批准 gate。\n${feedback}`;
           const outcome = await task_runner(instructions).runNode(node, session, { ...ctx, signal });
           const task = (await readSessionEvents(session)).filter(event => event.type === "agent.task.completed" && scoped(event, ctx)).at(-1);
           const task_result = task === undefined ? null : AgentTaskCompletedPayloadSchema.safeParse(task.payload);
@@ -140,7 +141,8 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
               kind = "delivery"; reason = `review 指南缺少非空章节：${missing.join("、")}`;
               if (missing.length === 0 && guide !== null) {
                 const evidence = `\n\n## 宿主验证证据\n\n- 代码 Draft 工作区：${JSON.stringify(options.workspaceRoot)}\n- 声明源码范围：${JSON.stringify(goal.inputs)}\n- 实测 source_hash：${current.source_hash}\n- 最终 review、合入与关键 gate 仍由人工完成。\n\n${checks.map(check => `- ${JSON.stringify(check.command.id)}：${JSON.stringify([check.command.bin, ...check.command.args])}；退出码 ${check.result.exit_code}；${check.result.duration_ms} ms；事件 ${check.event_id}；stdout ${check.result.stdout_hash}；stderr ${check.result.stderr_hash}`).join("\n")}\n`;
-                const delivered = guide + evidence;
+                const acceptance_evidence = goalAcceptanceEvidence(goal, checks.map(check => check.event_id));
+                const delivered = guide + evidence + renderGoalAcceptance(goal, acceptance_evidence);
                 try {
                   await writeSessionDocument(session.dir, node.artifact, delivered, { expected_hash: sha256Hex(guide) });
                   const final_input = await identity(node, session, ctx);
@@ -159,6 +161,7 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
                   await finish("ready", "代码 Draft、当前宿主验证与 review 指南已齐备，等待最终人工 review", {
                     completion_event_id: task?.event_id, input_hash: current.input_hash, source_hash: current.source_hash,
                     artifact_hash: sha256Hex(guide), verification_event_ids: checks.map(check => check.event_id),
+                    ...(acceptance_evidence === undefined ? {} : { acceptance_evidence }),
                   });
                   return { status: "ok" };
                 }
@@ -177,7 +180,8 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
             return { status: ctx.signal?.aborted ? "cancelled" : "timeout" };
           }
           const progress_hash = sha256Hex(canonicalJson({ source_hash: current.source_hash, kind,
-            failures: checks.filter(check => check.result.status !== "passed").map(check => [check.command.id, check.result.status, check.result.exit_code]) }));
+            failures: checks.filter(check => check.result.status !== "passed").map(check => [check.command.id, check.result.status, check.result.exit_code]),
+            ...(goal.acceptance === undefined ? {} : { unresolved_acceptance: goal.acceptance.filter(condition => condition.checks.some(id => !checks.some(check => check.command.id === id && check.result.status === "passed"))).map(condition => condition.id) }) }));
           no_progress = progress_hash === previous_progress ? no_progress + 1 : 1;
           previous_progress = progress_hash;
           if (!terminal && no_progress >= goal.no_progress_limit) { terminal = true; kind = "no_progress"; reason = `连续 ${no_progress} 次源码与失败集合无进展，停止自动尝试`; }

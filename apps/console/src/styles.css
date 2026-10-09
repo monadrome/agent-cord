@@ -923,6 +923,7 @@ p {
 
 .markdown-preview table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 13.5px;
 }
@@ -933,6 +934,7 @@ p {
   border: 1px solid var(--line);
   text-align: left;
   vertical-align: top;
+  overflow-wrap: anywhere;
 }
 
 .markdown-preview th {

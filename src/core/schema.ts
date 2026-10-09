@@ -208,16 +208,33 @@ export const GoalCommandSchema = z.strictObject({
   args: z.array(z.string().max(10_000)).max(128).default([]),
   timeout_ms: z.number().int().positive().max(86_400_000).default(120_000),
 });
+export const GoalAcceptanceSchema = z.strictObject({
+  id: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
+  criterion: z.string().trim().min(1).max(500),
+  checks: z.array(z.string().min(1).max(200)).min(1).max(16)
+    .refine(values => new Set(values).size === values.length, "验收条件的检查引用不能重复"),
+});
+export const GoalAcceptanceEvidenceSchema = z.array(z.strictObject({
+  acceptance_id: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
+  verification_event_ids: z.array(z.string().regex(ULID_RE)).min(1).max(16)
+    .refine(values => new Set(values).size === values.length, "验收证据引用不能重复"),
+})).min(1).max(16).refine(values => new Set(values.map(value => value.acceptance_id)).size === values.length, "验收证据条件不能重复");
+export type GoalAcceptanceEvidence = z.infer<typeof GoalAcceptanceEvidenceSchema>;
 export const GoalConfigSchema = z.strictObject({
   inputs: z.array(z.string().min(1).max(500)).min(1).max(64),
   checks: z.array(GoalCommandSchema).min(1).max(16).refine(values => new Set(values.map(value => value.id)).size === values.length, "Goal 检查 id 必须唯一"),
+  /** ADR-0064：显式验收清单，宿主绑定其实际验证事件。 */
+  acceptance: z.array(GoalAcceptanceSchema).min(1).max(16)
+    .refine(values => new Set(values.map(value => value.id)).size === values.length, "Goal 验收条件 id 必须唯一").optional(),
   max_attempts: z.number().int().min(1).max(10).default(3),
   timeout_ms: z.number().int().positive().max(86_400_000).default(1_800_000),
   no_progress_limit: z.number().int().min(1).max(10).default(2),
   /** ADR-0058：Goal 阻塞后自动发起受限协调；未声明不调用 supervisor。 */
   supervisor_agent: z.string().trim().min(1).max(200).optional(),
   supervisor_timeout_ms: z.number().int().positive().max(600_000).optional(),
-}).refine(value => value.supervisor_timeout_ms === undefined || value.supervisor_agent !== undefined, "supervisor_timeout_ms 必须与 supervisor_agent 一起声明");
+}).refine(value => value.supervisor_timeout_ms === undefined || value.supervisor_agent !== undefined, "supervisor_timeout_ms 必须与 supervisor_agent 一起声明")
+  .refine(value => value.acceptance === undefined || (value.acceptance.every(condition => condition.checks.every(id => value.checks.some(check => check.id === id)))
+    && value.checks.every(check => value.acceptance!.some(condition => condition.checks.includes(check.id)))), "Goal 验收清单必须引用已声明检查且覆盖全部检查");
 export type GoalConfig = z.infer<typeof GoalConfigSchema>;
 export type GoalCommand = z.infer<typeof GoalCommandSchema>;
 
@@ -336,7 +353,9 @@ export const CoordinationGoalSchema = z.strictObject({
   source_hash: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
   artifact_hash: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
   verification_event_ids: z.array(z.string().regex(ULID_RE)).max(16),
-}).refine(value => value.status === "missing" || (value.run_id !== null && value.event_id !== null), { message: "当前 Goal 观察必须绑定 run/event" })
+  acceptance_evidence: GoalAcceptanceEvidenceSchema.optional(),
+}).refine(value => value.acceptance_evidence === undefined || value.status === "ready", "仅 ready Goal 可声明验收通过证据")
+  .refine(value => value.status === "missing" || (value.run_id !== null && value.event_id !== null), { message: "当前 Goal 观察必须绑定 run/event" })
   .refine(value => value.max_attempts === null || value.attempt === null || value.attempt <= value.max_attempts, { message: "Goal 尝试编号超过上限" })
   .refine(value => value.current !== true || (value.status === "ready" && value.freshness_reason === "current" && value.input_hash !== null
     && value.source_hash !== null && value.artifact_hash !== null && value.verification_event_ids.length > 0), "当前 Goal 就绪必须携带完整身份")
@@ -714,8 +733,10 @@ export const GoalAttemptCompletedPayloadSchema = GoalAttemptStartedPayloadSchema
   source_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   artifact_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   verification_event_ids: z.array(z.string().regex(ULID_RE)).max(16).default([]),
+  acceptance_evidence: GoalAcceptanceEvidenceSchema.optional(),
   progress_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
-}).refine(value => value.status !== "ready" || (value.failure_kind === undefined && value.completion_event_id !== undefined
+}).refine(value => value.acceptance_evidence === undefined || value.status === "ready", "仅 ready Goal 可声明验收通过证据")
+  .refine(value => value.status !== "ready" || (value.failure_kind === undefined && value.completion_event_id !== undefined
   && value.input_hash !== undefined && value.source_hash !== undefined && value.artifact_hash !== undefined && value.verification_event_ids.length > 0), "Goal ready 必须携带当前交付与验证身份");
 
 /** `workflow.run.cancelled`：run 取消（ADR-0025）。取消是事实：落盘后执行器在节点边界止步 */

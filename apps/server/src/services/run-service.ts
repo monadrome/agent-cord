@@ -390,7 +390,9 @@ export class RunService {
       throw conflict("审批依据已变化，已重新检查；请确认当前审批");
     }
 
-    const still_waiting = [...scanPendingApprovals(await session.events.readOrdered()).values()]
+    const current_events = await session.events.readOrdered();
+    if (gate.attach.when === "post") this.assertGoalAcceptanceProof(current_events, latest, versioned.def, node);
+    const still_waiting = [...scanPendingApprovals(current_events).values()]
       .some((info) => info.waiting_event_id === waiting.waiting_event_id);
     if (!still_waiting) throw conflict("审批在核验期间已取消或更新，请读取当前审批");
 
@@ -514,6 +516,17 @@ export class RunService {
           continue;
         }
       }
+      if (is_current) {
+        try {
+          for (const waiting of scanPendingApprovals(events, scope).values()) {
+            const node = versioned.def.spec.nodes.find(item => item.id === waiting.node_id);
+            if (node?.gates.some(gate => gate.id === waiting.gate_id && gate.attach.when === "post")) this.assertGoalAcceptanceProof(events, run, versioned.def, node);
+          }
+        } catch (error) {
+          this.index.finishRun(run.run_id, "failed", new Date().toISOString(), error instanceof Error ? error.message : "Goal 验收来源不可验证");
+          continue;
+        }
+      }
       const finalStatus = this.computeFinalStatus(events, versioned.def, run.run_id, run.workflow_revision);
       if (this.closing) break;
       const recorded_decision = [...scanPendingApprovals(events, scope).values()].some((waiting) =>
@@ -574,6 +587,14 @@ export class RunService {
       resumed.push(`${run.req_id}(${run.run_id})`);
     }
     return resumed;
+  }
+
+  private assertGoalAcceptanceProof(events: readonly EventEnvelope[], run: RunRow, def: WorkflowDef, node: WorkflowDef["spec"]["nodes"][number]): void {
+    if (node.run?.goal?.acceptance === undefined) return;
+    const scope = { workflow_id: def.metadata.id, workflow_revision: run.workflow_revision ?? undefined, run_id: run.run_id };
+    const ready = events.filter(event => event.type === "goal.attempt.completed" && matchesWorkflowScope(event.payload, scope)
+      && event.payload["run_id"] === run.run_id && event.payload["node_id"] === node.id).at(-1);
+    if (ready === undefined || resolveGoalReadiness(ready, events, node, scope) === null) throw conflict("Goal 声明验收覆盖来源不可验证，拒绝恢复或人工放行");
   }
 
   /** 授权身份在恢复与人审共用；首次派发还须保持人工确认的节点输入。 */

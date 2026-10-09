@@ -17,4 +17,9 @@ describe("Markdown 预览解析", () => {
       { kind: "table", headers: ["项目", "状态"], rows: [["控制台", "完成"]] },
     ]);
   });
+  it("宿主验收矩阵中的转义竖线与反斜杠保持同一单元格", () => {
+    expect(parseMarkdown("| 条件 | 证据 |\n|---|---|\n| fixed \\| 无换行 \\\\ path | event |")) .toEqual([
+      { kind: "table", headers: ["条件", "证据"], rows: [["fixed | 无换行 \\ path", "event"]] },
+    ]);
+  });
 });

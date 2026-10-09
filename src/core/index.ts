@@ -10,6 +10,8 @@ export {
   VerificationCompletedPayloadSchema,
   VerificationResultSchema,
   GoalConfigSchema,
+  GoalAcceptanceSchema,
+  GoalAcceptanceEvidenceSchema,
   GoalCommandSchema,
   GoalAttemptStartedPayloadSchema,
   GoalAttemptCompletedPayloadSchema,
@@ -81,6 +83,7 @@ export type {
   WorkflowDef,
   WorkflowScope,
   GoalConfig,
+  GoalAcceptanceEvidence,
   GoalCommand,
 } from "./schema.js";
 

@@ -92,6 +92,7 @@ export async function readCoordinationExecutionContext(def: WorkflowDef, session
       }
       const proof = resolveGoalReadiness(event, events, node, { ...scope, run_id: run.run_id });
       if (proof === null) return { ...observation, status: "invalid", current: false, freshness_reason: "invalid_evidence" };
+      if (parsed.data.acceptance_evidence !== undefined) observation.acceptance_evidence = parsed.data.acceptance_evidence;
       try {
         const config = runs.configurationHashFor(session.req_id, node.run!.agent);
         const before = await runs.readNodeInput(def, node, session, config, workflow_revision);

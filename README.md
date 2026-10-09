@@ -32,6 +32,7 @@ agent-cord 是一个多 agent 共识协作基座：把需求、决策、证据�
 - ACP worker 可在 agents.yaml 声明 read/edit 文件范围预授权；请求的结构化 kind/absolute locations 全部匹配时一次授权，正常工具请求无需逐次人工调度。未知/越界请求取消并形成权限卡点，只读任务保留原拒绝行为。
 - Goal ready 的 worker/宿主测试来源由恢复和协调共用核验；协调观察区分历史就绪与当前有效性，代码/指南过期、取消或不可读取时不会引用为当前交付证据。
 - 原授权 Goal 中断或冷配置漂移后，恢复原配置可在详情页恢复同一 run；请求绑定当前输入、checkpoint 与身份，保留原次数/截止时间，仍有效交付恢复到原人工审批（[ADR-0063](./docs/adr/ADR-0063-goal-recovery-command.md)）。
+- Goal 可声明验收条件到检查的映射，宿主生成逐项实测矩阵与事件引用；恢复/协调拒绝缺项或错引用。推荐模板包含测试、类型和构建工程基线，业务条件须补充实际检查，矩阵不代替最终人审（[ADR-0064](./docs/adr/ADR-0064-goal-acceptance-coverage.md)）。
 - 用独立盲评投票处理适合自动化的决策点，分歧和高风险情况升级人工。
 - 通过 Fastify server 和 React 控制台查看需求、编辑文档、观察事件、启动 run、处理人工 gate，并管理 SDLC 的草稿、版本、归档与模板库。
 

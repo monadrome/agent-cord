@@ -10,7 +10,8 @@ import { createNodeRunner } from "../../src/coordinator/coordinator.js";
 import { resolveGoalReadiness } from "../../src/coordinator/goal-evidence.js";
 
 const def = WorkflowDefSchema.parse({ apiVersion: "agent-cord.dev/v1alpha1", kind: "Workflow", metadata: { id: "goal-evidence" }, spec: { nodes: [{ id: "deliver", artifact: "review.md",
-  run: { agent: "fake", goal: { inputs: ["value.txt"], checks: [{ id: "test", bin: process.execPath, args: ["-e", "process.exit(0)"] }] } } }] } });
+  run: { agent: "fake", goal: { inputs: ["value.txt"], checks: [{ id: "test", bin: process.execPath, args: ["-e", "process.exit(0)"] }],
+    acceptance: [{ id: "baseline", criterion: "声明测试通过", checks: ["test"] }, { id: "delivery", criterion: "交付所需检查通过", checks: ["test"] }] } } }] } });
 const node = def.spec.nodes[0]!;
 const scope = { workflow_id: def.metadata.id, workflow_revision: "a".repeat(64), run_id: ulid() };
 let root: string; let events: EventEnvelope[];
@@ -32,6 +33,28 @@ function patch(type: string, fields: Partial<EventEnvelope>, data?: Record<strin
 }
 
 describe("共享 Goal ready 证据", () => {
+  it("宿主生成完整条件映射，无清单历史兼容，不允许凭空声明覆盖", () => {
+    const ready_event = ready(); const result = events.find(event => event.type === "verification.completed")!;
+    expect(ready_event.payload["acceptance_evidence"]).toEqual([
+      { acceptance_id: "baseline", verification_event_ids: [result.event_id] }, { acceptance_id: "delivery", verification_event_ids: [result.event_id] },
+    ]);
+    const legacy = structuredClone(node); delete legacy.run!.goal!.acceptance;
+    expect(resolveGoalReadiness(ready_event, events, legacy, scope)).toBeNull();
+    const legacy_events = patch("goal.attempt.completed", {}, { acceptance_evidence: undefined });
+    expect(resolveGoalReadiness(ready(legacy_events), legacy_events, legacy, scope)).not.toBeNull();
+    expect(inspect(legacy_events)).toBeNull();
+  });
+  it.each(["missing", "unknown", "wrong_event", "duplicate", "reordered", "extra_event"])("验收映射 %s 拒绝，不用单个 passed 替代完整覆盖", mode => {
+    const original = structuredClone(ready().payload["acceptance_evidence"]) as Array<{ acceptance_id: string; verification_event_ids: string[] }>;
+    if (mode === "missing") original.pop();
+    if (mode === "unknown") original[0]!.acceptance_id = "foreign";
+    if (mode === "wrong_event") original[0]!.verification_event_ids = [ulid()];
+    if (mode === "duplicate") original[1] = original[0]!;
+    if (mode === "reordered") original.reverse();
+    if (mode === "extra_event") original[0]!.verification_event_ids.push(ulid());
+    expect(inspect(patch("goal.attempt.completed", {}, { acceptance_evidence: original }))).toBeNull();
+  });
+
   it("真正宿主测试和 worker 完成可解析，不要求补写前后指南 hash 相等", () => {
     const proof = inspect(events)!; expect(proof).not.toBeNull();
     expect(proof.completion.type).toBe("agent.task.completed");
