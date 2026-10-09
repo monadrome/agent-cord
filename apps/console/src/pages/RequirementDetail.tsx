@@ -331,7 +331,7 @@ export function RequirementDetail({ reqId, tab, onTab, onBack }: Props): ReactEl
       {tab === "overview" ? <OverviewTab timeline={timeline} activeRun={activeRun} events={events} /> : null}
       {tab === "coordination" ? <CoordinationPanel req_id={reqId} default_sdlc={timeline?.sdlc_version !== null && timeline?.sdlc_version !== undefined ? `${timeline.sdlc_id}@${timeline.sdlc_version}` : ""}
         event_seq={events.at(-1)?.seq ?? 0} run_in_flight={runInFlight} onChanged={loadProjections} onRun={() => onTab("overview")}
-        onSource={(source, id) => { if (source === "document") { set_focused_doc(id); onTab("docs"); } else if (source === "verification" || source === "agent_task" || source === "clarification") { set_focused_event(id); onTab("events"); } else onTab(source === "ledger" ? "ledger" : "overview"); }} /> : null}
+        onSource={(source, id) => { if (source === "document") { set_focused_doc(id); onTab("docs"); } else if (source === "verification" || source === "agent_task" || source === "goal" || source === "clarification") { set_focused_event(id); onTab("events"); } else onTab(source === "ledger" ? "ledger" : "overview"); }} /> : null}
       {tab === "docs" ? <DocsTab reqId={reqId} docs={detail?.docs ?? null} artifacts={detail?.artifacts ?? []} initial_doc={focused_doc} /> : null}
       {tab === "ledger" ? <LedgerTab ledger={ledger} /> : null}
       {tab === "votes" ? <VotesTab votes={votes} /> : null}

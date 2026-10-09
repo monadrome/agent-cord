@@ -94,6 +94,6 @@ flowchart LR
 | `run.retry` 的失败摘要、次数与退避 | 已实现；成功任务后的验证失败尚不会自动触发实现修复闭环 |
 | 节点内 Goal、宿主实际验证/修复、指南结构审计与实际证据、次数/时长/无进展边界 | 原型已实现；显式 run.goal，推荐 Agent 模板默认采用 |
 | 完整验收覆盖判定、结构化人工卡点答复续跑、统一权限策略、费用预算 | 待实现；现有卡点归 run failed 并保留原因，不能等同完整人工升级闭环 |
-| 独立 Context Session Agent | 已实现一次 Draft 提议与人工采用；尚未承担自动 Goal 监督循环 |
+| 独立 Context Session Agent | 已实现一次 Draft 提议与人工采用；现可观察 Goal 状态并阻止 blocked advance，尚未自动监督/发送人工卡点 |
 
 真实 agent 开发流程的设计默认是 Goal；“Agent 协作 · Goal”模板与 [goal-sdlc.yaml](../examples/goal-sdlc.yaml) 提供当前原型。零外部依赖的离线 `simple-sdlc` 继续用于验证平台内核，既有发布版本与人工 gate 保留原语义。后续按 [路线图](./10-roadmap.md) 继续完善，跨模块协议先更新 ADR。

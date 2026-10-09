@@ -44,3 +44,5 @@ Chrome/Playwright 在 1440、390、320 宽度验证指南的变更/验收/风险
 - 检查脚本、依赖与环境仍是工作区信任边界，源码摘要不等于恶意 worker 防篡改。原输出不持久化，事件元信息是当前证据定位。
 - 卡点以 run failed、failure_kind 与原因留痕，尚无完整的结构化人工答复续跑；独立协调尚未自主监督 Goal。总时长/次数已可执行，费用/token 预算未实现。
 - ACP 权限策略不因 Goal 改变；最终 review、合入和关键 gate 仍人工。持续优化目标保持 active。
+
+阶段 43 补充：Context Session Agent 从当前事件流投影 Goal 状态。blocked/invalid/cancelled Goal 不能继续 advance，可引用当前 Goal event_id 生成 ask_human/wait Draft；原始日志和命令输出不进入 prompt。该观察不自动创建轮次、不自动发送问题、不扩充预算，人工仍通过既有澄清和 gate 入口决定。

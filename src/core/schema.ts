@@ -317,10 +317,30 @@ export const CoordinationTaskSchema = z.strictObject({
   .refine((value) => value.status === "reused" ? value.completion_event_id !== null && value.completion_event_id !== value.event_id : value.completion_event_id === null,
     { message: "只有复用任务可引用不同的原完成事件" });
 export type CoordinationTask = z.infer<typeof CoordinationTaskSchema>;
+/** ADR-0057：节点内 Goal 的受限当前观察；不携带 worker 正文或命令输出。 */
+export const CoordinationGoalSchema = z.strictObject({
+  node_id: z.string().min(1).max(500),
+  run_id: z.string().regex(ULID_RE).nullable(),
+  event_id: z.string().regex(ULID_RE).nullable(),
+  status: z.enum(["missing", "invalid", "started", "retrying", "ready", "blocked", "cancelled"]),
+  attempt: z.number().int().positive().nullable(),
+  max_attempts: z.number().int().positive().nullable(),
+  failure_kind: z.enum(["configuration", "environment", "input_changed", "verification", "delivery", "driver", "budget", "no_progress", "attempt_limit", "cancelled"]).nullable(),
+  reason: z.string().max(2_000).nullable(),
+  input_hash: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
+  source_hash: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
+  artifact_hash: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
+  verification_event_ids: z.array(z.string().regex(ULID_RE)).max(16),
+}).refine(value => value.status === "missing" || (value.run_id !== null && value.event_id !== null), { message: "当前 Goal 观察必须绑定 run/event" })
+  .refine(value => value.max_attempts === null || value.attempt === null || value.attempt <= value.max_attempts, { message: "Goal 尝试编号超过上限" });
+export type CoordinationGoal = z.infer<typeof CoordinationGoalSchema>;
+export const CoordinationGoalsSchema = z.array(CoordinationGoalSchema).max(128).refine(values =>
+  new Set(values.map(value => value.node_id)).size === values.length, { message: "Goal 观察节点不能重复" });
 export const CoordinationExecutionContextSchema = z.strictObject({
   run: z.strictObject({ run_id: z.string().regex(ULID_RE), status: z.enum(["running", "waiting_human", "completed", "blocked", "failed", "cancelled"]), active: z.boolean() })
     .refine((value) => !value.active || ["running", "waiting_human"].includes(value.status), { message: "终态 run 不能仍 active" }).nullable(),
   tasks: z.array(CoordinationTaskSchema).max(128),
+  goals: CoordinationGoalsSchema.default([]),
 }).refine((value) => new Set(value.tasks.map((task) => task.node_id)).size === value.tasks.length, { message: "任务节点不能重复" })
   .refine((value) => { const ids = value.tasks.flatMap((task) => task.event_id === null ? [] : [task.event_id]); return new Set(ids).size === ids.length; }, { message: "同一任务事件不能归属多个节点" })
   .refine((value) => value.tasks.every((task) => task.run_id === (value.run?.run_id ?? null)), { message: "任务观察必须属于当前 run" })
@@ -336,6 +356,7 @@ export const CoordinationEvidenceSchema = z.discriminatedUnion("source", [
   z.strictObject({ source: z.literal("workflow"), id: z.string().min(1).max(500) }),
   z.strictObject({ source: z.literal("verification"), id: z.string().regex(ULID_RE) }),
   z.strictObject({ source: z.literal("agent_task"), id: z.string().regex(ULID_RE) }),
+  z.strictObject({ source: z.literal("goal"), id: z.string().regex(ULID_RE) }),
   z.strictObject({ source: z.literal("clarification"), id: z.string().regex(ULID_RE) }),
 ]);
 const coordination_action_fields = {
@@ -665,6 +686,7 @@ export const GoalAttemptStartedPayloadSchema = z.strictObject({
   run_id: z.string().regex(ULID_RE), node_id: z.string().min(1), attempt: z.number().int().positive().max(10),
 });
 export const GoalAttemptCompletedPayloadSchema = GoalAttemptStartedPayloadSchema.safeExtend({
+  max_attempts: z.number().int().positive().max(10).optional(),
   status: z.enum(["ready", "retrying", "blocked", "cancelled"]),
   failure_kind: z.enum(["configuration", "environment", "input_changed", "verification", "delivery", "driver", "budget", "no_progress", "attempt_limit", "cancelled"]).optional(),
   reason: z.string().max(2000),

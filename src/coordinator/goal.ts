@@ -90,7 +90,7 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
       if (!Number.isFinite(deadline)) throw new Error("Goal 尝试起点时间非法");
       let attempt = Math.max(1, attempt_count + 1);
       const finish = async (status: "ready" | "retrying" | "blocked" | "cancelled", reason: string, fields: Record<string, unknown> = {}) => {
-        const payload = GoalAttemptCompletedPayloadSchema.parse({ ...base(ctx, Math.min(attempt, 10)), status, reason: reason.slice(0, 2000), ...fields });
+        const payload = GoalAttemptCompletedPayloadSchema.parse({ ...base(ctx, Math.min(attempt, 10)), max_attempts: goal.max_attempts, status, reason: reason.slice(0, 2000), ...fields });
         await append(session, ctx, "goal.attempt.completed", payload);
       };
       if (options.read_verification_input === undefined || node.artifact === undefined || node.run.readonly || node.run.retry !== undefined) {

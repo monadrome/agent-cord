@@ -18,7 +18,7 @@ interface Props {
   event_seq: number;
   run_in_flight: boolean;
   onChanged: () => Promise<void>;
-  onSource: (source: "document" | "ledger" | "workflow" | "verification" | "agent_task" | "clarification", id: string) => void;
+  onSource: (source: "document" | "ledger" | "workflow" | "verification" | "agent_task" | "goal" | "clarification", id: string) => void;
   onRun: () => void;
 }
 
@@ -207,7 +207,7 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
                 </div>
               </form>}
             </div> : null}
-            <div className="coordination-evidence"><h4>来源</h4><ul>{selected.proposal.next_action.evidence.map((evidence, index) => <li key={`${evidence.source}:${evidence.id}:${index}`}><span className="muted small">{evidence.source === "document" ? "文档" : evidence.source === "ledger" ? "共识" : evidence.source === "verification" ? "验证" : evidence.source === "agent_task" ? "任务" : evidence.source === "clarification" ? "澄清" : "节点"}</span>
+            <div className="coordination-evidence"><h4>来源</h4><ul>{selected.proposal.next_action.evidence.map((evidence, index) => <li key={`${evidence.source}:${evidence.id}:${index}`}><span className="muted small">{evidence.source === "document" ? "文档" : evidence.source === "ledger" ? "共识" : evidence.source === "verification" ? "验证" : evidence.source === "agent_task" ? "任务" : evidence.source === "goal" ? "Goal" : evidence.source === "clarification" ? "澄清" : "节点"}</span>
               {evidence.source !== "document" || ["prd.md", "plan.md", "adr.md", "findings.md"].includes(evidence.id) ? <button type="button" className="link mono" onClick={() => onSource(evidence.source, evidence.id)}><span>{evidence.id}</span><ChevronRight size={14} aria-hidden="true" /></button> : <code className="mono">{evidence.id}</code>}
             </li>)}</ul></div>
             {selected.proposal.risks.length > 0 ? <div className="coordination-risks"><h4>风险</h4><ul>{selected.proposal.risks.map((risk, index) => <li key={index}>{risk}</li>)}</ul></div> : null}

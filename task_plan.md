@@ -641,6 +641,15 @@
 - [x] run.goal 契约、宿主命令运行器、持久化预算、自动修复与交付审计
 - [x] server/源码身份/恢复、推荐模板与公开使用文档；浏览器发现指南不可见，补只读当前声明产物入口
 - [x] 成功/失败/恢复测试，最终 895 项 / 67 文件、build:all/typecheck/diff；隔离 ACP/headless 真子进程、真实 Codex 3 用例与 HTTP/1440/390/320 验收
+
+## 阶段 43：Context Session Agent 感知 Goal 阻塞（已实现，验证中）
+
+- [x] 核验阶段 42 本地提交与远端状态；远端未包含 `c9ba17d`，网络低速，不阻断本地实现
+- [x] ADR-0057 先行：Goal 状态只读投影、blocked 阻断 advance、goal evidence 与现有澄清兼容
+- [x] 扩展协调执行观察、schema、prompt/hash 和提议校验
+- [x] 覆盖 ready/retrying/blocked/坏事实/旧 run/人工升级与兼容恢复
+- [x] 全量 902 测试 / 69 文件、typecheck/build:all/diff、123 个文档链接与 ADR-0057 格式检查通过
+- [ ] 小步提交推送并核验
 - [x] 功能本地提交 `2f0f541`（feat: deliver goals with host verification and automatic repair）
 - [x] 远端同步：HTTP/2 低速失败后，HTTP/1.1 有界推送成功，最终 docs 收尾提交 `191b2a814a7461b020806cbb79b23ef4631a3ee5` 已由 ls-remote 核验
 

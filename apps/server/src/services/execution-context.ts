@@ -1,6 +1,7 @@
 /** ADR-0048：当前 run 的任务状态投影，不复制 runner 或注入日志。 */
-import { AgentTaskStartedPayloadSchema, AgentTaskCompletedPayloadSchema, AgentTaskReusedPayloadSchema, CoordinationExecutionContextSchema, matchesWorkflowScope, readSessionEvents, resolveReusedCompletion,
-  type CoordinationExecutionContext, type CoordinationTask, type EventEnvelope, type SessionHandle, type WorkflowDef } from "agent-cord";
+import { AgentTaskStartedPayloadSchema, AgentTaskCompletedPayloadSchema, AgentTaskReusedPayloadSchema, CoordinationExecutionContextSchema,
+  GoalAttemptStartedPayloadSchema, GoalAttemptCompletedPayloadSchema, matchesWorkflowScope, readSessionEvents, resolveReusedCompletion,
+  type CoordinationExecutionContext, type CoordinationGoal, type CoordinationTask, type EventEnvelope, type SessionHandle, type WorkflowDef } from "agent-cord";
 import type { RunService } from "./run-service.js";
 
 export async function readCoordinationExecutionContext(def: WorkflowDef, session: SessionHandle, workflow_revision: string | undefined, runs: RunService): Promise<CoordinationExecutionContext> {
@@ -11,10 +12,18 @@ export async function readCoordinationExecutionContext(def: WorkflowDef, session
   const run = latest_run?.workflow_revision === workflow_revision ? latest_run : null;
   const scope = { workflow_id: def.metadata.id, workflow_revision };
   const latest_tasks = new Map<string, EventEnvelope>();
+  const goal_nodes = def.spec.nodes.filter((node) => node.run?.goal !== undefined).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  if (goal_nodes.length > 128) throw new Error("协调 Goal 观察超过 128 项上限");
+  const latest_goals = new Map<string, EventEnvelope>();
   if (run !== null) for (const event of events) {
     if (!["agent.task.started", "agent.task.completed", "agent.task.reused"].includes(event.type) || !matchesWorkflowScope(event.payload, scope) || event.payload["run_id"] !== run.run_id) continue;
     const node_id = event.payload["node_id"];
     if (typeof node_id === "string" && nodes.some((node) => node.id === node_id)) latest_tasks.set(node_id, event);
+  }
+  if (run !== null) for (const event of events) {
+    if (!["goal.attempt.started", "goal.attempt.completed"].includes(event.type) || !matchesWorkflowScope(event.payload, scope) || event.payload["run_id"] !== run.run_id) continue;
+    const node_id = event.payload["node_id"];
+    if (typeof node_id === "string" && goal_nodes.some((node) => node.id === node_id)) latest_goals.set(node_id, event);
   }
   const tasks: CoordinationTask[] = nodes.map((node) => {
     const observation: CoordinationTask = { node_id: node.id, run_id: run?.run_id ?? null, event_id: null, completion_event_id: null, status: "missing",
@@ -43,6 +52,34 @@ export async function readCoordinationExecutionContext(def: WorkflowDef, session
     }
     return observation;
   });
+  const goals: CoordinationGoal[] = goal_nodes.map((node) => {
+    const observation: CoordinationGoal = { node_id: node.id, run_id: run?.run_id ?? null, event_id: null, status: "missing",
+      attempt: null, max_attempts: null, failure_kind: null, reason: null, input_hash: null, source_hash: null, artifact_hash: null, verification_event_ids: [] };
+    const event = latest_goals.get(node.id);
+    if (event === undefined) return observation;
+    observation.event_id = event.event_id;
+    observation.status = "invalid";
+    if (event.type === "goal.attempt.started") {
+      const parsed = GoalAttemptStartedPayloadSchema.safeParse(event.payload);
+      if (!parsed.success || event.correlation_id !== node.id) return observation;
+      observation.status = "started";
+      observation.attempt = parsed.data.attempt;
+      observation.max_attempts = node.run?.goal?.max_attempts ?? null;
+      return observation;
+    }
+    const parsed = GoalAttemptCompletedPayloadSchema.safeParse(event.payload);
+    if (!parsed.success || event.correlation_id !== node.id) return observation;
+    observation.status = parsed.data.status;
+    observation.attempt = parsed.data.attempt ?? null;
+    observation.max_attempts = parsed.data.max_attempts ?? null;
+    observation.failure_kind = parsed.data.failure_kind ?? null;
+    observation.reason = parsed.data.reason;
+    observation.input_hash = parsed.data.input_hash ?? null;
+    observation.source_hash = parsed.data.source_hash ?? null;
+    observation.artifact_hash = parsed.data.artifact_hash ?? null;
+    observation.verification_event_ids = parsed.data.verification_event_ids;
+    return observation;
+  });
   return CoordinationExecutionContextSchema.parse({ run: run === null ? null : { run_id: run.run_id, status: run.status,
-    active: ["running", "waiting_human"].includes(run.status) && runs.activeRunId(session.req_id) === run.run_id }, tasks });
+    active: ["running", "waiting_human"].includes(run.status) && runs.activeRunId(session.req_id) === run.run_id }, tasks, goals });
 }

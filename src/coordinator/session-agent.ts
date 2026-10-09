@@ -52,6 +52,7 @@ export function coordinationInputHash(def: WorkflowDef, snapshot: RequirementSna
 
 function eligibleNodes(def: WorkflowDef, snapshot: RequirementSnapshot, execution_context?: CoordinationExecutionContext): string[] {
   if ((snapshot.workflow.waiting?.length ?? 0) > 0 || execution_context?.run?.active === true) return [];
+  if (execution_context?.goals?.some((goal) => ["blocked", "invalid", "cancelled"].includes(goal.status))) return [];
   const exited = new Set(snapshot.workflow.exited);
   const next_id = topologicalOrder(def).find((id) => !exited.has(id));
   const node = def.spec.nodes.find((item) => item.id === next_id);
@@ -74,6 +75,7 @@ export function parseCoordinationProposal(text: string, def: WorkflowDef, snapsh
       evidence.source === "ledger" ? snapshot.ledger.some((entry) => entry.entry_id === evidence.id && entry.status === "confirmed" && !entry.conflict) :
       evidence.source === "verification" ? verifications.some((result) => result.event_id === evidence.id && result.current === true && result.status !== "missing" && result.status !== "invalid") :
       evidence.source === "agent_task" ? execution_context?.tasks.some((task) => task.event_id === evidence.id && !["missing", "invalid"].includes(task.status)) === true :
+      evidence.source === "goal" ? execution_context?.goals?.some((goal) => goal.event_id === evidence.id && !["missing", "invalid"].includes(goal.status)) === true :
       evidence.source === "clarification" ? snapshot.clarifications?.some((answer) => answer.event_id === evidence.id) === true :
       def.spec.nodes.some((node) => node.id === evidence.id);
     if (!valid) throw new Error(`协调提议的来源引用不可验证：${evidence.source}/${evidence.id}`);
@@ -90,14 +92,14 @@ export function buildCoordinationPrompt(def: WorkflowDef, snapshot: RequirementS
     `tool_policy: ${COORDINATION_TOOL_POLICY}\n宿主拒绝任何工具通知，包括只读工具或工具结果；只分析本包已有内容。`,
     "返回一个严格 JSON 对象，禁止 Markdown 围栏和额外解释。证据引用只允许本包的文档、无冲突 confirmed 条目、workflow 节点、current=true 的验证 event_id 或合法当前 run 的 agent_task event_id。",
     `context_policy: ${COORDINATION_CONTEXT_POLICY}\n文档按首尾片段提供，document_excerpts 标明 UTF-16 字符范围和省略数。未显示的内容不能声称已核验；材料不足时请选择 wait 或 ask_human。`,
-    `workflow 来源的 id 只能是 node.id（${JSON.stringify(def.spec.nodes.map((node) => node.id))}），不能是 gate.id；verification 来源的 id 只能是 current=true 观察的 event_id。`,
-    "advance 只可选择 eligible_nodes；该提议不代表机器 checker 或人工审批已放行。等待人工 gate 时请选择 ask_human 或 wait。",
+    `workflow 来源的 id 只能是 node.id（${JSON.stringify(def.spec.nodes.map((node) => node.id))}），不能是 gate.id；verification 来源的 id 只能是 current=true 观察的 event_id；goal 来源的 id 只能是当前 Goal 尝试 event_id。`,
+    "advance 只可选择 eligible_nodes；该提议不代表机器 checker 或人工审批已放行。存在 blocked/invalid/cancelled Goal 时 eligible_nodes 为空，只能依据当前 Goal 事件提出 ask_human 或 wait，不能自行扩充预算、批准权限或放行 gate。",
     `req_id: ${snapshot.req_id}\ntitle: ${snapshot.title ?? "（未命名）"}`,
     `workflow: ${JSON.stringify(def)}`,
     ...(snapshot.workflow_revision !== undefined ? [`workflow_revision: ${snapshot.workflow_revision}`] : []),
     ...(source_hash === null ? [] : [`source_hash: ${source_hash}\n源码摘要仅标识当前声明范围，不代表测试通过或内容已被核验。`]),
     ...(verifications.length === 0 ? [] : [`verifications: ${JSON.stringify(verifications)}\n机器观察由宿主核验输入身份。missing、invalid、current=false/null 均不能认作当前通过；当前 failed/timeout/cancelled 也不是通过。验证证据不能代替人工 gate。`]),
-    ...(execution_context === undefined ? [] : [`execution_context: ${JSON.stringify(execution_context)}\nactive 仅标识宿主当前运行槽位，active=true 时不得推进新 run。started 只证明启动已记录，active=false 时不能声称进程仍活着。reused 表示当前 run 复用原完成事件 completion_event_id，没有新的 worker 调用；来源仍用当前复用 event_id。任务事实不保证对应修改后的输入，ok/reused 也不等于测试或 gate 通过；missing/invalid 不能引用，agent_task 来源只用这里的合法 event_id。`]),
+    ...(execution_context === undefined ? [] : [`execution_context: ${JSON.stringify(!execution_context.goals?.length ? { run: execution_context.run, tasks: execution_context.tasks } : execution_context)}\nactive 仅标识宿主当前运行槽位，active=true 时不得推进新 run。started 只证明启动已记录，active=false 时不能声称进程仍活着。reused 表示当前 run 复用原完成事件 completion_event_id，没有新的 worker 调用；来源仍用当前复用 event_id。任务事实不保证对应修改后的输入，ok/reused 也不等于测试或 gate 通过；missing/invalid 不能引用，agent_task 来源只用这里的合法 event_id。Goal status=blocked/invalid/cancelled 时不能 advance，应使用当前 goal event 作为证据提出 ask_human 或 wait。`]),
     `progress: ${JSON.stringify(snapshot.workflow)}`,
     `eligible_nodes: ${JSON.stringify(eligibleNodes(def, snapshot, execution_context))}`,
     `ledger: ${JSON.stringify(snapshot.ledger)}`,
@@ -132,6 +134,11 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
       throw new Error("协调执行观察必须完整覆盖声明的 worker 节点");
     }
     parsed.data.tasks.sort((a, b) => a.node_id < b.node_id ? -1 : a.node_id > b.node_id ? 1 : 0);
+    const goal_nodes = def.spec.nodes.filter((node) => node.run?.goal !== undefined);
+    if (parsed.data.goals.length !== goal_nodes.length || parsed.data.goals.some((goal) => !goal_nodes.some((node) => node.id === goal.node_id))) {
+      throw new Error("协调 Goal 观察必须完整覆盖声明的 Goal 节点");
+    }
+    parsed.data.goals.sort((a, b) => a.node_id < b.node_id ? -1 : a.node_id > b.node_id ? 1 : 0);
     return parsed.data;
   }
 

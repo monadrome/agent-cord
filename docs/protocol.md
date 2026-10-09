@@ -133,6 +133,8 @@ console 读取失败保持编辑/保存禁用，不能声明已与磁盘一致�
 
 Goal 复用只接受同 run 最新 ready、原完成引用、当前输入/指南和声明命令对应的最新宿主验证事实全部一致；成功 task 本身不足以让 Goal 节点退出。新 run 的未退出 Goal 重新验证；既有退出事实仍按发布执行版本隔离。最终 post gate 保持原语义；检查脚本与依赖仍是授权工作区的信任边界，不承诺 OS 隔离或对恶意 worker 的证据防篡改。
 
+协调执行观察同时投影每个 `run.goal` 节点的 `goals`：`missing/started/retrying/ready/blocked/cancelled/invalid`、尝试/预算、failure_kind、截断 reason、输入/产物 hash 和验证事件 ID。原始 worker 正文、日志和命令输出不进入协调上下文。`goal` evidence 只能引用当前 Goal 事件；当前 blocked/invalid/cancelled 会使 `eligible_nodes=[]`，任何 advance 由宿主拒绝，Context Session Agent 只能提出 ask_human 或 wait。人工选择仍进入既有澄清事实，不等于增加预算、授权或放行 gate（ADR-0057）。
+
 需求 detail 的 artifacts 列出当前绑定 SDLC 声明的路径与可读状态。`GET /requirements/:req_id/artifacts?path=...` 只读声明产物：未声明/缺失 404，普通文件边界冲突 409，IO 失败 500；不提供写入口。控制台文档页复用 Markdown 原文/预览视图，只读查看自定义指南；固定四份快照仍可编辑。Goal blocked 在需求投影显示 blocked，具体原因见 run.error 与尝试事件。
 
 `run.retry`（ADR-0025）：`{ max_attempts(1-10, 默认 1), backoff_ms(默认 0) }`。协调 agent 按尝试循环，退避为 `backoff_ms × 第 n 次失败`，每次尝试落独立的 agent.task.started/completed（带 `attempt`/`max_attempts`），重试的上下文包附上次失败摘要。驱动解析失败属定义性错误，不重试。

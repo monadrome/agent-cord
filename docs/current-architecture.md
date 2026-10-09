@@ -52,7 +52,7 @@ worker agent 子进程（ACP / 裸 headless CLI）
 
 [默认 Goal 驱动的自主 Draft 交付](./core-features.md) 是真实 agent 开发流程的核心设计基线：自主完成代码、实际自测与 human review 指南，正常执行无需中途人工干预，最终 review 与关键权限仍人工控制（[ADR-0055](./adr/ADR-0055-goal-driven-draft-delivery.md)）。
 
-ACP/headless 保持任务调用。coordinator/goal.ts 在 NodeRunner 内承载 run.goal：worker 产出代码与指南 → 宿主按声明 argv 执行检查 → 输入重检与指南审计 → 失败反馈修复或 ready。host-verification.ts 计算完整输出 hash、有界内存尾部并回收超时/取消进程组；失败原文不持久化。指南补入实际结果事件与命令元信息，当前源码与最终指南绑定验证输入。连续无进展、时长与尝试从 goal.attempt 事实恢复；卡点归 run failed 并公开原因。独立协调的一次提议仍不等于自主 Goal 监督。
+ACP/headless 保持任务调用。coordinator/goal.ts 在 NodeRunner 内承载 run.goal：worker 产出代码与指南 → 宿主按声明 argv 执行检查 → 输入重检与指南审计 → 失败反馈修复或 ready。host-verification.ts 计算完整输出 hash、有界内存尾部并回收超时/取消进程组；失败原文不持久化。指南补入实际结果事件与命令元信息，当前源码与最终指南绑定验证输入。连续无进展、时长与尝试从 goal.attempt 事实恢复；卡点归 run failed 并公开原因。Context Session Agent 现在读取受限 Goal 状态；blocked/invalid/cancelled 会使 eligible_nodes 为空，只能产生带当前 Goal 事件证据的 ask_human/wait Draft，不会扩预算或放行 gate。
 
 “Agent 协作 · Goal”模板默认使用该原型，旧发布流程保持原执行语义。缺宿主能力或 NodeRunner 的 Goal 拒绝跳过；正常闭环在未退出节点内完成，最终 post gate 保留人工。未退出 Goal 的同 run 冷恢复校验最新 ready、worker 完成引用、当前源码/指南与宿主验证事件，输入变化先重做；新 run 不复用旧 ready。独立监督、结构化人工卡点续跑和权限策略统一仍待后续实现，完整输出日志未持久化。
 

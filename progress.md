@@ -1,5 +1,13 @@
 # 工作进度
 
+## 2026-10-09（阶段 43）
+
+- 阶段 42 真实 Goal 原型已验证；当前 HEAD c9ba17d，本地领先 origin/exp/impl 1 个提交，远端低速核验失败但工作树干净。
+- 现有 Context Session Agent 已观察 worker task 和 verification，却不理解 goal.attempt 的预算/无进展阻塞；本轮以 ADR-0057 定义受限 goals 投影与 blocked advance 拒绝。
+- 新增 `CoordinationGoal(s)Schema` 与 server execution-context 投影，严格绑定当前 run/workflow；协调 prompt/hash 纳入 goals，Goal event 可作为 evidence，blocked/invalid/cancelled 清空 eligible_nodes。Goal 观察不携带 worker 正文、命令输出或日志。
+- 新增 Goal 观察定向测试：状态/预算/事件 ID 投影、最新坏事实 invalid、不回退 ready、旧 hook 兼容、Context Session Agent 的 blocked ask_human 和 advance fail-closed；95 项定向协调测试通过。
+- 最终全量 `npm test` 通过：902 测试 / 69 文件；`npm run typecheck`、`npm run build:all`、`git diff --check` 通过。新增 123 个文档链接和 ADR-0057 52 行格式检查通过。
+
 ## 2026-10-09（阶段 42）
 
 - 工作树干净，exp/impl 已同步；上一轮确立默认 Goal feature 与验收契约，属于已验证进展。
