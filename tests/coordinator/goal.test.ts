@@ -88,6 +88,30 @@ describe("Goal 自主交付", () => {
     expect(guide).toContain("## 宿主验收覆盖"); expect(guide).toContain("business-value");
     expect(guide).toContain("fixed \\| 无额外换行"); expect(guide).toContain(passed[0]!.event_id);
   });
+  it("可选 usage 预算累计合法 task 事实，超限停止自动修复并保留预算证据", async () => {
+    let calls = 0;
+    const agent: AgentDriver = { name: "fake", configuration_hash: "a".repeat(64), async *run() {
+      calls += 1; await writeFile(join(root, "value.txt"), "fixed");
+      yield { type: "result", data: { text: report, usage: { input_tokens: 11, output_tokens: 2, cost_usd: 0.02 }, session_id: `usage-${calls}` } };
+    }, async *resume() {} };
+    const def = definition({ usage_budget: { max_input_tokens: 10, max_cost_usd: 0.03 } }); const { runner, node, ctx } = setup(def, agent);
+    expect((await runner.runNode(node, session, ctx)).status).toBe("failed"); expect(calls).toBe(1);
+    expect((await latest_goal()).payload).toMatchObject({ status: "blocked", failure_kind: "budget", usage_budget: { max_input_tokens: 10 }, usage_totals: { input_tokens: 11, output_tokens: 2, cost_usd: 0.02, observed_tasks: 1 } });
+    const no_budget = definition(); const no_budget_agent: AgentDriver = { ...agent, async *run() {
+      yield { type: "result", data: { text: report, usage: { input_tokens: 11, output_tokens: 2 }, session_id: "unknown-budget" } };
+    } };
+    expect(no_budget.spec.nodes[0]!.run!.goal!.usage_budget).toBeUndefined();
+    expect(no_budget_agent.name).toBe("fake");
+  });
+
+  it("usage 正好达到上限可以 ready，未报告 usage 不伪造为零", async () => {
+    const agent: AgentDriver = { name: "fake", configuration_hash: "a".repeat(64), async *run() {
+      await writeFile(join(root, "value.txt"), "fixed"); yield { type: "result", data: { text: report, usage: { input_tokens: 10, output_tokens: 2 }, session_id: "exact-budget" } };
+    }, async *resume() {} };
+    const def = definition({ usage_budget: { max_input_tokens: 10, max_output_tokens: 2 } }); const { runner, node, ctx } = setup(def, agent);
+    expect((await runner.runNode(node, session, ctx)).status).toBe("ok");
+    expect((await latest_goal()).payload).toMatchObject({ status: "ready", usage_totals: { input_tokens: 10, output_tokens: 2, observed_tasks: 1, unknown_tasks: 0 } });
+  });
   it("多条件共享检查仍须逐项绑定完整实际结果，部分成功继续自主修复", async () => {
     const def = definition({ checks: [
       { id: "value-test", bin: process.execPath, args: ["-e", "if(require('node:fs').readFileSync('value.txt','utf8').trim()!=='fixed')process.exit(1)"] },

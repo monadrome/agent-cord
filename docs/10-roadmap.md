@@ -29,6 +29,8 @@
 
 阶段 51 接通 Goal 升级协调重试：修复 supervisor 配置/必要事实后读取当前 token，单子请求和父子来源留痕，冷中断不重放；新问题仍可答复并独立授权 Goal，重试本身不执行 worker 或扩 Goal 预算。
 
+阶段 52 增加 opt-in Goal usage 预算：宿主累计跨 ACP/headless 的 task usage，超过 token/cost 上限后保存 budget 证据并升级，不让未知 usage 伪装为零；动态额度、费用结算和 workspace 总额仍后续完善。
+
 现有默认离线 SDLC 和已发布版本保持原语义，最终人工 gate 保留。以下保留历史 MVP/W1–M4 规划。
 
 ## 本章回答什么问题

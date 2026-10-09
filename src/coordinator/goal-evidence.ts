@@ -5,6 +5,8 @@ import { matchesWorkflowScope } from "../workflow/scope.js";
 import { isVerificationRunCancelled } from "../workflow/verification.js";
 import { goalCommandHash } from "../workflow/host-verification.js";
 import { goalAcceptanceIsComplete } from "./goal-acceptance.js";
+import { usageBudgetExceeded } from "./goal-usage.js";
+import { canonicalJson } from "../core/hash.js";
 
 export interface GoalReadinessEvidence {
   completion: EventEnvelope;
@@ -30,6 +32,8 @@ export function resolveGoalReadiness(candidate: EventEnvelope, events: readonly 
     || (parsed.data.max_attempts !== undefined && (parsed.data.max_attempts !== goal.max_attempts || parsed.data.attempt > parsed.data.max_attempts))) return null;
   const ready = parsed.data;
   if (!goalAcceptanceIsComplete(goal, ready.acceptance_evidence, ready.verification_event_ids)) return null;
+  if (goal.usage_budget !== undefined && (ready.usage_budget === undefined || ready.usage_totals === undefined
+    || canonicalJson(ready.usage_budget) !== canonicalJson(goal.usage_budget) || usageBudgetExceeded(goal.usage_budget, ready.usage_totals) !== null)) return null;
   if (ready.input_hash === undefined || ready.source_hash === undefined || ready.artifact_hash === undefined || ready.completion_event_id === undefined
     || goal.checks.length !== ready.verification_event_ids.length || new Set(ready.verification_event_ids).size !== ready.verification_event_ids.length) return null;
   const belongs = (item: EventEnvelope) => item.session_id === event.session_id && matchesWorkflowScope(item.payload, scope)

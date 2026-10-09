@@ -34,6 +34,7 @@ agent-cord 是一个多 agent 共识协作基座：把需求、决策、证据�
 - 原授权 Goal 中断或冷配置漂移后，恢复原配置可在详情页恢复同一 run；请求绑定当前输入、checkpoint 与身份，保留原次数/截止时间，仍有效交付恢复到原人工审批（[ADR-0063](./docs/adr/ADR-0063-goal-recovery-command.md)）。
 - Goal 可声明验收条件到检查的映射，宿主生成逐项实测矩阵与事件引用；恢复/协调拒绝缺项或错引用。推荐模板包含测试、类型和构建工程基线，业务条件须补充实际检查，矩阵不代替最终人审（[ADR-0064](./docs/adr/ADR-0064-goal-acceptance-coverage.md)）。
 - Goal 升级协调失败后，可读取当前依据“重试协调”，保留父子轮次和 blocker；修复 supervisor 配置后新 token 可用，旧 token/重复调用拒绝，不重新启动 worker 或增加 Goal 预算（[ADR-0065](./docs/adr/ADR-0065-goal-coordination-retry.md)）。
+- Goal 可选声明 token/cost usage 预算；宿主跨 task 累计 driver 实测 usage，超限停止后续自动修复并保留预算证据，未声明预算的流程保持原行为（[ADR-0066](./docs/adr/ADR-0066-goal-usage-budget.md)）。
 - 用独立盲评投票处理适合自动化的决策点，分歧和高风险情况升级人工。
 - 通过 Fastify server 和 React 控制台查看需求、编辑文档、观察事件、启动 run、处理人工 gate，并管理 SDLC 的草稿、版本、归档与模板库。
 

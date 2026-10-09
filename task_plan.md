@@ -729,6 +729,15 @@
 - [x] 全量 1060 项 / 74 文件、typecheck/build:all/diff、隔离 HTTP/浏览器与公开文档
 - [x] 功能提交 `1327314`，HTTP/2 推送成功，`ls-remote` 核验远端 hash 一致；工作区干净，完整持续目标 active
 
+## 阶段 52：Goal 可观测 usage 预算（已实现并验证，远端同步未确认）
+
+- [x] 核验 8c330ac 干净同步；发现 driver 已报告 usage 但 Goal 未累计/限额
+- [x] ADR-0066 先行：opt-in token/cost 上限、task 终态后 budget blocker、unknown usage 不当零
+- [x] usage schema/累计/超限 blocker 事实与 ready/冷恢复共享校验
+- [x] ACP/headless/未声明兼容/多次 task/边界回归与文档
+- [x] 全量 1063 项 / 74 文件、typecheck/build:all/diff；定向 usage/ready 回归
+- [ ] 小步提交推送与远端核验
+
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
 - [x] 核验当前分支与阶段 10；上一轮实现和远端同步属于已验证进展

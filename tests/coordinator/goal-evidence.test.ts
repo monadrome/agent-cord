@@ -33,6 +33,14 @@ function patch(type: string, fields: Partial<EventEnvelope>, data?: Record<strin
 }
 
 describe("共享 Goal ready 证据", () => {
+  it("ready 的 usage 预算缺失、篡改或超限不能复用", () => {
+    const budget_node = structuredClone(node);
+    budget_node.run!.goal!.usage_budget = { max_input_tokens: 10 };
+    for (const fields of [{}, { usage_budget: { max_input_tokens: 11 }, usage_totals: { input_tokens: 10, output_tokens: null, cost_usd: null, observed_tasks: 1, unknown_tasks: 0 } },
+      { usage_budget: { max_input_tokens: 10 }, usage_totals: { input_tokens: 11, output_tokens: null, cost_usd: null, observed_tasks: 1, unknown_tasks: 0 } }]) {
+      expect(resolveGoalReadiness({ ...ready(), payload: { ...ready().payload, ...fields } }, fields === undefined ? events : events, budget_node, scope)).toBeNull();
+    }
+  });
   it("宿主生成完整条件映射，无清单历史兼容，不允许凭空声明覆盖", () => {
     const ready_event = ready(); const result = events.find(event => event.type === "verification.completed")!;
     expect(ready_event.payload["acceptance_evidence"]).toEqual([

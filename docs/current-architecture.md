@@ -70,6 +70,8 @@ Goal 可选 acceptance 声明条件到 check ID 的映射。宿主完成检查�
 
 失败 Goal 升级协调可按 server coordination_retry 当前 token 重试；持久 request 三字段保存父轮次/输入/配置来源，初始自动与人工重试 actor 区分。goal-coordination.ts 共用来源解析供投影和 Goal 新预算授权恢复，当前 resolver 固定/派发前重检、单子请求/重放与冷中断不调用模型。原 blocker 和 worker 不变，配置修复后明确新 token 可重新解释最新事实（ADR-0065）。
 
+Goal 可选 usage_budget 绑定宿主可观察的 task usage；goal-usage.ts 跨尝试累计输入/输出 token 与 cost，超限写 budget blocker 和 usage_totals，未声明流程保持兼容，未知 usage 不当零（ADR-0066）。
+
 ## 3. 数据和写入路径
 
 每个需求对应 `cord/<req-id>/`：

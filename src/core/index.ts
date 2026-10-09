@@ -12,6 +12,8 @@ export {
   GoalConfigSchema,
   GoalAcceptanceSchema,
   GoalAcceptanceEvidenceSchema,
+  GoalUsageBudgetSchema,
+  GoalUsageTotalsSchema,
   GoalCommandSchema,
   GoalAttemptStartedPayloadSchema,
   GoalAttemptCompletedPayloadSchema,
@@ -84,6 +86,8 @@ export type {
   WorkflowScope,
   GoalConfig,
   GoalAcceptanceEvidence,
+  GoalUsageBudget,
+  GoalUsageTotals,
   GoalCommand,
 } from "./schema.js";
 
