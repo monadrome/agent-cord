@@ -1,16 +1,22 @@
 /**
  * 上下文包构建（W1.6 两层剪裁，ADR-0023 决策 2）：
- * - 高信号层：PRD 全文（截断上限内）+ 上游已完成节点的 artifact 内容 + 账本条目摘要；
+ * - 高信号层：PRD 与已退出上游产物的首尾片段 + 完整账本条目摘要；
  * - 定位符层：快照文件路径清单，worker agent 按需自取全文（事件流永不进 LLM 上下文）。
  */
 import type { WorkflowDef } from "../core/schema.js";
 import type { WorkflowNode } from "../workflow/executor.js";
 import { isPlaceholderDoc } from "../core/session.js";
 import type { RequirementSnapshot } from "./snapshot.js";
+import { buildCoordinationDocuments } from "./coordination-context.js";
+
+export const WORKER_CONTEXT_POLICY = "worker-balanced-head-tail.v1";
+export class ContextPackBudgetError extends Error {}
 
 export interface ContextPackOptions {
-  /** 上下文包总字符上限（超出砍上游产物，PRD 与任务说明永远保留），默认 60000 */
+  /** 最终 prompt 总字符上限；必需信息放不下时拒绝派发，默认 60000。 */
   maxPackChars?: number;
+  /** 宿主源码身份与重试附记，属于必需预算，不能在返回后追加。 */
+  additional_context?: string;
 }
 
 /** 按产物类型的缺省任务模板（node.run.prompt 未提供时使用） */
@@ -65,6 +71,7 @@ export function buildContextPack(
   options: ContextPackOptions = {},
 ): string {
   const maxPackChars = options.maxPackChars ?? 60_000;
+  if (!Number.isSafeInteger(maxPackChars) || maxPackChars < 0) throw new ContextPackBudgetError("worker 上下文预算必须是非负安全整数");
   const exited = new Set(snapshot.workflow.exited);
   const upstream = upstreamArtifacts(def, node, exited);
   const docByFile = new Map(snapshot.docs.map((doc) => [doc.file, doc]));
@@ -79,31 +86,12 @@ export function buildContextPack(
     `- 当前节点: ${node.id}${node.artifact !== undefined ? `（产物: ${node.artifact}）` : ""}`,
     `- 已完成节点: ${snapshot.workflow.exited.join(" → ") || "（无）"}`,
     `- 快照指纹: ${snapshot.snapshot_id}（事件 seq ≤ ${snapshot.event_seq}）`,
+    `- 上下文策略: ${WORKER_CONTEXT_POLICY}`,
     ...(snapshot.workflow_revision !== undefined ? [`- 执行版本: ${snapshot.workflow_revision}`] : []),
     ``,
     `## 任务`,
     instructions,
   ];
-
-  const prd = docByFile.get("prd.md");
-  if (prd !== undefined && prd.exists && !isPlaceholderDoc(prd.content)) {
-    sections.push(``, `## PRD（全文${prd.truncated ? "·已截断" : ""}）`, prd.content.trim());
-  }
-
-  // 高信号层：上游产物内容（预算内逐个纳入，超预算降级为只给定位符）
-  const upstreamBlocks: string[] = [];
-  let budget = maxPackChars - sections.join("\n").length - 4_000; // 给账本/定位符/输出要求留余量
-  for (const file of upstream) {
-    const doc = docByFile.get(file);
-    if (doc === undefined || !doc.exists || isPlaceholderDoc(doc.content)) continue;
-    const block = `### ${file}${doc.truncated ? "（截断）" : ""}\n${doc.content.trim()}`;
-    if (budget - block.length < 0) break;
-    upstreamBlocks.push(block);
-    budget -= block.length;
-  }
-  if (upstreamBlocks.length > 0) {
-    sections.push(``, `## 上游产物（已完成节点）`, upstreamBlocks.join("\n\n"));
-  }
 
   if (snapshot.ledger.length > 0) {
     const lines = snapshot.ledger.map((entry) =>
@@ -141,5 +129,14 @@ export function buildContextPack(
     );
   }
 
-  return sections.join("\n");
+  if (options.additional_context) sections.push(``, options.additional_context);
+  sections.push(``, `## 文档片段`, `- PRD 与已退出上游产物按首尾采集、均衡预算提供。document_excerpts 是 UTF-16 原文范围与省略数；未显示内容不能声称已核验，材料不足时明确标注待补充。`);
+  const required = sections.join("\n");
+  if (required.length > maxPackChars) throw new ContextPackBudgetError("worker 必需元信息超过上下文预算，请缩小任务、账本或增大预算");
+  const docs = [...new Set(["prd.md", ...upstream])].flatMap((file) => {
+    const doc = docByFile.get(file);
+    return doc !== undefined && doc.exists && !isPlaceholderDoc(doc.content + (doc.tail_content ?? "")) ? [doc] : [];
+  });
+  try { return required + buildCoordinationDocuments(docs, maxPackChars - required.length); }
+  catch (error) { throw new ContextPackBudgetError(error instanceof Error ? error.message : "worker 文档片段无法纳入上下文预算"); }
 }

@@ -11,6 +11,7 @@ agent-cord 是一个多 agent 共识协作基座：把需求、决策、证据�
 - 用 YAML 定义 SDLC 节点和 gate，默认流程为：`intake → align → plan → implement → verify → review → done`。
 - 在节点上声明 `run` 执行体：协调 agent 按最新快照和 workflow artifact 构建带 provenance 指纹的两层上下文包，经 ACP / headless driver 派发给 worker agent，产物自写或代写均留痕为 `agent.task.*` 事件。
 - 协调快照的账本、进度与 hash 来自同批事件，进度按 workflow 隔离；文件读取失败会阻断派发，任务失败记录阶段与是否可重试，修复后可断点恢复。
+- 原生 worker 按首尾片段接收最新 PRD 和已退出上游产物，使用明确范围/省略数及全文定位符；任务、账本、源码和重试附记计入最终字符预算，控制信息放不下时不派发。旧前缀策略的未退出 checkpoint 需重跑，详见 [ADR-0051](./docs/adr/ADR-0051-worker-context-budget.md)。
 - 共识 gate 从最新事件判定，冲突条目不放行；产物记录前后内容指纹，旧文档不能冒充本次产出。明确空结果与协议辅助文本不用于代写，观察到替换前冲突时保留当前文档。
 - 未退出节点只在输入与产物指纹一致时复用成功 worker；审批绑定具体等待事件，需求/证据变化后旧选择返回 409，并先重跑过期任务或重新检查，再确认新审批。
 - 用 `agents.yaml` 注册自定义 agent（ACP 子进程、headless CLI、自定义参数模板），与内置 claude / codex / kimi 并列；模板定制支持 `model` / `effort` / `max_turns` / `budget_usd` / `system_prompt` / `agent` / `agents_json` 旋钮——`system_prompt` 是软封装（追加提示），`agent` + `agents_json` 是硬封装（`--agent` 整个会话以该 subagent 身份运行，工具与权限一并继承），把 persona 注册成命名 agent。

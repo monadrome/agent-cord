@@ -12,6 +12,8 @@ export {
   buildContextPack,
   taskInstructions,
   upstreamArtifacts,
+  ContextPackBudgetError,
+  WORKER_CONTEXT_POLICY,
   type ContextPackOptions,
 } from "./context-pack.js";
 

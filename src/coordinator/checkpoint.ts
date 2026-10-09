@@ -4,6 +4,7 @@ import type { SessionHandle } from "../core/ports.js";
 import type { WorkflowDef } from "../core/schema.js";
 import { readSnapshot, type RequirementSnapshot } from "./snapshot.js";
 import { nodeProducesArtifact } from "./artifact-policy.js";
+import { WORKER_CONTEXT_POLICY } from "./context-pack.js";
 
 type Node = WorkflowDef["spec"]["nodes"][number];
 
@@ -16,7 +17,7 @@ export function executionInputHash(
   source_hash: string | null = null,
 ): string {
   return sha256Hex(canonicalJson({
-    domain: source_hash === null ? "cord.execution-input.v2" : "cord.execution-input.v3",
+    domain: "cord.execution-input.v4", context_policy: WORKER_CONTEXT_POLICY,
     ...(source_hash === null ? {} : { source_hash }),
     agent_configuration_hash,
     workflow: def,

@@ -24,7 +24,7 @@ import { SessionEventReadError } from "../core/session-events.js";
 import { delay } from "../driver/headless.js";
 import type { ErrorEventData, ResultEventData, TextEventData } from "../driver/headless.js";
 import type { WorkflowNode } from "../workflow/executor.js";
-import { buildContextPack } from "./context-pack.js";
+import { buildContextPack, ContextPackBudgetError } from "./context-pack.js";
 import { readSnapshot, resolveSessionFile, type RequirementSnapshot } from "./snapshot.js";
 import { readSessionDocument, SessionFileConflictError, SessionFileError, writeSessionDocument } from "./session-files.js";
 import { executionInputHash } from "./checkpoint.js";
@@ -161,6 +161,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
       const snapshot = await readSnapshot(session, {
         workflow_id: ctx.workflow_id,
         workflow_revision: ctx.workflow_revision,
+        excerpt_mode: "head_tail",
         files: [...def.spec.nodes, node].flatMap((item) => item.artifact === undefined ? [] : [item.artifact]),
       });
       const driver = options.resolveDriver(node.run?.agent ?? "");
@@ -275,6 +276,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
       snapshot = await readSnapshot(session, {
         workflow_id: ctx.workflow_id,
         workflow_revision: ctx.workflow_revision,
+        excerpt_mode: "head_tail",
         files: [...def.spec.nodes, node].flatMap((item) => item.artifact === undefined ? [] : [item.artifact]),
       });
       snapshotFields = {
@@ -288,20 +290,21 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
         artifact_before_hash = snapshot.docs.find((doc) => doc.file === node.artifact)?.content_hash ?? null;
         artifact_fields = { artifact_before_hash };
       }
+      const additional_context = [
+        ...(source_hash === null ? [] : [`## 源码输入身份\nsource_hash: ${source_hash}\n报告必须依据本次只读源码输入；完成后协调层会重新核验源码摘要。`]),
+        ...(previousError === null ? [] : [`## 上次尝试失败（第 ${attempt - 1} 次）\n${truncate(previousError, 2_000)}\n请避开同一失败模式。`]),
+      ].join("\n\n");
       prompt = buildContextPack(def, node, snapshot, {
         ...(options.maxPackChars !== undefined ? { maxPackChars: options.maxPackChars } : {}),
+        additional_context,
       });
-      if (source_hash !== null) prompt += `\n\n## 源码输入身份\nsource_hash: ${source_hash}\n报告必须依据本次只读源码输入；完成后协调层会重新核验源码摘要。`;
-      if (previousError !== null) {
-        prompt += `\n\n## 上次尝试失败（第 ${attempt - 1} 次）\n${truncate(previousError, 2_000)}\n请避开同一失败模式。`;
-      }
     } catch (error) {
       await started(agentName);
       return complete("failed", {
         error: `快照准备失败：${error instanceof Error ? error.message : String(error)}`,
         text: "",
         failure_stage: "snapshot",
-        retryable: !(error instanceof SessionFileError || error instanceof SessionEventReadError),
+        retryable: !(error instanceof SessionFileError || error instanceof SessionEventReadError || error instanceof ContextPackBudgetError),
       });
     }
 

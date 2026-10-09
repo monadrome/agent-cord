@@ -9,6 +9,8 @@ import type { EventEnvelope, WorkflowDef } from "../../src/core/schema.js";
 import { initSession } from "../../src/core/session.js";
 import { createNodeRunner } from "../../src/coordinator/coordinator.js";
 import { createExecutor } from "../../src/workflow/executor.js";
+import { readSnapshot } from "../../src/coordinator/snapshot.js";
+import { canonicalJson, sha256Hex } from "../../src/core/hash.js";
 
 let root: string;
 let session: SessionHandle;
@@ -44,6 +46,25 @@ async function completion(): Promise<EventEnvelope> {
 }
 
 describe("恢复 checkpoint", () => {
+  it("旧前缀策略的完整成功 checkpoint 不可复用，新策略重跑后可恢复", async () => {
+    const driver = worker(); const nodeRunner = runner(driver);
+    await expect(createExecutor({ nodeRunner, humanGate: crash, run_id: ulid() }).run(def, session)).rejects.toThrow();
+    const prior = await completion(); const node = def.spec.nodes[0]!;
+    const snapshot = await readSnapshot(session, { workflow_id: def.metadata.id, files: ["plan.md"] });
+    const legacy_hash = sha256Hex(canonicalJson({ domain: "cord.execution-input.v2", agent_configuration_hash: null, workflow: def, node,
+      req_id: snapshot.req_id, title: snapshot.title, max_pack_chars: 60_000,
+      docs: snapshot.docs.filter((doc) => doc.file !== node.artifact).map(({ file, exists, content_hash }) => ({ file, exists, content_hash })), ledger: snapshot.ledger,
+      exited: snapshot.workflow.exited.filter((id) => id !== node.id) }));
+    const old = { ...prior, payload: { ...prior.payload, execution_input_hash: legacy_hash } };
+    expect(await nodeRunner.isCompletionReusable!(node, session, { workflow_id: def.metadata.id, node_id: node.id }, old)).toBe(false);
+    await session.events.append({ event_id: ulid(), session_id: session.req_id, type: "agent.task.completed", schema_version: "1", actor: { kind: "system", id: "legacy" }, correlation_id: node.id,
+      payload: old.payload, source: { adapter: "test" } });
+    await expect(createExecutor({ nodeRunner, humanGate: crash, run_id: ulid() }).run(def, session)).rejects.toThrow();
+    expect(driver.prompts).toHaveLength(2);
+    await expect(createExecutor({ nodeRunner, humanGate: crash, run_id: ulid() }).run(def, session)).rejects.toThrow();
+    expect(driver.prompts).toHaveLength(2);
+  });
+
   it("原完成重试编号超过上限时重跑，修复后的完成仍可跨 run 复用", async () => {
     const driver = worker(); const nodeRunner = runner(driver);
     await expect(createExecutor({ nodeRunner, humanGate: crash, run_id: ulid() }).run(def, session)).rejects.toThrow();

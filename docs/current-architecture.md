@@ -74,6 +74,8 @@ Workflow 定义是 `agent-cord.dev/v1alpha1 / Workflow` YAML。加载时检查 s
 2. 写入 `workflow.node.entered`。
 3. 顺序执行 pre gates；checker 抛错或返回非法结果时 fail-closed。
 4. 节点声明 `run` 时委托给 `NodeRunner`（协调 agent）：按 workflow 声明动态采集 artifact，重建最新快照并生成 `snapshot_id` / 事件链 provenance → 构建上下文包（PRD + 上游产物 + 账本 + 定位符）→ 经 AgentDriver 派发 → 写带 provenance 的 `agent.task.started` / `agent.task.completed`。artifact 写回双通道：worker 自写优先，非空文本回退为协调 agent 代写 draft；路径必须位于 session 目录内。任务失败/超时则停在该节点，run 记 failed，重跑会重试；声明 `run.retry` 时由协调 agent 在节点内按退避重试，重试的上下文包附上次失败摘要。
+
+原生 worker 现用首尾快照与共享的确定性均衡片段分配，内容范围限定为 PRD 和已退出上游依赖，未展示的中间内容明确省略。任务说明、账本、定位符、输出要求与源码/重试附记先占必需预算，最终 prompt 不超过 maxPackChars；控制信息放不下时 failed/snapshot、不派发、不节点内重试。worker 输入 v4 绑定策略，旧未退出前缀 checkpoint 需重新执行，已退出节点不回滚（ADR-0051）。
 5. 顺序执行 post gates；人工 gate 写入 `gate.waiting`，由 server 的审批接口恢复。
 6. 写入 `workflow.node.exited`。
 
@@ -119,7 +121,7 @@ intake → align → plan → implement → verify → review → done
 
 协调者还接收当前 run 的声明机器验证观察，区分 missing/failed/passed 与过期、取消或不可读结果。prompt 只携带严格元信息，不读取测试日志；观察参与输入身份，新结果使旧提议失效。模型可引用当前 verification event_id，控制台链接定位结果事件；引用不是 gate 放行依据（ADR-0044）。
 
-独立协调以首尾片段覆盖长需求的最新附记和各份报告；每文档采集上限 20000 字符，总预算内均衡分配、短文档额度回流。片段索引给出 UTF-16 原文范围与省略数，未显示内容不能视为已核验。共享采集贯穿模型完成、查询与采用；input 自 v4 起绑定采集策略版本，旧策略成功轮次保留历史但须重新协调。普通 worker 的默认前缀快照保持不变（ADR-0046）。
+独立协调以首尾片段覆盖长需求的最新附记和各份报告；每文档采集上限 20000 字符，总预算内均衡分配、短文档额度回流。片段索引给出 UTF-16 原文范围与省略数，未显示内容不能视为已核验。共享采集贯穿模型完成、查询与采用；input 自 v4 起绑定采集策略版本，旧策略成功轮次保留历史但须重新协调（ADR-0046）。通用 readSnapshot 默认仍为前缀，原生 worker 已按上述 ADR-0051 显式使用首尾。
 
 当前 server 的协调输入还绑定执行观察：worker started/completed 带 run_id，宿主按当前发布/run 投影最新任务状态、失败阶段和重试编号，原始任务日志不注入模型。活动 run 阻止新的 advance/complete；started 事实不冒称进程当前存活，任务 ok 不冒称测试/gate 通过。完成/查询/采用共用重检，冷启动 active=false；任务来源链接定位事件（ADR-0048）。
 

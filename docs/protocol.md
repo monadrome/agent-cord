@@ -67,7 +67,9 @@ ADR-0030 增加 `execution_input_hash`（agent started/completed）：覆盖完�
 
 ADR-0031 增加 driver 可选 `configuration_hash` 与任务事件 `agent_configuration_hash`，内置 headless/ACP 从固定有效启动参数派生，全部 env 排除。该身份纳入 execution_input_hash（内部域 v2）和节点审批上下文；同名模型/角色参数变更后，未退出节点重新执行并重新审批。外部 driver 未提供身份时仍支持，但宿主需提供可靠身份才能覆盖其配置变化。
 
-ADR-0042 的只读 worker 源码身份由 CoordinatorOptions.read_source_hash 提供。server 对 readonly 节点使用声明验证范围的摘要，任务 started/completed 记录 source_hash，execution_input_hash 在绑定时使用 v3 域（无绑定仍为 v2）。未退出评审恢复时必须匹配当前摘要与任务 provenance；执行后、写回前源码变更或读取失败记 failed/snapshot，不代写旧报告。人工等待期间源码变更也重新派发评审。可写 worker 不读取该只读钩子，不因自身实现产出误失效。
+ADR-0042 的只读 worker 源码身份由 CoordinatorOptions.read_source_hash 提供。server 对 readonly 节点使用声明验证范围的摘要，任务 started/completed 记录 source_hash，该阶段 execution_input_hash 使用绑定 v3/无绑定 v2，当前策略统一升级为下述 v4。未退出评审恢复时必须匹配当前摘要与任务 provenance；执行后、写回前源码变更或读取失败记 failed/snapshot，不代写旧报告。人工等待期间源码变更也重新派发评审。可写 worker 不读取该只读钩子，不因自身实现产出误失效。
+
+ADR-0051 的 execution_input_hash v4 绑定 context_policy=worker-balanced-head-tail.v1。原生 NodeRunner 准备/恢复采用 head_tail，buildContextPack 只将 PRD 与已退出上游依赖产物纳入均衡首尾预算，保留全文定位符；通用 readSnapshot 默认前缀不变。maxPackChars（默认 60000）约束最终 prompt，源码身份与重试附记经 ContextPackOptions.additional_context 纳入必需预算。非法预算、控制信息或片段索引放不下时抛公开 ContextPackBudgetError，原生任务记 failed/snapshot 且 retryable=false，不派发、不节点内重试，修复后可重新 start。旧 v2/v3 checkpoint 需重跑，已退出节点和人工决定不回滚。document_excerpts 的原文范围/省略数不表示模型已核验全部原文；字符预算不是 token 预算。
 
 server onClose 收束活跃 runner，等待 agent 子进程清理后返回；关闭期间旧 runner 不登记派生终态。原 run/等待事实用于恢复，关闭不写 workflow.run.cancelled 或人工决定，不能被误认为用户已取消或审批。
 
