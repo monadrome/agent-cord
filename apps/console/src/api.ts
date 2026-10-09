@@ -26,6 +26,7 @@ import type {
   StartRunInput,
   StartCoordinationInput,
   AnswerCoordinationInput,
+  RevokeCoordinationAnswerInput,
   StreamedEvent,
   TimelineView,
   VoteSummary,
@@ -295,6 +296,7 @@ export interface ApiClient {
   cancelCoordination(reqId: string, roundId: string, key?: string): Promise<CoordinationResponse>;
   adoptCoordination(reqId: string, roundId: string, key?: string): Promise<RunResponse>;
   answerCoordination(reqId: string, roundId: string, input: AnswerCoordinationInput, key?: string): Promise<CoordinationResponse>;
+  revokeCoordinationAnswer(reqId: string, roundId: string, input: RevokeCoordinationAnswerInput, key?: string): Promise<CoordinationResponse>;
   /** 取消 run（ADR-0025）：幂等，已终态返回现状 */
   cancelRun(runId: string, reason?: string, key?: string): Promise<RunResponse>;
   decideApproval(
@@ -352,6 +354,7 @@ export function createClient(baseUrl = ""): ApiClient {
     cancelCoordination: (reqId, roundId, key) => request<CoordinationResponse>(baseUrl, `${reqPath(reqId)}/coordination/${encodeURIComponent(roundId)}/cancel`, writeInit("POST", undefined, key)),
     adoptCoordination: (reqId, roundId, key) => request<RunResponse>(baseUrl, `${reqPath(reqId)}/coordination/${encodeURIComponent(roundId)}/adopt`, writeInit("POST", {}, key)),
     answerCoordination: (reqId, roundId, input, key) => request<CoordinationResponse>(baseUrl, `${reqPath(reqId)}/coordination/${encodeURIComponent(roundId)}/answer`, writeInit("POST", input, key)),
+    revokeCoordinationAnswer: (reqId, roundId, input, key) => request<CoordinationResponse>(baseUrl, `${reqPath(reqId)}/coordination/${encodeURIComponent(roundId)}/answer/revoke`, writeInit("POST", input, key)),
     cancelRun: (runId, reason, key) =>
       request<RunResponse>(
         baseUrl,

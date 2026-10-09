@@ -4,10 +4,10 @@ import {
   CoordinatorRoundRequestedPayloadSchema, CoordinatorRoundStartedPayloadSchema,
   CoordinatorRoundCompletedPayloadSchema, createContextSessionAgent,
   CoordinatorRoundAdoptedPayloadSchema, coordinationInputHash, parseCoordinationProposal, readCoordinationSnapshot,
-  readSessionEvents, SessionEventReadError, CoordinatorRoundAnsweredPayloadSchema, readClarificationAnswers, projectClarifications, MAX_CLARIFICATION_QUESTIONS,
+  readSessionEvents, SessionEventReadError, CoordinatorRoundAnsweredPayloadSchema, CoordinatorRoundAnswerRevokedPayloadSchema, readClarificationAnswers, currentClarificationAnswers, projectClarifications, MAX_CLARIFICATION_QUESTIONS,
   type AgentDriver, type EventEnvelope, type SessionHandle, type WorkflowDef,
 } from "agent-cord";
-import type { AnswerCoordinationInput, CoordinationRoundView, RunInfo, StartCoordinationInput } from "../contracts.js";
+import type { AnswerCoordinationInput, RevokeCoordinationAnswerInput, CoordinationRoundView, RunInfo, StartCoordinationInput } from "../contracts.js";
 import { badRequest, conflict, internalError, notFound } from "../errors.js";
 import type { SessionService } from "./session-service.js";
 import { DEFAULT_SDLC_ID, type SdlcService } from "./sdlc-service.js";
@@ -24,6 +24,7 @@ interface ActiveCoordination {
 
 function projectRounds(events: readonly EventEnvelope[], req_id: string): CoordinationRoundView[] {
   const answers = readClarificationAnswers(events);
+  const active_ids = new Set(currentClarificationAnswers(events).filter((answer) => answer.revoked_at === undefined).map((answer) => answer.event_id));
   const rounds = new Map<string, CoordinationRoundView>();
   for (const event of events) {
     if (event.type === "coordinator.round.requested") {
@@ -38,7 +39,7 @@ function projectRounds(events: readonly EventEnvelope[], req_id: string): Coordi
         snapshot_id: null, input_hash: null, agent_configuration_hash: null, source_hash: null, verification_context_hash: null, execution_context_hash: null,
         proposal: null, error: null, failure_stage: null,
         current: null, adoptable: false, adoption_reason: null, adopted_run_id: null, adopted_at: null,
-        answer: null, answerable: false, answer_reason: null,
+        answer: null, answerable: false, answer_reason: null, answer_revocable: false,
       });
     } else if (event.type === "coordinator.round.started" || event.type === "coordinator.round.completed") {
       const parsed = event.type === "coordinator.round.started" ? CoordinatorRoundStartedPayloadSchema.safeParse(event.payload) : CoordinatorRoundCompletedPayloadSchema.safeParse(event.payload);
@@ -74,7 +75,11 @@ function projectRounds(events: readonly EventEnvelope[], req_id: string): Coordi
   }
   for (const answer of answers) {
     const round = rounds.get(answer.round_id);
-    if (round !== undefined) round.answer = { event_id: answer.event_id, choice: answer.choice, answered_at: answer.answered_at, completion_event_id: answer.completion_event_id };
+    if (round !== undefined) {
+      round.answer = { event_id: answer.event_id, choice: answer.choice, answered_at: answer.answered_at, completion_event_id: answer.completion_event_id,
+        ...(answer.revoked_at === undefined ? {} : { revoked_at: answer.revoked_at, revocation_event_id: answer.revocation_event_id }) };
+      round.answer_revocable = active_ids.has(answer.event_id);
+    }
   }
   return [...rounds.values()].reverse();
 }
@@ -84,7 +89,7 @@ export class CoordinationService {
   private readonly cancellation = new Map<string, Promise<CoordinationRoundView>>();
   private readonly storage_errors = new Map<string, string>();
   private readonly adoption = new Map<string, Promise<RunInfo>>();
-  private readonly answering = new Map<string, { round_id: string; choice: string; promise: Promise<CoordinationRoundView> }>();
+  private readonly answering = new Map<string, { round_id: string; signature: string; promise: Promise<CoordinationRoundView> }>();
   private closing = false;
 
   constructor(private readonly sessions: SessionService, private readonly sdlcs: SdlcService,
@@ -209,17 +214,22 @@ export class CoordinationService {
   }
 
   answer(req_id: string, round_id: string, input: AnswerCoordinationInput): Promise<CoordinationRoundView> {
+    return this.mutate_answer(req_id, round_id, JSON.stringify({ kind: "answer", ...input }), () => this.answerOnce(req_id, round_id, input));
+  }
+
+  private mutate_answer(req_id: string, round_id: string, signature: string, write: () => Promise<CoordinationRoundView>): Promise<CoordinationRoundView> {
     if (this.closing) return Promise.reject(conflict("服务正在关闭"));
     const pending = this.answering.get(req_id);
-    if (pending !== undefined) return pending.round_id === round_id && pending.choice === input.choice ? pending.promise : Promise.reject(conflict("已有在途澄清答复，不能同时记录另一选择"));
-    const operation = this.answerOnce(req_id, round_id, input).finally(() => { if (this.answering.get(req_id)?.promise === operation) this.answering.delete(req_id); });
-    this.answering.set(req_id, { round_id, choice: input.choice, promise: operation });
+    if (pending !== undefined) return pending.round_id === round_id && pending.signature === signature ? pending.promise : Promise.reject(conflict("已有在途澄清操作，不能同时记录另一选择或撤回"));
+    const operation = write().finally(() => { if (this.answering.get(req_id)?.promise === operation) this.answering.delete(req_id); });
+    this.answering.set(req_id, { round_id, signature, promise: operation });
     return operation;
   }
 
   private async answerOnce(req_id: string, round_id: string, input: AnswerCoordinationInput): Promise<CoordinationRoundView> {
     const round = await this.get(req_id, round_id);
     if (round.answer != null) {
+      if (round.answer.revoked_at !== undefined) throw conflict("旧答复已撤回，请重新协调后记录选择");
       if (round.answer.choice !== input.choice) throw conflict("该问题已有不同答复，请重新协调形成新的澄清问题");
       return round;
     }
@@ -241,6 +251,26 @@ export class CoordinationService {
     const payload = CoordinatorRoundAnsweredPayloadSchema.parse({ round_id, workflow_id: round.workflow_id, workflow_revision: round.workflow_revision,
       completion_event_id: completion.event_id, input_hash: round.input_hash, choice: input.choice });
     await session.events.append({ event_id: ulid(), session_id: req_id, type: "coordinator.round.answered", schema_version: "1", actor: { kind: "human", id: "local-human" },
+      correlation_id: round_id, payload, source: { adapter: "console-server" } });
+    return this.get(req_id, round_id);
+  }
+
+  revoke_answer(req_id: string, round_id: string, input: RevokeCoordinationAnswerInput): Promise<CoordinationRoundView> {
+    return this.mutate_answer(req_id, round_id, JSON.stringify({ kind: "revoke", ...input }), () => this.revoke_answer_once(req_id, round_id, input));
+  }
+
+  private async revoke_answer_once(req_id: string, round_id: string, input: RevokeCoordinationAnswerInput): Promise<CoordinationRoundView> {
+    const round = await this.get(req_id, round_id);
+    if (round.answer == null || round.answer.event_id !== input.answer_event_id || round.workflow_revision === null) throw conflict("预期答复不存在或已变化，请刷新后重试");
+    if (round.answer.revoked_at !== undefined) return round;
+    if (round.answer_revocable !== true) throw conflict("该答复已被更新的同题选择替代");
+    const session = await this.sessions.open(req_id); const events = await this.readEvents(session);
+    const current = currentClarificationAnswers(events, { workflow_id: round.workflow_id, workflow_revision: round.workflow_revision });
+    const answer = current.find((item) => item.event_id === input.answer_event_id && item.round_id === round_id);
+    if (answer === undefined) throw conflict("当前同题答复已变化，请刷新后重试");
+    if (answer.revoked_at !== undefined) return this.get(req_id, round_id);
+    const payload = CoordinatorRoundAnswerRevokedPayloadSchema.parse({ round_id, workflow_id: round.workflow_id, workflow_revision: round.workflow_revision, answer_event_id: answer.event_id });
+    await session.events.append({ event_id: ulid(), session_id: req_id, type: "coordinator.round.answer_revoked", schema_version: "1", actor: { kind: "human", id: "local-human" },
       correlation_id: round_id, payload, source: { adapter: "console-server" } });
     return this.get(req_id, round_id);
   }

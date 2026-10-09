@@ -204,6 +204,12 @@ POST /requirements/:req_id/coordination/:round_id/answer 接收 {choice}，要�
 
 RequirementSnapshot.clarifications 是同批事实的最新 question/choice/event_id/round_id，不是完整对话历史。独立协调可使用 source=clarification 引用答复 event_id，worker 与审批读取同一材料；人工选择不意味着测试/gate/执行授权或对后续文档永远适用。存在澄清时协调域为 server v8 / 无 hook v6、worker execution-input v5、approval-context v2；空数组或老库缺省字段保留 v7/v5、worker v4、审批 v1。答复使旧依据失效，后续显式重新协调/执行；不写 human.decision.recorded、不放行 gate、不启动 run 或恢复模型会话。界面提供原生单选、记录中/失败保留选择/过期禁用/已答复与事件导航。
 
+ADR-0053 的 coordinator.round.answer_revoked 严格 payload={round_id,workflow_id,workflow_revision?,answer_event_id}，actor=human/correlation=round，引用同 session/scope/round 更早的合法答复。POST /requirements/:req_id/coordination/:round_id/answer/revoke 接收 {answer_event_id}，要求 Idempotency-Key；答复缺失、预期 ID 失效、被更新的同题答复替代为 409，坏格式/额外字段为 400。同撤回操作重放原结果；原问题 current=false 或材料变化仍允许撤回当前有效选择，不自动批准或启动。
+
+answer DTO 增可缺省 revoked_at/revocation_event_id，轮次增 answer_revocable；answer/revoke 共用按需求预留槽位，重复相同操作共享结果，不同操作在途冲突为 409，失败释放槽位。撤回后旧轮次不接受新答复；新有效轮次可重新澄清。只读历史不删除、不改写原事件。
+
+SnapshotClarification.choice 扩展为 string|null，撤回状态额外携带 status=revoked，event_id 指向撤回。最新撤回仍占当前同题位置，不回退较早选择；最多 128 项包括未确定状态。撤回保持非空澄清域，新的状态和来源使旧输入/checkpoint/审批失效，不复活无澄清身份。模型只可引用当前撤回来源解释未知状态，不能沿用撤回选项；已退出节点、人工决定和产物均不回滚。
+
 REST 创建 `POST /requirements/:req_id/coordination` 输入 `{agent, sdlc_id?, sdlc_version?, timeout_ms?}`，返回 202；列表/读取使用 GET，取消 `POST .../:round_id/cancel` 先落 cancel_requested 再 abort。写命令使用 Idempotency-Key；跨 method/path 复用键返回 409，创建并发同键合并为一轮。每需求只允许一轮在途协调，resolver 在创建时固定，归档版本拒绝新轮次。事件写入失败必须报告宿主，不能伪造 completed。server 重启将未完成轮次落 failed/interrupted；已有取消请求则落 cancelled，不重放模型调用。
 
 协调创建在 requested 前严格预检事件；列表/查询/采用的完整性错误返回 409，不回退旧提议。冷协调恢复隔离坏 session，保留原请求事实且不写中断终态或重放调用，健康需求继续可用；修复并重新启动后执行正常 interrupted 恢复。明确取消遇到读取/落盘错误时仍收束当前匹配轮次的进程，接口保留原错误，不伪造 cancel_requested 或取消成功；能落盘的 completed 如实记录 cancelled，写失败则走已有中断恢复。普通事件诊断浏览和其余 workflow 投影保持原读取语义，本规则保护快照、验证与协调决策边界。

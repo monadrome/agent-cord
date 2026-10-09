@@ -21,6 +21,7 @@ import {
   StartCoordinationInputSchema,
   AdoptCoordinationInputSchema,
   AnswerCoordinationInputSchema,
+  RevokeCoordinationAnswerInputSchema,
   UpdateDocInputSchema,
   ValidateSdlcInputSchema,
   type DashboardView,
@@ -315,6 +316,11 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
     const { req_id, round_id } = req.params as { req_id: string; round_id: string };
     const input = parseOrThrow(AnswerCoordinationInputSchema, req.body);
     return { request_id: requestId(req), round: await coordination.answer(req_id, round_id, input) };
+  });
+  app.post("/api/v1/requirements/:req_id/coordination/:round_id/answer/revoke", { config: { idempotency: true } }, async (req) => {
+    const { req_id, round_id } = req.params as { req_id: string; round_id: string };
+    const input = parseOrThrow(RevokeCoordinationAnswerInputSchema, req.body);
+    return { request_id: requestId(req), round: await coordination.revoke_answer(req_id, round_id, input) };
   });
 
   app.get("/api/v1/runs/:run_id", async (req) => {

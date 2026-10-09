@@ -101,7 +101,7 @@ export function buildContextPack(
   }
   if ((snapshot.clarifications?.length ?? 0) > 0) sections.push(``, `## 人工澄清`,
     `clarifications: ${JSON.stringify(snapshot.clarifications)}`,
-    `- 这些是原问题下的人工选择，不代表测试、gate 或执行授权；新材料与选择矛盾时明确报告并等待确认。`);
+    `- 这些是原问题下的人工选择，不代表测试、gate 或执行授权；status=revoked/choice=null 表示未确定，不可沿用已撤回选项。新材料与选择矛盾时明确报告并等待确认。`);
 
   const locators = snapshot.docs
     .filter((doc) => doc.exists)

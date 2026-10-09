@@ -210,6 +210,8 @@ curl -X POST http://127.0.0.1:7250/api/v1/requirements/REQ-001/coordination \
 
 协调者提出 `ask_human` 时，控制台可选择既有选项并记录答复。答复成为绑定原问题的事实，进入同版本的下一轮协调、worker 与审批上下文；可追溯、可重放，过期问题不能提交。澄清不会批准 gate、采用提议或启动 worker；每轮只记录一次，新的有效轮次可重新澄清同题。详见 [ADR-0052](./docs/adr/ADR-0052-coordination-clarifications.md)。
 
+记录错误选择后，可用答复区的撤回工具明确取消当前同题选择。原答复和撤回均保留审计，最新快照标为未确定，不回退旧选择；需要新协调轮次重新澄清，不自动回滚产物或流程。详见 [ADR-0053](./docs/adr/ADR-0053-clarification-revocation.md)。
+
 有效 `advance` 提议可由人点击“采用并启动 SDLC”，或调用 `POST .../:round_id/adopt`（空请求体、Idempotency-Key）。建议只能指向执行器实际下一节点；采用启动整个绑定版本，从该节点续跑，仍保留机器/人工 gate。`ask_human`、`wait`、`complete` 不由此入口推进节点。采用事实先落盘再派发，同轮重复采用返回原 run；登记与落盘之间中断时，恢复必须验证采用事实，缺失则失败且不派发。详见 [ADR-0033](./docs/adr/ADR-0033-coordination-adoption-console.md)。
 
 ## 当前边界

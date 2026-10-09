@@ -1,7 +1,7 @@
 /** 独立协调工作台：只消费 server 的轮次、新鲜度与采用投影。 */
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
-import { Bot, Check, ChevronRight, Play, RefreshCw, Square } from "lucide-react";
+import { Bot, Check, ChevronRight, Play, RefreshCw, Square, Undo2 } from "lucide-react";
 import type { AgentCatalogView, CoordinationRoundView, SdlcSummary } from "@agent-cord/server/contracts";
 import { api } from "../api.js";
 import { describeError, Empty, ErrorBanner, formatTime, NoticeBanner } from "../ui.js";
@@ -40,7 +40,7 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
   const [timeout_seconds, set_timeout_seconds] = useState("120");
   const [selected_round, set_selected_round] = useState<string | null>(null);
   const [loading, set_loading] = useState(true);
-  const [command, set_command] = useState<"start" | "cancel" | "adopt" | "answer" | null>(null);
+  const [command, set_command] = useState<"start" | "cancel" | "adopt" | "answer" | "revoke" | null>(null);
   const [answer_choice, set_answer_choice] = useState("");
   const [load_error, set_load_error] = useState<string | null>(null);
   const [command_error, set_command_error] = useState<string | null>(null);
@@ -119,7 +119,7 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
   const busy = command !== null;
   const can_start = !loading && !busy && pending === undefined && selected_agent !== "" && selected_sdlc !== "" && Number.isInteger(seconds) && seconds >= 1 && seconds <= 600;
 
-  const perform = async (kind: "start" | "cancel" | "adopt" | "answer"): Promise<void> => {
+  const perform = async (kind: "start" | "cancel" | "adopt" | "answer" | "revoke"): Promise<void> => {
     if (command_loading.current) return;
     command_loading.current = true;
     set_command(kind);
@@ -141,6 +141,9 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
         } else if (kind === "answer") {
           await api.answerCoordination(req_id, selected.round_id, { choice: answer_choice });
           if (mounted.current && generation.current === epoch) set_notice("答复已记录");
+        } else if (kind === "revoke" && selected.answer != null) {
+          await api.revokeCoordinationAnswer(req_id, selected.round_id, { answer_event_id: selected.answer.event_id });
+          if (mounted.current && generation.current === epoch) set_notice("答复已撤回");
         } else {
           const result = await api.adoptCoordination(req_id, selected.round_id);
           if (mounted.current && generation.current === epoch) set_notice(`已采用提议，SDLC run ${result.run.run_id} 已启动`);
@@ -176,7 +179,7 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
     <div className="coordination-layout" aria-busy={loading && rounds === null}>
       <section className="coordination-history" aria-labelledby="coordination-history-title"><header><h3 id="coordination-history-title">轮次</h3><span className="muted small">{rounds?.length ?? 0}</span></header>
         {rounds === null ? <div className="coordination-loading" role="status">正在读取协调轮次...</div> : rounds.length === 0 ? <Empty text="还没有协调轮次" /> : <ul>{rounds.map((round) => <li key={round.round_id}><button type="button" className={round.round_id === selected?.round_id ? "coordination-round coordination-round-selected" : "coordination-round"} aria-pressed={round.round_id === selected?.round_id} onClick={() => set_selected_round(round.round_id)}>
-          <span className="coordination-round-top"><RoundBadge status={round.status} />{round.answer != null ? <span className="small ok-text">已答复</span> : round.adopted_run_id !== null ? <span className="small ok-text">已采用</span> : round.current === false ? <span className="small coordination-warn">依据已变化</span> : null}</span>
+          <span className="coordination-round-top"><RoundBadge status={round.status} />{round.answer != null ? <span className={round.answer.revoked_at ? "small muted" : "small ok-text"}>{round.answer.revoked_at ? "已撤回" : "已答复"}</span> : round.adopted_run_id !== null ? <span className="small ok-text">已采用</span> : round.current === false ? <span className="small coordination-warn">依据已变化</span> : null}</span>
           <strong>{round.proposal?.summary ?? round.agent}</strong><span className="muted small">{round.sdlc_id} v{round.sdlc_version} · {formatTime(round.requested_at)}</span>
         </button></li>)}</ul>}
       </section>
@@ -189,8 +192,12 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
             <div className="coordination-action-title"><span className="pill">{ACTION_TEXT[selected.proposal.next_action.kind]}</span>{selected.proposal.next_action.kind === "advance" ? <strong className="mono">{selected.proposal.next_action.node_id}</strong> : null}</div>
             <p className="coordination-reason">{selected.proposal.next_action.reason}</p>
             {selected.proposal.next_action.kind === "ask_human" ? <div className="coordination-question"><h4>{selected.proposal.next_action.question}</h4>
-              {selected.answer != null ? <div className="coordination-answer-receipt"><span className="ok-text"><Check size={16} aria-hidden="true" />已答复</span><strong>{selected.answer.choice}</strong><span className="muted small">{formatTime(selected.answer.answered_at)}</span>
+              {selected.answer != null ? <div className={selected.answer.revoked_at ? "coordination-answer-receipt coordination-answer-revoked" : "coordination-answer-receipt"}>
+                <div className="coordination-answer-receipt-head"><span className={selected.answer.revoked_at ? "muted" : "ok-text"}>{selected.answer.revoked_at ? <Undo2 size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}{selected.answer.revoked_at ? "已撤回" : "已答复"}</span>
+                  {selected.answer.revoked_at === undefined ? <ToolButton label={command === "revoke" ? "撤回中..." : "撤回答复"} disabled={loading || busy || selected.answer_revocable !== true} onClick={() => void perform("revoke")}><Undo2 size={16} aria-hidden="true" /></ToolButton> : null}
+                </div><strong>{selected.answer.choice}</strong><span className="muted small">{formatTime(selected.answer.answered_at)}</span>
                 <button type="button" className="link mono" onClick={() => onSource("clarification", selected.answer!.event_id)} title="打开澄清答复事件"><span>{selected.answer.event_id}</span><ChevronRight size={14} aria-hidden="true" /></button>
+                {selected.answer.revoked_at !== undefined && selected.answer.revocation_event_id !== undefined ? <div className="coordination-revocation-record"><span className="muted small">{formatTime(selected.answer.revoked_at)}</span><button type="button" className="link mono" onClick={() => onSource("clarification", selected.answer!.revocation_event_id!)} title="打开撤回事件"><span>{selected.answer.revocation_event_id}</span><ChevronRight size={14} aria-hidden="true" /></button></div> : null}
               </div> : <form className="coordination-answer-form" onSubmit={(event) => { event.preventDefault(); if (!loading && !busy && selected.answerable === true && answer_choice !== "") void perform("answer"); }}>
                 <fieldset className="coordination-answer-options" role="radiogroup" aria-label="澄清选项" disabled={loading || busy || selected.answerable !== true}>
                   {selected.proposal.next_action.options.map((option) => <label key={option}><input type="radio" name={`answer-${selected.round_id}`} value={option} checked={answer_choice === option} onChange={() => set_answer_choice(option)} /><span>{option}</span></label>)}

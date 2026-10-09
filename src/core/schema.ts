@@ -367,6 +367,7 @@ export const EVENT_TYPES = [
   "coordinator.round.requested",
   "coordinator.round.completed",
   "coordinator.round.answered",
+  "coordinator.round.answer_revoked",
   "coordinator.round.cancel_requested",
   "coordinator.round.adopted",
   "human.decision.recorded",
@@ -705,6 +706,11 @@ export const CoordinatorRoundAnsweredPayloadSchema = z.strictObject({
   completion_event_id: z.string().regex(ULID_RE), input_hash: z.string().regex(/^[0-9a-f]{64}$/),
   choice: z.string().min(1).max(500),
 });
+/** ADR-0053：撤回指定答复，原事实与 gate 均不改写。 */
+export const CoordinatorRoundAnswerRevokedPayloadSchema = z.strictObject({
+  round_id: z.string().regex(ULID_RE), workflow_id: z.string().min(1),
+  workflow_revision: z.string().regex(/^[0-9a-f]{64}$/).optional(), answer_event_id: z.string().regex(ULID_RE),
+});
 
 /** 已知 payload 的 schema 表；未列出的类型（如 M3 才落地的 reconcile.requested）尚无固化形状。 */
 export const EVENT_PAYLOAD_SCHEMAS: Partial<Record<EventType, z.ZodType>> = {
@@ -730,6 +736,7 @@ export const EVENT_PAYLOAD_SCHEMAS: Partial<Record<EventType, z.ZodType>> = {
   "coordinator.round.requested": CoordinatorRoundRequestedPayloadSchema,
   "coordinator.round.completed": CoordinatorRoundCompletedPayloadSchema,
   "coordinator.round.answered": CoordinatorRoundAnsweredPayloadSchema,
+  "coordinator.round.answer_revoked": CoordinatorRoundAnswerRevokedPayloadSchema,
   "coordinator.round.cancel_requested": CoordinatorRoundCancelRequestedPayloadSchema,
   "coordinator.round.adopted": CoordinatorRoundAdoptedPayloadSchema,
 };

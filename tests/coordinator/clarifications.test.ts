@@ -33,8 +33,52 @@ async function answer(original: EventEnvelope, payload: Record<string, unknown> 
       input_hash: original.payload["input_hash"], choice: "ONLY_MOBILE", ...payload }, source: { adapter: "test" }, ...envelope } as any);
 }
 const snapshot = () => readSnapshot(session, { workflow_id: def.metadata.id, workflow_revision: revision });
+async function revoke(receipt: EventEnvelope, payload: Record<string, unknown> = {}, envelope: Record<string, unknown> = {}) {
+  const source = receipt.payload as Record<string, unknown>;
+  return session.events.append({ event_id: ulid(), session_id: session.req_id, type: "coordinator.round.answer_revoked", schema_version: "1", actor: { kind: "human", id: "fixture" }, correlation_id: source["round_id"] as string,
+    payload: { round_id: source["round_id"], workflow_id: source["workflow_id"], workflow_revision: source["workflow_revision"], answer_event_id: receipt.event_id, ...payload }, source: { adapter: "test" }, ...envelope } as any);
+}
 
 describe("协调澄清快照", () => {
+  it("撤回最新同题答复形成未确定状态，不回退旧选择或复活无澄清身份", async () => {
+    const empty = await snapshot();
+    await answer(await question()); const receipt = await answer(await question(), { choice: "DESKTOP_AND_MOBILE" }); const active = await snapshot();
+    const revoked = await revoke(receipt); const current = await snapshot();
+    expect(current.clarifications).toEqual([{ event_id: revoked.event_id, round_id: (receipt.payload as any).round_id, question: question_proposal.next_action.question, choice: null, status: "revoked" }]);
+    expect(coordinationInputHash(def, current, null)).not.toBe(coordinationInputHash(def, empty, null));
+    expect(coordinationInputHash(def, current, null)).not.toBe(coordinationInputHash(def, active, null));
+    const pack = buildContextPack(def, def.spec.nodes[0]!, current); expect(pack).toContain('"status":"revoked"'); expect(pack).not.toContain("ONLY_MOBILE"); expect(pack).not.toContain("DESKTOP_AND_MOBILE");
+  });
+
+  it.each([{ answer_event_id: ulid() }, { round_id: ulid() }])("撤回坏引用 %j 不可忽略", async (payload) => {
+    const receipt = await answer(await question()); await revoke(receipt, payload); await expect(snapshot()).rejects.toThrow();
+  });
+
+  it("撤回必须来自人工且属于原答复范围", async () => {
+    const receipt = await answer(await question()); await revoke(receipt, {}, { actor: { kind: "agent", id: "fixture" } }); await expect(snapshot()).rejects.toThrow();
+  });
+
+  it("撤回事件可解释未确定，原答复不能继续当作当前证据，worker checkpoint 失效", async () => {
+    const receipt = await answer(await question()); const driver: AgentDriver = { name: "worker", async *run() { yield { type: "result", data: { text: "按选定范围评审" } }; }, async *resume() {} };
+    const runner = createNodeRunner(def, { resolveDriver: () => driver, workspaceRoot: root }); const node = def.spec.nodes[0]!;
+    const context = { workflow_id: def.metadata.id, workflow_revision: revision, node_id: node.id };
+    await runner.runNode(node, session, context); const completion = (await session.events.readOrdered()).find((event) => event.type === "agent.task.completed")!;
+    const revoked = await revoke(receipt); expect(await runner.isCompletionReusable!(node, session, context, completion)).toBe(false);
+    let source_id = revoked.event_id;
+    const observer: AgentDriver = { name: "model", async *run(task) { expect(task.prompt).toContain('"status":"revoked"'); yield { type: "result", data: { text: JSON.stringify({ summary: "范围已撤回，等待重新确认", next_action: { kind: "wait", reason: "选择未确定", evidence: [{ source: "clarification", id: source_id }] }, risks: [] }) } }; }, async *resume() {} };
+    const agent = createContextSessionAgent({ resolveDriver: () => observer, workspaceRoot: root });
+    expect(await agent.coordinate(def, session, { round_id: ulid(), agent: "model", workflow_revision: revision })).toMatchObject({ status: "ok" });
+    source_id = receipt.event_id;
+    expect(await agent.coordinate(def, session, { round_id: ulid(), agent: "model", workflow_revision: revision })).toMatchObject({ status: "failed", proposal: null });
+  });
+
+  it.each(["future", "self"])("撤回 %s 引用不能生效", async (kind) => {
+    const original = await question(); const receipt = await answer(original); const event_id = ulid(); const future_id = ulid();
+    await revoke(receipt, { answer_event_id: kind === "self" ? event_id : future_id }, { event_id });
+    if (kind === "future") await answer(original, {}, { event_id: future_id });
+    await expect(snapshot()).rejects.toThrow();
+  });
+
   it("人工答复进入快照和 worker，后续协调可引用答复事件，原问题完成不充当答复来源", async () => {
     const source = await question(); const receipt = await answer(source);
     const current = await snapshot();

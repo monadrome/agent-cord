@@ -101,7 +101,7 @@ export function buildCoordinationPrompt(def: WorkflowDef, snapshot: RequirementS
     `progress: ${JSON.stringify(snapshot.workflow)}`,
     `eligible_nodes: ${JSON.stringify(eligibleNodes(def, snapshot, execution_context))}`,
     `ledger: ${JSON.stringify(snapshot.ledger)}`,
-    ...((snapshot.clarifications?.length ?? 0) === 0 ? [] : [`clarifications: ${JSON.stringify(snapshot.clarifications)}\n人工澄清只说明原问题的选择，不是测试、gate 或执行授权；与最新材料矛盾时需重新询问，来源使用答复 event_id。`]),
+    ...((snapshot.clarifications?.length ?? 0) === 0 ? [] : [`clarifications: ${JSON.stringify(snapshot.clarifications)}\n人工澄清只说明原问题的选择，不是测试、gate 或执行授权；status=revoked/choice=null 表示未确定，不能沿用已撤回选项。与最新材料矛盾时需重新询问，来源使用当前答复或撤回 event_id。`]),
     `documents: ${JSON.stringify(snapshot.docs.map(({ file, exists, content_hash, content_length }) => ({ file, exists, content_hash, content_length })))}`,
     `response_schema: ${JSON.stringify(z.toJSONSchema(CoordinationProposalSchema))}`,
   ].join("\n\n");

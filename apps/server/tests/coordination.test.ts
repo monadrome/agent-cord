@@ -106,6 +106,54 @@ describe("协调人工澄清", () => {
   const asking = { ...proposal, next_action: { kind: "ask_human", question: "上线的平台范围？", options: ["ONLY_MOBILE", "DESKTOP_AND_MOBILE"], reason: "需要澄清", evidence: proposal.next_action.evidence } };
   async function question() { await config(JSON.stringify(asking)); await server.agents.reload(); return valid_round(); }
   const answer = (id: string, choice = "ONLY_MOBILE", key = ulid()) => request("POST", `/api/v1/requirements/REQ-CONTEXT/coordination/${id}/answer`, { choice }, key);
+  const revoke_answer = (id: string, answer_event_id: string, key = ulid()) => request("POST", `/api/v1/requirements/REQ-CONTEXT/coordination/${id}/answer/revoke`, { answer_event_id }, key);
+
+  it("撤回可重放且保留历史，旧轮次不重答，新轮次可修正同题", async () => {
+    const round = await question(); const recorded = await answer(round.round_id); const id = recorded.body.round.answer.event_id;
+    const revoked = await revoke_answer(round.round_id, id, "revoke-first"); expect(revoked.status).toBe(200);
+    expect(revoked.body.round).toMatchObject({ answer: { event_id: id, choice: "ONLY_MOBILE", revoked_at: expect.any(String), revocation_event_id: expect.any(String) }, answer_revocable: false, answerable: false });
+    expect((await revoke_answer(round.round_id, id, "revoke-first")).body).toEqual(revoked.body);
+    expect((await revoke_answer(round.round_id, id)).status).toBe(200);
+    expect((await answer(round.round_id)).status).toBe(409);
+    const fresh = await question(); expect((await answer(fresh.round_id, "DESKTOP_AND_MOBILE")).status).toBe(200);
+    await restart(); expect(await server.coordination.get("REQ-CONTEXT", round.round_id)).toMatchObject({ answer: { revoked_at: expect.any(String) }, answer_revocable: false });
+    expect((await server.sessions.readEvents("REQ-CONTEXT")).filter((event) => event.type === "coordinator.round.answer_revoked")).toHaveLength(1);
+    expect(server.runs.listRuns("REQ-CONTEXT")).toHaveLength(0);
+  });
+
+  it("过期预期 ID 和已被新同题选择替代的历史答复不可撤回", async () => {
+    const first = await question(); const first_answer = await answer(first.round_id); const first_id = first_answer.body.round.answer.event_id;
+    expect((await revoke_answer(first.round_id, ulid())).status).toBe(409);
+    const second = await question(); const second_answer = await answer(second.round_id, "DESKTOP_AND_MOBILE");
+    expect((await revoke_answer(first.round_id, first_id)).status).toBe(409);
+    expect((await revoke_answer(second.round_id, second_answer.body.round.answer.event_id)).status).toBe(200);
+  });
+
+  it("撤回追加失败仍保留有效答复，修复后可重试，不新增 gate 决策", async () => {
+    const round = await question(); const recorded = await answer(round.round_id); const id = recorded.body.round.answer.event_id;
+    const session = await server.sessions.open("REQ-CONTEXT"); const append = session.events.append.bind(session.events);
+    const mock = vi.spyOn(session.events, "append").mockImplementation((draft) => draft.type === "coordinator.round.answer_revoked" ? Promise.reject(new Error("revoke store unavailable")) : append(draft));
+    expect((await revoke_answer(round.round_id, id)).status).toBe(500);
+    expect(await server.coordination.get("REQ-CONTEXT", round.round_id)).toMatchObject({ answer_revocable: true, answer: { choice: "ONLY_MOBILE" } });
+    mock.mockRestore(); expect((await revoke_answer(round.round_id, id)).status).toBe(200);
+    expect((await server.sessions.readEvents("REQ-CONTEXT")).some((event) => event.type === "human.decision.recorded" || event.type === "gate.resolved")).toBe(false);
+  });
+
+  it("撤回并发只写一次，答复与撤回不会共享相同响应槽位", async () => {
+    const round = await question(); const recorded = await answer(round.round_id); const id = recorded.body.round.answer.event_id;
+    const replies = await Promise.all([revoke_answer(round.round_id, id), revoke_answer(round.round_id, id), answer(round.round_id)]);
+    expect(replies.map((item) => item.status).sort()).toEqual([200, 200, 409]);
+    expect((await server.sessions.readEvents("REQ-CONTEXT")).filter((event) => event.type === "coordinator.round.answer_revoked")).toHaveLength(1);
+  });
+
+  it("撤回要求幂等键与准确事件格式，旧问题输入变化仍可撤回当前选择", async () => {
+    const round = await question(); const recorded = await answer(round.round_id); const id = recorded.body.round.answer.event_id;
+    const path = `/api/v1/requirements/REQ-CONTEXT/coordination/${round.round_id}/answer/revoke`;
+    expect((await request("POST", path, { answer_event_id: id })).status).toBe(400);
+    expect((await request("POST", path, { answer_event_id: "Z".repeat(26) }, ulid())).status).toBe(400);
+    await server.sessions.writeDoc("REQ-CONTEXT", "prd", "# 变更后的需求\n旧选择需撤回");
+    expect((await revoke_answer(round.round_id, id)).status).toBe(200);
+  });
 
   it("答复持久化且可重放，重启保留选择；不启动 run 或放行 gate", async () => {
     const round = await question();

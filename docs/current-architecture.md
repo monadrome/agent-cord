@@ -131,6 +131,8 @@ intake → align → plan → implement → verify → review → done
 
 ask_human 的人工选择由独立 answer 写入口形成 coordinator.round.answered，严格引用原完成/input 与既有选项，按需求串行保留一次答复。最新同题澄清从同批事实进入快照，协调/worker/审批共用，不等同 gate 审批；原文档不改写，流程不自动推进。存在澄清时使用协调 v8（无 hook v6）、worker v5 与审批 v2；没有澄清时保留以上既有域。控制台单选记录、过期禁用、已答复与来源导航均由 server 投影，坏来源/替代完成在写前拒绝，坏事实冷恢复按需求隔离（ADR-0052）。
 
+人工撤回追加 answer_revoked，引用预期答复事件，与 answer 共用每需求写槽位。历史保留原选择与撤回时间，最新同题投影为 choice=null/status=revoked，来源指向撤回；旧选择和无澄清身份不复活。只有最新有效同题答复可撤回，原问题输入变化不妨碍撤回，旧轮次不重答。Undo2 工具提供保存中/失败/已撤回状态，新轮次才重新分析，不回滚产物、退出事实或 gate（ADR-0053）。
+
 人工采用只接受当前有效 advance，重检位于 RunService 预留槽位内，采用事实落盘后进入绑定版本的整个 SDLC runner；其余提议不生成 gate 决策。查询新鲜度与历史完成状态分离，重复采用返回原 run。运行登记的 coordination_round_id 保留启动来源，恢复缺少匹配采用事实时 fail-closed，旧 SQLite 表自动兼容。
 
 ## 5. Server 和 API

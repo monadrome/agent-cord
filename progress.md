@@ -1,5 +1,17 @@
 # 工作进度
 
+## 2026-10-09（阶段 39）
+
+- 上轮为已验证进展，HEAD=f9119d1，工作树干净、本地领先已知 origin 2 次提交；远端网络失败不阻断本地优化。
+- 当前答复不可修正，开始人工明确撤回与未确定状态。ADR-0053 先行：追加事实保留历史，不回退更早选择或恢复旧无澄清身份；旧轮次不重答，新轮次重新澄清，gate 仍独立。
+- 7 项核心/REST 反例先失败，确认撤回被忽略、路由缺失。开始严格撤回引用与 choice=null/status=revoked 投影，保持历史答复和当前同题状态分离，模型/worker 明确不可沿用撤回选择。
+- 首轮 7 项定向与 build:all 通过。接入预期答复 ID、当前同题有效性、共享操作槽位和 Undo2 UI；扩展模型撤回来源、worker checkpoint、未来/自引用、并发与输入过期仍可撤回，以及 typed client 回归。
+- 最终全量 858 测试 / 64 文件、build:all/typecheck/git diff --check 通过；原状态、未确定来源、worker 失效、旧轮次不重答和新轮次修正均验证。
+- 隔离 HTTP/Playwright 失败保留原答复、重试禁用、单次撤回、重放/旧轮次 409、重启/来源导航通过；当前快照不含旧选择，gate/退出/人工决定事实集合未增，worker 0、人工待审 1、PRD 不变、doctor=true。
+- 真实 Claude 一次无工具调用读撤回状态，旧选择不在 prompt，明确未确定并引用撤回事件。1440/390/320 无溢出/pageerror，截图已查看无重叠；仅临时运行证据，协议/README/架构/ADR 索引与公开验收同步。
+- 最新 detached 预览 `http://127.0.0.1:7316/#/requirements/REQ-REVOKE-ANSWER/coordination`（PID 78021）健康，真实 wait current=true，历史答复保留 revoked_at；进入最终差异审查与小步提交，持续目标保持 active。
+- 最终差异审查/git diff --check 通过；7316 与原真实 Draft 7306 实时健康、审批各 1、人工决定各 0、done 未退出。新增核心契约已有先行 ADR-0053；实现与验收进入独立提交和 HTTP/2 有界同步，持续目标保持 active。
+
 ## 2026-10-09（阶段 38）
 
 - 上轮为已验证并推送的进展，当前 HEAD=5e5d874，工作树干净且与 origin 同步。

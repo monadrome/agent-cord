@@ -1,11 +1,11 @@
 /** ADR-0052：同批事实中的人工澄清，严格校验原问题与最后答复。 */
-import { CoordinatorRoundAnsweredPayloadSchema, CoordinatorRoundCompletedPayloadSchema, type EventEnvelope, type WorkflowScope } from "../core/schema.js";
+import { CoordinatorRoundAnsweredPayloadSchema, CoordinatorRoundAnswerRevokedPayloadSchema, CoordinatorRoundCompletedPayloadSchema, type EventEnvelope, type WorkflowScope } from "../core/schema.js";
 import { SessionEventReadError } from "../core/session-events.js";
 import { matchesWorkflowScope } from "../workflow/scope.js";
 
 export const MAX_CLARIFICATION_QUESTIONS = 128;
-export interface SnapshotClarification { event_id: string; round_id: string; question: string; choice: string }
-export interface ClarificationAnswer extends SnapshotClarification { answered_at: string; completion_event_id: string }
+export interface SnapshotClarification { event_id: string; round_id: string; question: string; choice: string | null; status?: "revoked" }
+export interface ClarificationAnswer extends SnapshotClarification { choice: string; answered_at: string; completion_event_id: string; revoked_at?: string; revocation_event_id?: string }
 function as_record(value: unknown): Record<string, unknown> | null { return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null; }
 
 export function readClarificationAnswers(events: readonly EventEnvelope[], scope?: WorkflowScope): ClarificationAnswer[] {
@@ -40,19 +40,39 @@ export function readClarificationAnswers(events: readonly EventEnvelope[], scope
     answers.push({ event_id: event.event_id, round_id: value.round_id, question: action.question, choice: value.choice,
       answered_at: event.timestamp, completion_event_id: original.event_id });
   }
+  const by_answer = new Map(answers.map((answer) => [answer.event_id, answer]));
+  for (const [index, event] of events.entries()) {
+    if (event.type !== "coordinator.round.answer_revoked") continue;
+    const answer_id = as_record(event.payload)?.["answer_event_id"];
+    const reference = typeof answer_id === "string" ? indexed.get(answer_id) : undefined;
+    const correlated = event.correlation_id === null ? undefined : indexed.get(latest_completions.get(event.correlation_id) ?? "");
+    if (scope !== undefined && !matchesWorkflowScope(event.payload, scope) && !matchesWorkflowScope(reference?.event.payload, scope) && !matchesWorkflowScope(correlated?.event.payload, scope)) continue;
+    const parsed = CoordinatorRoundAnswerRevokedPayloadSchema.safeParse(event.payload);
+    const answer = typeof answer_id === "string" ? by_answer.get(answer_id) : undefined;
+    if (!parsed.success || event.actor.kind !== "human" || event.correlation_id !== parsed.data.round_id || reference === undefined || reference.index >= index
+      || reference.event.type !== "coordinator.round.answered" || reference.event.session_id !== event.session_id || answer === undefined || answer.round_id !== parsed.data.round_id
+      || !matchesWorkflowScope(reference.event.payload, { workflow_id: parsed.data.workflow_id, workflow_revision: parsed.data.workflow_revision })) throw new SessionEventReadError("澄清撤回不符合人工来源、答复范围或因果引用契约");
+    answer.revoked_at = event.timestamp; answer.revocation_event_id = event.event_id;
+  }
   return answers;
 }
 
-export function projectClarifications(events: readonly EventEnvelope[], scope?: WorkflowScope): SnapshotClarification[] {
+export function currentClarificationAnswers(events: readonly EventEnvelope[], scope?: WorkflowScope): ClarificationAnswer[] {
   const answers = readClarificationAnswers(events, scope);
-  const latest = new Map<string, SnapshotClarification>();
+  const latest = new Map<string, ClarificationAnswer>();
   const by_id = new Map(events.map((event) => [event.event_id, event]));
-  for (const { answered_at: _answered_at, completion_event_id, ...answer } of answers) {
-    const source = by_id.get(completion_event_id)!;
+  for (const answer of answers) {
+    const source = by_id.get(answer.completion_event_id)!;
     const source_payload = as_record(source.payload)!;
     const key = JSON.stringify([source_payload["workflow_id"], source_payload["workflow_revision"] ?? null, answer.question]);
     latest.delete(key); latest.set(key, answer);
   }
-  if (latest.size > MAX_CLARIFICATION_QUESTIONS) throw new SessionEventReadError("当前澄清问题超过 128 项上限，不能静默丢弃人工材料");
   return [...latest.values()];
+}
+
+export function projectClarifications(events: readonly EventEnvelope[], scope?: WorkflowScope): SnapshotClarification[] {
+  const latest = currentClarificationAnswers(events, scope);
+  if (latest.length > MAX_CLARIFICATION_QUESTIONS) throw new SessionEventReadError("当前澄清问题超过 128 项上限，不能静默丢弃人工材料");
+  return latest.map((answer) => answer.revocation_event_id !== undefined ? { event_id: answer.revocation_event_id, round_id: answer.round_id, question: answer.question, choice: null, status: "revoked" }
+    : { event_id: answer.event_id, round_id: answer.round_id, question: answer.question, choice: answer.choice });
 }

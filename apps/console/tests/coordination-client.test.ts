@@ -62,6 +62,9 @@ describe("console 协调客户端", () => {
     expect(recorded.round).toMatchObject({ answer: { choice: "移动端" }, answerable: false });
     expect(await client.answerCoordination("REQ-UI", request.round.round_id, { choice: "移动端" }, "record-answer")).toEqual(recorded);
     await expect(client.answerCoordination("REQ-UI", request.round.round_id, { choice: "桌面和移动端" })).rejects.toMatchObject({ status: 409 });
+    const revoked = await client.revokeCoordinationAnswer("REQ-UI", request.round.round_id, { answer_event_id: recorded.round.answer!.event_id }, "revoke-answer");
+    expect(revoked.round).toMatchObject({ answer: { choice: "移动端", revoked_at: expect.any(String) }, answer_revocable: false });
+    expect(await client.revokeCoordinationAnswer("REQ-UI", request.round.round_id, { answer_event_id: recorded.round.answer!.event_id }, "revoke-answer")).toEqual(revoked);
     expect(server.runs.listRuns("REQ-UI")).toHaveLength(0);
     expect((await server.sessions.readEvents("REQ-UI")).some((event) => event.type === "human.decision.recorded" || event.type === "gate.resolved")).toBe(false);
   });

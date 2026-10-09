@@ -1227,6 +1227,11 @@ p {
 .coordination-answer-receipt .ok-text, .coordination-answer-receipt .link { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .coordination-answer-receipt .link > span { min-width: 0; overflow-wrap: anywhere; }
 .coordination-answer-receipt svg { flex-shrink: 0; }
+.coordination-answer-receipt-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.coordination-answer-receipt-head > span { display: inline-flex; align-items: center; gap: 6px; }
+.coordination-answer-revoked { border-left-color: var(--line-strong); }
+.coordination-answer-revoked > strong { color: var(--ink-soft); text-decoration: line-through; }
+.coordination-revocation-record { display: grid; gap: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
 .coordination-failure { margin-top: 18px; border-left: 3px solid var(--danger); padding: 9px 12px; background: var(--danger-soft); color: var(--danger); font-size: 13px; overflow-wrap: anywhere; }
 .coordination-failure p { margin-top: 6px; white-space: pre-wrap; }
 .coordination-record { margin-top: 22px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-soft); }
