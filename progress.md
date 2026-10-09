@@ -11,6 +11,7 @@
 - 来源审查补齐：请求投影核验宿主 actor 与原 blocker，库直接重复触发也被拒绝；新增坏历史来源与 supervisor 超时回归。首次全量 917 项通过；最终继续核验新增用例。
 - Playwright/Chrome 1440/390/320 问题可见、选项可用、无采用按钮、Goal 来源跳转与 pageerror=0 通过。已补按钮 aria-label；事件页检查等待真实渲染，截图从页顶拍摄；桌面/320 截图已查看无覆盖。生产真实待审 Draft 均未答复或批准。
 - 最终全量 919 测试 / 70 文件、build:all/typecheck/git diff --check 通过；10 份公开文档的 147 个本地链接与 ADR-0058 七节/54 行通过。最新预览 PID 52961 核验来源有效、同一 round、supervisor 1 次、人工答复/决定 0。临时工具与截图不提交，原真实 Draft 保持未决，完整持续目标 active。
+- 功能提交 `a61f775`（feat: automatically coordinate blocked goals），HTTP/1.1 有界推送成功 af7f259 → a61f775；ls-remote 核验远端 `a61f775840fb06ecbc0ebc8460793bdf3207f707` 与本地一致。阶段 44 已完成原型与验收，答复后的显式继续和预算授权仍待下一阶段，不标记整个持续目标完成。
 
 ## 2026-10-09（阶段 43）
 
