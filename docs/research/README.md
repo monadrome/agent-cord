@@ -34,6 +34,8 @@ worker 上下文覆盖：[2026-10-08 worker 首尾与预算](./2026-10-08-worker
 
 澄清修正：[2026-10-09 撤回答复](./2026-10-09-clarification-revocation.md)，记录不恢复旧选择的未确定状态、幂等撤回与真实模型/浏览器验收。
 
+agent 外部行为：[2026-10-09 上下文版本](./2026-10-09-agent-context-revision.md)，记录非敏感声明、固定 resolver、同 argv 的环境角色恢复和清单展示。
+
 | # | 文件 | 主题 | 核心结论 |
 |---|---|---|---|
 | 01 | [2026-09-24-01-orchestration-workflow-engines.md](./2026-09-24-01-orchestration-workflow-engines.md) | 多 agent 编排与工作流引擎 | 无引擎满足「YAML 图 + gate + 审批暂停 + git/文件为唯一 SSOT」的组合；允许外部状态源的仅 4 个（Vercel Workflow SDK 的 World 适配器最彻底）。编排内核自研，gate 状态机可用 XState v5；Inngest（SSPL）、Restate（BSL）许可排除 |

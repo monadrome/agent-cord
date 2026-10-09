@@ -31,6 +31,7 @@ export interface AgentCatalogView {
     source: "workspace" | "registry";
     template: string | null;
     configuration_hash: string | null;
+    context_revision?: number;
   }>;
   warnings: string[];
   rejected: string[];

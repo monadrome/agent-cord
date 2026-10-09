@@ -118,6 +118,44 @@ async function approve(server: BuiltServer, req_id: string): Promise<void> {
 }
 
 describe("工作区 agent registry", () => {
+  it("公开上下文版本且保留旧 resolver，环境行为变化用版本声明，不公开环境值", async () => {
+    const { root, server } = await workspace("seed");
+    async function write(version: number, role: string) {
+      await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: { worker: { kind: "headless", context_revision: version, bin: process.execPath,
+        args: [fixture, "--mode", "env-result", "{{prompt}}"], env: { CORD_TEST_CONTEXT: role, PRIVATE_ENV: "PRIVATE_ENV_MARKER" } } } }));
+      return server.agents.reload();
+    }
+    const first = await write(1, "# ROLE_A"); const resolver = server.agents.resolver(); const old_hash = resolver("worker").configuration_hash;
+    expect(first.agents.find((agent) => agent.name === "worker")).toMatchObject({ context_revision: 1 });
+    const second = await write(2, "# ROLE_B"); expect(second.agents.find((agent) => agent.name === "worker")).toMatchObject({ context_revision: 2 });
+    expect(server.agents.resolver()("worker").configuration_hash).not.toBe(old_hash); expect(resolver("worker").configuration_hash).toBe(old_hash);
+    async function result(driver: ReturnType<typeof resolver>) {
+      let text: unknown;
+      for await (const event of driver.run({ cwd: root, prompt: "测试角色", readonly: true })) if (event.type === "result") text = (event.data as { text: string }).text;
+      return text;
+    }
+    expect(await result(resolver("worker"))).toBe("# ROLE_A"); expect(await result(server.agents.resolver()("worker"))).toBe("# ROLE_B");
+    expect(JSON.stringify(second)).not.toContain("PRIVATE_ENV_MARKER"); expect(JSON.stringify(second)).not.toContain("# ROLE_B");
+  });
+
+  it("相同 argv 的环境角色重启后改变上下文版本，使旧审批与报告失效并重跑", async () => {
+    const { root, server } = await workspace("seed");
+    const configure = async (context_revision: number, role: string) => writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: { worker: {
+      kind: "headless", context_revision, bin: process.execPath, args: [fixture, "--mode", "env-result", "{{prompt}}"], env: { CORD_TEST_CONTEXT: role },
+    } } }));
+    await configure(1, "# ROLE_A"); await server.agents.reload(); await publish(server, true); await start(server, "REQ-CONTEXT-REVISION");
+    await wait_for(async () => (await server.sessions.listApprovals("REQ-CONTEXT-REVISION")).length === 1);
+    const old = (await server.sessions.listApprovals("REQ-CONTEXT-REVISION"))[0]!;
+    await server.app.close(); server.index.close(); servers.splice(servers.indexOf(server), 1);
+    await configure(2, "# ROLE_B"); const restarted = await buildApp({ root }); servers.push(restarted);
+    const stale = await request(restarted, "POST", `/api/v1/requirements/REQ-CONTEXT-REVISION/approvals/${old.approval_id}/decide`, { choice: "确认放行" }, "old-context-approval");
+    expect(stale.status).toBe(409);
+    await wait_for(async () => (await restarted.sessions.listApprovals("REQ-CONTEXT-REVISION")).some((item) => item.approval_id !== old.approval_id));
+    expect(await readFile(join(root, "cord", "REQ-CONTEXT-REVISION", "plan.md"), "utf8")).toContain("ROLE_B");
+    const events = await restarted.sessions.readEvents("REQ-CONTEXT-REVISION"); expect(events.filter((event) => event.type === "agent.task.completed")).toHaveLength(2);
+    expect(events.some((event) => event.type === "human.decision.recorded")).toBe(false);
+  });
+
   it("清单只返回公开配置元信息，单条无效配置留诊断，重载需要幂等键", async () => {
     const { root, server } = await workspace("OLD");
     await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: {

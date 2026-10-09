@@ -26,6 +26,7 @@ const AgentEntrySchema = z.discriminatedUnion("kind", [
     bin: z.string().min(1),
     args: z.array(z.string()).optional(),
     env: z.record(z.string(), z.string()).optional(),
+    context_revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
   }),
   z.strictObject({
     kind: z.literal("headless"),
@@ -34,6 +35,7 @@ const AgentEntrySchema = z.discriminatedUnion("kind", [
     bin: z.string().min(1).optional(),
     args: z.array(z.string()).optional(),
     env: z.record(z.string(), z.string()).optional(),
+    context_revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
     model: z.string().min(1).optional(),
     effort: z.string().min(1).optional(),
     max_turns: z.number().int().positive().optional(),
@@ -64,6 +66,8 @@ export interface AgentDefinitionInfo {
   kind: "acp" | "headless";
   source: "workspace" | "registry";
   template: string | null;
+  /** ADR-0054：公开的外部行为版本声明，不是环境摘要。 */
+  context_revision?: number;
 }
 
 export interface AgentRegistry extends AgentsLoadResult {
@@ -121,9 +125,10 @@ function compileAgentsYaml(yaml: AgentsYaml | null): {
         bin: entry.bin,
         args: [...(entry.args ?? ["acp"])],
         name: `acp:${name}`,
+        ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }),
         ...(entry.env !== undefined ? { env: { ...entry.env } } : {}),
       }));
-      entries.push({ name, kind: "acp", source: "workspace", template: null });
+      entries.push({ name, kind: "acp", source: "workspace", template: null, ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }) });
       continue;
     }
     if ((entry.template === undefined) === (entry.args === undefined)) {
@@ -156,6 +161,7 @@ function compileAgentsYaml(yaml: AgentsYaml | null): {
         ...(entry.env !== undefined ? { env: entry.env } : {}),
         name: `headless:${name}`,
         knobs,
+        ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }),
       }));
     } else {
       if (entry.bin === undefined) {
@@ -177,9 +183,10 @@ function compileAgentsYaml(yaml: AgentsYaml | null): {
         },
         ...(entry.env !== undefined ? { env: entry.env } : {}),
         name: `headless:${name}`,
+        ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }),
       }));
     }
-    entries.push({ name, kind: "headless", source: "workspace", template: entry.template ?? null });
+    entries.push({ name, kind: "headless", source: "workspace", template: entry.template ?? null, ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }) });
   }
   return { drivers, entries, warnings, rejected };
 }

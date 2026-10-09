@@ -1,5 +1,16 @@
 # 工作进度
 
+## 2026-10-09（阶段 40）
+
+- 上轮为已验证并推送的进展，HEAD=adc4ae2，工作树干净且同步。
+- 审查发现全部 env/外部角色文件不影响 configuration_hash，用户缺少非敏感行为变更声明。ADR-0054 与调研先行，准备可选数字 context_revision，维持隐私边界和在途配置固定；此功能不自动检测外部变化。
+- 11 个 driver/YAML 反例全部失败。实现可选正安全整数、各协议有声明时 v2/无声明 v1 身份、三种配置形态透传及公开数字清单/控制台行内展示，继续定向与恢复验证。
+- 41 项 driver/YAML 定向与 build:all 通过；新增固定非敏感测试环境的真实子进程 fixture，覆盖旧 resolver 保持旧角色、重载后新角色/版本、冷恢复拒绝旧审批并重跑，以及协调提议失效/新轮次恢复，继续全量验证。
+- 32 项 driver/server 定向通过；workspace typecheck 指出 AgentCatalogView 显式 DTO 未新增字段，已补齐可缺省数字版本，继续完整编译与类型验证。
+- 最终 873 测试 / 64 文件、build:all/typecheck/git diff --check 通过。隔离真实 HTTP 同 argv + 环境角色 A→B/context_revision 1→2 使身份改变、旧报告重跑，worker 2 次；重启不重复调用、审批 ID 保持、PRD 不变、人工决定/节点退出 0、doctor=true。
+- Playwright/Chrome 1440/390/320 清单显示上下文 v2，公开响应/页面无私有环境标记，无溢出/pageerror；截图已查看无重叠。仅临时 fixture，不调用付费模型；协议/README/架构/ADR 索引与公开验收同步。
+- 最新 detached 预览 `http://127.0.0.1:7317/#/agents`（PID 8433）健康，worker 声明上下文 v2；最终差异审查/git diff --check 通过。7317 与原真实 Draft 7306 审批各 1、人工决定各 0、done 未退出；进入小步提交和有界同步，持续目标保持 active。
+
 ## 2026-10-09（阶段 39）
 
 - 上轮为已验证进展，HEAD=f9119d1，工作树干净、本地领先已知 origin 2 次提交；远端网络失败不阻断本地优化。

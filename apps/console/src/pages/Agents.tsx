@@ -111,7 +111,9 @@ export function Agents(): ReactElement {
                   <div className="agent-name"><Check size={15} aria-hidden="true" /><strong className="mono">{agent.name}</strong></div>
                   <span className={`agent-source agent-source-${agent.source}`}>{SOURCE_TEXT[agent.source]}</span>
                   <div className="agent-protocol"><span>{agent.kind === "acp" ? "ACP" : "Headless"}</span>{agent.template !== null ? <code className="muted small">{agent.template}</code> : null}</div>
-                  <code className="agent-config-hash" title={agent.configuration_hash ?? "未提供"}>{agent.configuration_hash?.slice(0, 12) ?? "未提供"}</code>
+                  <div className="agent-identity"><code className="agent-config-hash" title={agent.configuration_hash ?? "未提供"}>{agent.configuration_hash?.slice(0, 12) ?? "未提供"}</code>
+                    {agent.context_revision !== undefined ? <span className="agent-context-revision muted small">上下文 v{agent.context_revision}</span> : null}
+                  </div>
                 </li>
               ))}
             </ul>

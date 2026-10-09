@@ -157,6 +157,8 @@ export interface AcpDriverOptions {
   /** 暴露给 registry 的驱动名，默认 `acp:<bin>` */
   name?: string;
   env?: Record<string, string>;
+  /** ADR-0054：配置者维护的外部行为版本，不传入 argv。 */
+  context_revision?: number;
   /** permission request 的防御性超时 */
   permission_timeout_ms?: number;
   /** SIGTERM → SIGKILL 之间的等待 */
@@ -180,10 +182,12 @@ export class AcpDriver implements AgentDriver {
   private readonly onSession: ((sessionId: string) => void) | undefined;
 
   constructor(options: AcpDriverOptions) {
+    if (options.context_revision !== undefined && (!Number.isSafeInteger(options.context_revision) || options.context_revision <= 0)) throw new Error("context_revision 必须是正安全整数");
     this.bin = options.bin;
     this.args = [...(options.args ?? ["acp"])];
     this.name = options.name ?? `acp:${options.bin}`;
-    this.configuration_hash = sha256Hex(canonicalJson({ domain: "cord.agent-config.acp.v1", name: this.name, bin: this.bin, args: this.args }));
+    this.configuration_hash = sha256Hex(canonicalJson({ domain: options.context_revision === undefined ? "cord.agent-config.acp.v1" : "cord.agent-config.acp.v2",
+      ...(options.context_revision === undefined ? {} : { context_revision: options.context_revision }), name: this.name, bin: this.bin, args: this.args }));
     this.env = { ...options.env };
     this.permissionTimeoutMs = options.permission_timeout_ms ?? DEFAULT_PERMISSION_TIMEOUT_MS;
     this.killGraceMs = options.kill_grace_ms ?? DEFAULT_KILL_GRACE_MS;

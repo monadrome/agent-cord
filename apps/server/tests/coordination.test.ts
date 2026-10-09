@@ -356,6 +356,20 @@ describe("独立协调工具边界", () => {
 });
 
 describe("协调执行观察", () => {
+  it("仅上下文版本声明变化使旧提议不可采用，重新协调恢复，环境值不公开", async () => {
+    const configure = async (context_revision: number) => {
+      await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: { coordinator: { kind: "headless", context_revision, bin: process.execPath,
+        args: [fixture, "--mode", "claude", "--no-tools", "--result-text", JSON.stringify(proposal), "{{prompt}}"], env: { PRIVATE_ENV: "PRIVATE_CONTEXT_ENV" } } } }));
+      await server.agents.reload();
+    };
+    await configure(1); const first = await valid_round();
+    await configure(2); expect(await server.coordination.get("REQ-CONTEXT", first.round_id)).toMatchObject({ current: false, adoptable: false });
+    expect((await adopt(first.round_id)).status).toBe(409);
+    const current = await valid_round(); expect(current).toMatchObject({ current: true }); expect(current.agent_configuration_hash).not.toBe(first.agent_configuration_hash);
+    expect(JSON.stringify(server.agents.catalog())).not.toContain("PRIVATE_CONTEXT_ENV");
+    expect(JSON.stringify(await server.sessions.readEvents("REQ-CONTEXT"))).not.toContain("PRIVATE_CONTEXT_ENV");
+  });
+
   const waiting = { ...proposal, next_action: { kind: "wait", reason: "等待当前 worker 执行结论", evidence: [{ source: "workflow", id: "intake" }] } };
   async function prepare(worker_sleep = 0) {
     await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: {

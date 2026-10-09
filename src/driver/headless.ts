@@ -569,6 +569,8 @@ export interface HeadlessDriverOptions {
   prefixArgs?: string[];
   /** 追加/覆盖环境变量（BYO 凭证：daemon 只透传，不代管厂商凭据） */
   env?: Record<string, string>;
+  /** ADR-0054：配置者维护的外部行为版本，不传入 argv。 */
+  context_revision?: number;
   /** SIGTERM → SIGKILL 之间的等待 */
   kill_grace_ms?: number;
   /** 暴露给 registry 的驱动名，默认 `headless:<cli>` */
@@ -596,6 +598,7 @@ export class HeadlessDriver implements AgentDriver {
   private readonly knobs: HeadlessKnobs;
 
   constructor(options: HeadlessDriverOptions) {
+    if (options.context_revision !== undefined && (!Number.isSafeInteger(options.context_revision) || options.context_revision <= 0)) throw new Error("context_revision 必须是正安全整数");
     const template = options.template ?? getHeadlessCliTemplate(options.cli);
     if (template === undefined) {
       throw new Error(
@@ -611,7 +614,8 @@ export class HeadlessDriver implements AgentDriver {
     this.name = options.name ?? `headless:${template.name}`;
     const config_task = { prompt: "cord.configuration.prompt", cwd: "" };
     this.configuration_hash = sha256Hex(canonicalJson({
-      domain: "cord.agent-config.headless.v1",
+      domain: options.context_revision === undefined ? "cord.agent-config.headless.v1" : "cord.agent-config.headless.v2",
+      ...(options.context_revision === undefined ? {} : { context_revision: options.context_revision }),
       name: this.name,
       argv: this.buildArgv(config_task),
       readonly_argv: this.buildArgv({ ...config_task, readonly: true }),

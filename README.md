@@ -97,6 +97,8 @@ agents:
 
 [接入示例](./examples/README.md) 提供可解析的 Codex 协调者、Claude Code 命名角色封装、Kimi ACP 配置，以及“需求检查 → 计划草稿 → 人工审核”的 SDLC。示例不含凭据，配置清单与离线测试只证明契约可解析，真实模型能力需实际运行核验。
 
+自定义条目可声明正整数 `context_revision`。外部角色文件或行为性环境变化时由配置者提高此版本，重载后旧提议/checkpoint/审批会按新身份重新核验；环境值仍不公开或进入指纹，版本不传给 CLI。未声明保留原身份，该版本不自动检测变化。详见 [ADR-0054](./docs/adr/ADR-0054-agent-context-revision.md)。
+
 文件 checker、协调快照和 REST 文档使用同一普通文件边界：拒绝符号/硬链接、管理与事实文件、非规范路径及非普通文件。REST 真缺失返回 404，边界冲突返回 409，权限/IO 失败返回 500，避免把读故障当成新文档。文档保存使用独占临时文件与原子替换，失败保留旧内容；这不替代 worker 的 OS 沙箱或跨进程文件事务。详见 [ADR-0036](./docs/adr/ADR-0036-shared-document-boundary.md)。
 
 Codex headless 已用真实 CLI 0.160.0 验证两个新会话：更新 PRD 后提议使用新范围，旧提议不再有效。驱动保留 thread ID，将非终态配置通知留在 metadata、file_change 保持工具事件，审批参数使用官方当前配置；测试仍默认离线，真实验证不证明所有模型或统计质量。详见 [ADR-0037](./docs/adr/ADR-0037-codex-runtime-notifications.md) 与 [ADR-0039](./docs/adr/ADR-0039-codex-file-change-events.md)。

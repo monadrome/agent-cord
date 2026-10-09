@@ -5,6 +5,35 @@ import { HeadlessDriver } from "../../src/driver/headless.js";
 import { parseAgentsYaml, resolveWithAgentsYaml } from "../../src/driver/agents-yaml.js";
 
 describe("agent 配置身份", () => {
+  it.each(["headless", "acp"])("%s 上下文版本改变身份但环境值不进入版本身份", (kind) => {
+    const make = (context_revision: number, marker: string) => kind === "acp" ? new AcpDriver({ bin: "tool", context_revision, env: { PRIVATE_TEST: marker } })
+      : new HeadlessDriver({ cli: "claude", context_revision, env: { PRIVATE_TEST: marker } });
+    expect(make(1, "PRIVATE_FIRST").configuration_hash).toBe(make(1, "PRIVATE_SECOND").configuration_hash);
+    expect(make(2, "PRIVATE_SECOND").configuration_hash).not.toBe(make(1, "PRIVATE_FIRST").configuration_hash);
+    if (kind === "headless") expect((make(1, "PRIVATE_FIRST") as HeadlessDriver).buildArgv({ cwd: "/tmp", prompt: "任务" })).toEqual((make(2, "PRIVATE_SECOND") as HeadlessDriver).buildArgv({ cwd: "/tmp", prompt: "任务" }));
+  });
+
+  it.each([0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])("原生上下文版本 %s 必须是正安全整数", (context_revision) => {
+    expect(() => new HeadlessDriver({ cli: "claude", context_revision })).toThrow();
+    expect(() => new AcpDriver({ bin: "tool", context_revision })).toThrow();
+  });
+
+  it.each(["acp", "template", "args"])("YAML %s 上下文版本可解析且参与身份，省略仍兼容", (kind) => {
+    const entry = kind === "acp" ? "kind: acp, bin: tool" : kind === "template" ? "kind: headless, template: claude" : 'kind: headless, bin: tool, args: ["{{prompt}}"]';
+    const load = (version: number) => parseAgentsYaml(`agents: { worker: { ${entry}, context_revision: ${version} } }`);
+    expect(load(1).rejected).toEqual([]);
+    const first = resolveWithAgentsYaml(load(1).yaml)("worker"); const second = resolveWithAgentsYaml(load(2).yaml)("worker");
+    expect(first.configuration_hash).not.toBe(second.configuration_hash);
+  });
+
+  it("非法 YAML 上下文版本拒绝别名且不回退内置，同版本格式不改变身份", () => {
+    const invalid = parseAgentsYaml("agents: { claude: { kind: headless, template: claude, context_revision: 0 } }");
+    expect(invalid.rejected).toEqual(["claude"]); expect(() => resolveWithAgentsYaml(invalid.yaml)("claude")).toThrow();
+    const first = resolveWithAgentsYaml(parseAgentsYaml("agents: { worker: { kind: headless, template: claude, context_revision: 2 } }").yaml)("worker");
+    const second = resolveWithAgentsYaml(parseAgentsYaml("agents:\n  worker:\n    context_revision: 2\n    template: claude\n    kind: headless\n").yaml)("worker");
+    expect(first.configuration_hash).toBe(second.configuration_hash);
+  });
+
   it("有效 headless 参数相同则身份相同，env 值变化不影响身份", () => {
     const first = new HeadlessDriver({ cli: "claude", knobs: { model: "sonnet", agent: "reviewer" }, env: { TEST_VALUE: "PRIVATE_FIRST" } });
     const second = new HeadlessDriver({ cli: "claude", knobs: { agent: "reviewer", model: "sonnet" }, env: { TEST_VALUE: "PRIVATE_SECOND", EXTRA: "ignored" } });

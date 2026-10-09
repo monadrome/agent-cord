@@ -4,6 +4,7 @@
 //
 // 支持的开关（由 HeadlessDriver 的 prefixArgs 注入）：
 //   --mode <claude|kimi|codex|plain|garbage|fail>  输出的行形态
+//   --mode env-result                             输出固定非敏感测试环境变量
 //   --sleep <ms>                                   打印首行后睡多久（模拟卡死/超时）
 //   --result-text <text>                           最终文本（配置重载验证用）
 //   --pid-file <path>                              把自己的 pid 写进去（验证进程清理）
@@ -66,6 +67,10 @@ if (childPidFile !== undefined) {
 }
 
 switch (mode) {
+  case "env-result": {
+    write({ type: "result", subtype: "success", result: process.env["CORD_TEST_CONTEXT"] ?? "# 缺少测试上下文", session_id: sessionId });
+    break;
+  }
   case "claude": {
     write({
       type: "assistant",

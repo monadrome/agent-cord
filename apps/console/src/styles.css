@@ -1167,6 +1167,8 @@ p {
 .agent-protocol { display: flex; flex-direction: column; min-width: 0; }
 .agent-protocol code { overflow-wrap: anywhere; }
 .agent-config-hash { color: var(--ink-soft); font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.agent-identity { display: grid; gap: 3px; min-width: 0; }
+.agent-context-revision { overflow-wrap: anywhere; }
 .agent-loading { min-height: 185px; display: grid; place-items: center; color: var(--ink-soft); font-size: 13px; }
 .coordination-workspace { letter-spacing: 0; min-width: 0; overflow-wrap: anywhere; }
 .requirement-page-head > div { min-width: 0; max-width: 100%; }
@@ -1264,6 +1266,7 @@ p {
   .agent-row { grid-template-columns: minmax(0, 1fr) 120px; gap: 8px 14px; padding: 13px 10px; min-height: 94px; }
   .agent-source { text-align: right; }
   .agent-config-hash { text-align: right; }
+  .agent-identity { text-align: right; }
   .agent-protocol { flex-direction: row; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 }
 
