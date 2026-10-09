@@ -10,6 +10,7 @@
 - 实际 server 重启不重放 worker、审批 ID 不变，输入/报告不变，人工决定 0、review 未退出、doctor=true。最新 detached 预览 `http://127.0.0.1:7314/#/requirements/REQ-WORKER-COVERAGE/docs`（PID 25240），findings.md 保留真实报告；运行数据只在临时目录。
 - Playwright/Chrome 1440/390/320 展示最新三尾部标记、无编辑时保存禁用、人工 gate 可见，无溢出/pageerror；桌面/手机截图已查看无重叠。README/协议/架构/ADR 索引与公开验收记录同步，准备最终差异审查与小步提交。
 - 2026-10-09 收尾：最终差异审查与 git diff --check 通过；7314 最新预览与 7306 原真实 Draft 实时健康、审批各 1、人工决定各 0、done 未退出。实现、测试与文档进入独立提交和 HTTP/2 有界同步，持续目标保持 active。
+- 功能提交 `564ca3d`，HTTP/2 推送成功（origin/exp/impl：7866fd4→564ca3d）；远端 ls-remote hash=564ca3d65195a06fa0662aeeaab45b17e5a9be88，与本地相同。持续优化目标保持 active，未改全局 Git 配置。
 
 ## 2026-10-08（阶段 36）
 
