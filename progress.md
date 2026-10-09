@@ -13,6 +13,7 @@
 - 隔离真实 ACP/HTTP 验证旧 token 409、授权 hash=任务 hash、冷漂移 failed/人审 409、还原同 run/同审批、幂等重放；worker 2/supervisor 1/授权 1/gate 决策 0/done 退出 0/doctor=true。证据 /tmp/cord-stage48-real-result.json，预览 61445/PID 51341；原真实 Draft 未操作。
 - Playwright/Chrome 1440/390/320 审批与已执行协调状态、重复按钮移除、无溢出/pageerror 通过，桌面/320 截图已查看。两次脚本文本精确定位超时，按实际组件文案/元素修正后成功；没有重启 worker 或修改产品行为。
 - 最终 typecheck、6 份文档 86 本地链接与 diff 检查通过；原真实 7306 Draft 审批仍 1，未操作。功能与验收已完成，进入小步提交/有界推送；完整验收覆盖与跨 driver 资源治理仍待继续，持续目标 active。
+- 修复提交 `3a5789d`，HTTP/1.1 有界推送成功 d787af0 → 3a5789d；ls-remote 核验远端 `3a5789d33c9e0aadd3e7e6521bac93b31525eb54` 与本地一致。原真实 Draft 实时审批 1/gate 决策 0/done 退出 0。阶段 48 已完成，完整持续目标 active。
 
 ## 2026-10-09（阶段 47）
 
