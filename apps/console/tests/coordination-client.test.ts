@@ -23,7 +23,7 @@ async function wait_for(check: () => Promise<boolean>): Promise<void> {
 }
 async function config(sleep_ms = 0): Promise<void> {
   await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: { local: { kind: "headless", bin: process.execPath,
-    args: [fixture, "--mode", "claude", "--sleep", String(sleep_ms), "--result-text", JSON.stringify(proposal), "{{prompt}}"] } } }));
+    args: [fixture, "--mode", "claude", "--no-tools", "--sleep", String(sleep_ms), "--result-text", JSON.stringify(proposal), "{{prompt}}"] } } }));
   await client.reloadAgents();
 }
 async function terminal(round_id: string): Promise<CoordinationRoundView> {

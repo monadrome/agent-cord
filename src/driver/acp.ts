@@ -264,14 +264,16 @@ export class AcpDriver implements AgentDriver {
     const ctx: ClientContext = connection.agent;
 
     let sigkillTimer: NodeJS.Timeout | undefined;
+    let shutdown_promise: Promise<void> | undefined;
     /** 收束序列（超时与外部取消共用）：error 落流 → 先 session/cancel 打完招呼 → 杀进程树 → 关流 */
     const shutdown = (reason: string, kind: "timeout" | "agent"): void => {
+      if (shutdown_promise !== undefined) return;
       push([
         errorEvent(reason, kind, {
           session_id: activeSessionId ?? null,
         }),
       ]);
-      void (async () => {
+      shutdown_promise = (async () => {
         // 先 session/cancel 把话说完再杀（有上限，不能因为写不出去反而卡住）
         if (activeSessionId !== undefined) {
           await withTimeout(
@@ -370,8 +372,9 @@ export class AcpDriver implements AgentDriver {
         }
       } finally {
         clearTimeout(timeoutTimer);
-        if (sigkillTimer !== undefined) clearTimeout(sigkillTimer);
         task.signal?.removeEventListener("abort", onAbort);
+        await shutdown_promise;
+        if (sigkillTimer !== undefined) clearTimeout(sigkillTimer);
         // 每任务 subprocess：一次性用完即弃（ADR-0011），连接本地关闭 + 杀进程树
         try {
           connection.close();
@@ -393,8 +396,10 @@ export class AcpDriver implements AgentDriver {
       // 消费方提前 break：清场，避免进程泄漏
       queue.close();
       clearTimeout(timeoutTimer);
-      if (sigkillTimer !== undefined) clearTimeout(sigkillTimer);
       task.signal?.removeEventListener("abort", onAbort);
+      // abort 后提前 return 也须等取消通知的有界发送，不能抢先杀进程。
+      await shutdown_promise;
+      if (sigkillTimer !== undefined) clearTimeout(sigkillTimer);
       await terminateProcessTree(proc, this.killGraceMs);
     }
   }

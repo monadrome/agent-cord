@@ -21,7 +21,7 @@ async function config(output = JSON.stringify(proposal), sleep_ms = 0): Promise<
   await mkdir(join(root, "cord"), { recursive: true });
   await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: { coordinator: {
     kind: "headless", bin: process.execPath,
-    args: [fixture, "--mode", "claude", "--sleep", String(sleep_ms), "--result-text", output, "{{prompt}}"],
+    args: [fixture, "--mode", "claude", "--no-tools", "--sleep", String(sleep_ms), "--result-text", output, "{{prompt}}"],
   } } }));
 }
 async function request(method: "GET" | "POST" | "PUT", url: string, payload?: unknown, key?: string) {
@@ -102,11 +102,89 @@ async function source_round(key = ulid()): Promise<CoordinationRoundView> {
   return done(response.body.round.round_id);
 }
 
+describe("独立协调工具边界", () => {
+  it.each(["claude", "codex", "acp"])("已报告工具的 %s 协调结果失败、不可采用，重启保留失败，修复后可重新协调", async (protocol) => {
+    const pid_file = join(root, "tool-coordinator.pid");
+    await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: { coordinator: {
+      kind: protocol === "acp" ? "acp" : "headless", bin: process.execPath,
+      args: [protocol === "acp" ? acp_fixture : fixture, ...(protocol === "acp" ? [] : ["--mode", protocol]),
+        "--pid-file", pid_file, "--result-text", JSON.stringify(proposal), ...(protocol === "acp" ? [] : ["{{prompt}}"])],
+    } } }));
+    await server.agents.reload();
+    const result = await start("tool-round");
+    expect(result.status).toBe(202);
+    const round = await done(result.body.round.round_id);
+    expect(round).toMatchObject({ status: "failed", failure_stage: "driver", proposal: null, adoptable: false,
+      error: "独立协调轮次禁止使用工具，请修正 Agent 配置后重新协调" });
+    const pid = Number(await readFile(pid_file, "utf8"));
+    expect(() => process.kill(pid, 0)).toThrow();
+    expect((await adopt(round.round_id)).status).toBe(409);
+    const before = await server.sessions.readEvents("REQ-CONTEXT");
+    expect(before.some((event) => ["coordinator.round.cancel_requested", "coordinator.round.adopted", "human.decision.recorded", "workflow.node.entered"].includes(event.type))).toBe(false);
+    await restart();
+    expect(await server.coordination.get("REQ-CONTEXT", round.round_id)).toMatchObject({ status: "failed", proposal: null, adoptable: false });
+    expect((await server.sessions.readEvents("REQ-CONTEXT")).filter((event) => event.type.startsWith("coordinator.round."))).toHaveLength(3);
+    await config(); await server.agents.reload();
+    expect(await valid_round()).toMatchObject({ status: "ok", current: true, adoptable: true });
+    expect(server.runs.listRuns("REQ-CONTEXT")).toHaveLength(0);
+    expect(await server.sessions.readDoc("REQ-CONTEXT", "prd")).toContain("CURRENT_CONTEXT");
+  });
+
+  it.each(["headless", "acp"])("工具后的静默 %s 进程立即收束，未等到宿主超时，也不留下子进程", async (protocol) => {
+    const pid_file = join(root, "silent-tool.pid");
+    const child_pid_file = join(root, "silent-tool-child.pid");
+    const record_file = join(root, "silent-acp-messages.jsonl");
+    await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: { coordinator: {
+      kind: protocol, bin: process.execPath, args: protocol === "headless"
+        ? [fixture, "--mode", "claude", "--sleep", "60000", "--pid-file", pid_file, "--child-pid-file", child_pid_file, "--result-text", JSON.stringify(proposal), "{{prompt}}"]
+        : [acp_fixture, "--mode", "hang", "--pid-file", pid_file, "--record", record_file, "--result-text", JSON.stringify(proposal)],
+    } } }));
+    await server.agents.reload();
+    const result = await start("silent-tool", { timeout_ms: 30_000 });
+    expect(await done(result.body.round.round_id)).toMatchObject({ status: "failed", failure_stage: "driver", proposal: null });
+    const pid = Number(await readFile(pid_file, "utf8"));
+    expect(() => process.kill(pid, 0)).toThrow();
+    if (protocol === "headless") {
+      const child_pid = Number(await readFile(child_pid_file, "utf8"));
+      await wait_for(async () => { try { process.kill(child_pid, 0); return false; } catch { return true; } });
+    } else {
+      expect((await readFile(record_file, "utf8")).split("\n").filter(Boolean).map((line) => JSON.parse(line).event)).toContain("session/cancel");
+    }
+  });
+
+  it("旧工具策略的成功提议保留历史，但重启后不可采用，新轮次恢复", async () => {
+    const current = await valid_round();
+    const session = await server.sessions.open("REQ-CONTEXT");
+    const binding = await server.sdlcs.get("simple-sdlc", 1);
+    const snapshot = await readSnapshot(session, { workflow_id: binding.def.metadata.id, workflow_revision: binding.workflow_revision, excerpt_mode: "head_tail",
+      files: binding.def.spec.nodes.flatMap((node) => node.artifact === undefined ? [] : [node.artifact]) });
+    const execution_context = await readCoordinationExecutionContext(binding.def, session, binding.workflow_revision, server.runs);
+    const legacy_hash = sha256Hex(canonicalJson({ domain: "cord.coordination-input.v6", context_policy: "balanced-head-tail.v1", workflow: binding.def,
+      configuration_hash: current.agent_configuration_hash, max_prompt_chars: 60_000, workflow_revision: binding.workflow_revision, execution_context,
+      req_id: snapshot.req_id, title: snapshot.title, docs: snapshot.docs.map(({ file, exists, content_hash }) => ({ file, exists, content_hash })),
+      ledger: snapshot.ledger, workflow_progress: { ...snapshot.workflow, waiting: snapshot.workflow.waiting ?? [] } }));
+    const round_id = ulid();
+    for (const [type, payload] of [
+      ["coordinator.round.requested", { round_id, workflow_id: binding.def.metadata.id, workflow_revision: binding.workflow_revision,
+        driver: "coordinator", sdlc_id: "simple-sdlc", sdlc_version: 1 }],
+      ["coordinator.round.completed", { round_id, workflow_id: binding.def.metadata.id, workflow_revision: binding.workflow_revision,
+        driver: "headless:coordinator", status: "ok", proposal, error: null, duration_ms: 1, input_hash: legacy_hash,
+        agent_configuration_hash: current.agent_configuration_hash }],
+    ] as const) await session.events.append({ event_id: ulid(), session_id: session.req_id, type, schema_version: "1",
+      actor: { kind: "system", id: "legacy" }, correlation_id: round_id, payload, source: { adapter: "test" } });
+    await restart();
+    expect(await server.coordination.get("REQ-CONTEXT", round_id)).toMatchObject({ status: "ok", proposal, current: false, adoptable: false });
+    expect((await adopt(round_id)).status).toBe(409);
+    expect(await valid_round()).toMatchObject({ current: true, adoptable: true });
+    expect(server.runs.listRuns("REQ-CONTEXT")).toHaveLength(0);
+  });
+});
+
 describe("协调执行观察", () => {
   const waiting = { ...proposal, next_action: { kind: "wait", reason: "等待当前 worker 执行结论", evidence: [{ source: "workflow", id: "intake" }] } };
   async function prepare(worker_sleep = 0) {
     await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: {
-      coordinator: { kind: "headless", bin: process.execPath, args: [fixture, "--mode", "claude", "--result-text", JSON.stringify(waiting), "{{prompt}}"] },
+      coordinator: { kind: "headless", bin: process.execPath, args: [fixture, "--mode", "claude", "--no-tools", "--result-text", JSON.stringify(waiting), "{{prompt}}"] },
       worker: { kind: "headless", bin: process.execPath, args: [fixture, "--mode", worker_sleep > 0 ? "claude" : "fail", "--sleep", String(worker_sleep), "{{prompt}}"] },
     } }));
     await server.agents.reload();
@@ -200,7 +278,7 @@ describe("协调事件完整性", () => {
   it("坏事实流中的明确取消仍收束真实子进程，报告 409，修复后可读取真实取消终态", async () => {
     const pid_file = join(root, "coordinator.pid");
     await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: { coordinator: {
-      kind: "headless", bin: process.execPath, args: [fixture, "--mode", "claude", "--sleep", "60000", "--pid-file", pid_file, "--result-text", JSON.stringify(proposal), "{{prompt}}"],
+      kind: "headless", bin: process.execPath, args: [fixture, "--mode", "claude", "--no-tools", "--sleep", "60000", "--pid-file", pid_file, "--result-text", JSON.stringify(proposal), "{{prompt}}"],
     } } }));
     await server.agents.reload();
     const response = await start("before-corrupt-cancel");
@@ -667,7 +745,7 @@ describe("协调提议受控采用", () => {
 describe("Context Session Agent REST", () => {
   it("Codex 非终态配置通知保留辅助通道，协调仍得到严格 JSON 与会话身份", async () => {
     await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: { coordinator: { kind: "headless", bin: process.execPath,
-      args: [fixture, "--mode", "codex-warning", "--result-text", JSON.stringify(proposal), "{{prompt}}"] } } }));
+      args: [fixture, "--mode", "codex-warning", "--no-tools", "--result-text", JSON.stringify(proposal), "{{prompt}}"] } } }));
     await server.agents.reload(); const result = await start();
     expect(await done(result.body.round.round_id)).toMatchObject({ status: "ok", proposal });
     const completion = (await server.sessions.readEvents("REQ-CONTEXT")).find((event) => event.type === "coordinator.round.completed");
@@ -704,7 +782,7 @@ describe("Context Session Agent REST", () => {
   it("自定义 ACP 协调 agent 每轮 session/new，最新 PRD 注入而不 session/load", async () => {
     const record_file = join(root, "acp-messages.jsonl");
     await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: { coordinator: {
-      kind: "acp", bin: process.execPath, args: [acp_fixture, "--result-text", JSON.stringify(proposal), "--record", record_file],
+      kind: "acp", bin: process.execPath, args: [acp_fixture, "--no-tools", "--result-text", JSON.stringify(proposal), "--record", record_file],
     } } }));
     await server.agents.reload();
     await request("PUT", "/api/v1/requirements/REQ-CONTEXT/docs/prd", { content: "CURRENT_CONTEXT\n" + "x".repeat(40_000) + "\nTAIL_ACP_VERSION_A" }, "long-acp-context");

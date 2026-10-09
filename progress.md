@@ -1,5 +1,19 @@
 # 工作进度
 
+## 2026-10-08（阶段 36）
+
+- 上一轮有已验证的实现与两个本地提交，当前 HEAD=2317f8e，工作树干净、领先本地 origin 引用 2 次提交；上轮 GitHub 网络失败不阻断本地优化。
+- agent-optimizer 审查发现 ADR-0032/prompt 禁止工具，但独立协调循环忽略 tool_use，自定义 ACP/headless 仍可返回成功提议。先记录 ADR-0050 与独立调研，准备工具违规、进程收束、历史身份及恢复反例。
+- Firecrawl 读取 Anthropic 预定义 workflow/工具边界资料；ACP `/protocol/session-updates` 返回 404，不作为协议证据，改读 `/protocol/tool-calls`。
+- 7 个核心新增反例全部失败，确认工具事件被忽略、driver 未中止、旧身份仍有效；ACP Tool Calls 正文已核验，权限请求为 MAY，宿主检测不声明预执行隔离。server 补测首轮 PID 断言含非法 await，修正为先读取再同步断言后继续反例验证。
+- 4 个 REST 新反例（Claude/Codex/ACP 违规与旧策略迁移）也全部失败，证实真实驱动仍返回 adoptable=true。新增 fixture 无工具模式只用于合规协调；普通 worker/driver 测试仍报告工具。实现消费端即时 abort、固定 failed/driver、保留首个失败与 v7/v5 策略输入身份，开始进程与恢复回归。
+- 首轮定向 155/157 通过、build:all 通过；ACP 工具后立即关闭迭代器时取消通知未送达，新增 driver 反例并补有界取消序列的单次启动与清理等待。另一个失败为旧 Codex 辅助通知用例仍报告命令工具，改为显式无工具 fixture，不放宽消费策略。
+- ACP driver 新反例先复现取消通知缺失，修复后 158 项定向与 build:all/typecheck 通过。首轮全量 806/807，剩余为发布版本隔离测试中的协调 fixture 仍调用工具，已将该协调别名标为无工具，worker 保持原样；继续最终全量与隔离实际 HTTP 验收。
+- 最终全量 807 测试 / 62 文件通过。隔离实际 HTTP 的违规 headless/ACP 均 failed/driver、不可采用并回收进程，真实 Claude 命名角色一次调用在最新 B 快照下返回 ok/current wait 且工具数为 0。首次重启立即断言 current=true 失败；随后只读打开原工作区核验，current=true、input_hash 与原完成完全相同，审批 ID 不变且没有新 workflow 事实。修正验收为等待同一轮次恢复稳定，不重复付费调用，继续审计原数据。
+- 原数据审计首次 doctor=false 仅为 ledger 投影漂移，事实/session/链/唯一性均通过；经已有 readLedger 重建后 doctor=true。原工作区审计通过，只有三次协调完成（违规两次、真实 Claude 一次），模型未重放、PRD/审批 ID 不变，人工决定/节点退出/worker/采用/用户取消为 0。
+- 最新源码 detached 预览 `http://127.0.0.1:7313/#/requirements/REQ-ROLE-BOUNDARY/coordination`（PID 14129），最新 wait current=true、两次违规 failed。Playwright/Chrome 1440/390/320 验证固定失败正文与边界、无提议/采用按钮、文档来源跳转，无溢出/pageerror，截图已查看无重叠。运行结果和截图仅在临时目录；README/协议/架构/ADR 索引与公开验收记录同步。
+- 最终差异审查与 git diff --check 通过，原真实 Draft 7306 实时健康、审批 1、人工决定 0、done 未退出；阶段 36 进入独立本地提交与有界远端同步，持续目标保持 active。
+
 ## 2026-10-08（阶段 35）
 
 - 上一轮为已验证进展，当前 HEAD=cd9e75a，工作区干净并与远端同步。

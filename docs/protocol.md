@@ -182,17 +182,19 @@ ADR-0046 的 readCoordinationSnapshot 共用独立协调采集策略：每份长
 
 轮次事件与 worker 恢复完全分离：server requested 绑定 SDLC 版本，started/completed 记录 round_id、workflow_id、driver、snapshot provenance、input_hash、prompt_hash 与可选配置身份。语义 input_hash 排除事件序号与轮次自身事件，覆盖完整文档 hash、账本、进度/等待、workflow 和配置身份。结果返回前重检；变化记 stale，读取失败记 failed/freshness，均没有提议。completed 只在 ok 时携带提议，其余状态 proposal 为 null；不保存原始输出/上下文或 driver raw。
 
-ADR-0043 的 ContextSessionAgentOptions.read_source_hash(def) 将声明源码身份加入协调轮次：server 对绑定流程全部 verification-passed.with.inputs 取并集，prompt 元信息与 started/completed 保存 source_hash。该阶段曾使用绑定源码的 v2 域与无绑定的 v1 域，当前统一采用下述 v4 域。完成、查询和采用 guard 重新扫描同一范围；代码变更导致 stale 或 current=false，无法判定时不可采用。中断恢复保留旧摘要但不重放模型调用。source_hash 不等价于测试通过，snapshot_id 仍记录文档/事件 provenance。
+ADR-0043 的 ContextSessionAgentOptions.read_source_hash(def) 将声明源码身份加入协调轮次：server 对绑定流程全部 verification-passed.with.inputs 取并集，prompt 元信息与 started/completed 保存 source_hash。该阶段曾使用绑定源码的 v2 域与无绑定的 v1 域，后续策略与当前输入域见下文。完成、查询和采用 guard 重新扫描同一范围；代码变更导致 stale 或 current=false，无法判定时不可采用。中断恢复保留旧摘要但不重放模型调用。source_hash 不等价于测试通过，snapshot_id 仍记录文档/事件 provenance。
 
-ADR-0044 的 read_verifications(def, session, revision) 为协调者提供最多 128 项严格机器观察。server 只保留当前 run/发布版本/声明检查的最新结果，共用 readNodeInput 校验 current；缺失、坏结果、过期、取消和读失败不能标为当前有效。观察包含 status/current/reason、事件 ID、输入/命令/源码摘要及退出码，不含 summary 或日志。该阶段曾用 v3 域绑定观察，当前统一采用 v4；完成/查询/采用重检同一投影，轮次只落 verification_context_hash。当前失败事实可作为 verification 来源用于解释等待，但不能冒充 passed 或绕过人工 gate。来源点击在控制台打开并展开结果事件。
+ADR-0044 的 read_verifications(def, session, revision) 为协调者提供最多 128 项严格机器观察。server 只保留当前 run/发布版本/声明检查的最新结果，共用 readNodeInput 校验 current；缺失、坏结果、过期、取消和读失败不能标为当前有效。观察包含 status/current/reason、事件 ID、输入/命令/源码摘要及退出码，不含 summary 或日志。该阶段曾用 v3 域绑定观察，后续策略与当前输入域见下文；完成/查询/采用重检同一投影，轮次只落 verification_context_hash。当前失败事实可作为 verification 来源用于解释等待，但不能冒充 passed 或绕过人工 gate。来源点击在控制台打开并展开结果事件。
 
-coordinationInputHash 的 v4 域加入 context_policy=balanced-head-tail.v1，继续绑定完整原文 hash、配置、workflow、进度、声明源码与机器观察；无执行观察 hook 的库调用仍用 v4，当前 server 使用下述 v5。查询/采用和模型完成共用首尾采集，旧域成功轮次保留历史但需重新协调。片段正文和索引不落事件，事件只保留 prompt/input hash。已采用轮次的原 run 重放语义不变，不自动回滚已退出节点。
+coordinationInputHash 自 v4 起加入 context_policy=balanced-head-tail.v1，继续绑定完整原文 hash、配置、workflow、进度、声明源码与机器观察。查询/采用和模型完成共用首尾采集，旧域成功轮次保留历史但需重新协调。片段正文和索引不落事件，事件只保留 prompt/input hash。已采用轮次的原 run 重放语义不变，不自动回滚已退出节点。
 
 ADR-0048 的 read_execution_context(def, session, revision) 提供严格 CoordinationExecutionContext：当前发布绑定 run 的 run_id/status/active，以及最多 128 项、完整覆盖 node.run 声明的任务元信息。宿主从同批严格事件定位 run 和最新任务；旧 run/版本、无 run_id 的旧任务不进入当前来源，坏的最新 payload/correlation/重试编号为 invalid，不回退历史成功。missing 表示无当前任务，started 只表示启动事实，active=false 时不能推断进程仍活着；active 来自匹配且未终态的本机运行槽位。任务 ok 不等于机器测试或 gate 通过，也不证明仍对应修改后的输入。
 
-server 执行观察进入 prompt、输入身份与完成/查询/采用重检，任务终态或 event_id 替换、run 变更、active 变化都使旧轮次失效。轮次/REST view 只新增 execution_context_hash，不注入 error/text/prompt_excerpt/raw。该阶段使用 v5，当前复用扩展升级为下述 v6。当前合法任务可作为 agent_task 来源，控制台打开并展开对应事件；活动绑定 run 时 eligible_nodes=[]，模型只能提出 wait/ask_human。failed/cancelled 且 inactive 可提出重试方向，仍由人工采用和现有 runner 核验。采用写失败后产生的新 run 事实也改变执行观察，需重新协调，不能继续采用旧提议。
+server 执行观察进入 prompt、输入身份与完成/查询/采用重检，任务终态或 event_id 替换、run 变更、active 变化都使旧轮次失效。轮次/REST view 只新增 execution_context_hash，不注入 error/text/prompt_excerpt/raw。该阶段使用 v5，后续复用与工具扩展分别升级至 v6/v7。当前合法任务可作为 agent_task 来源，控制台打开并展开对应事件；活动绑定 run 时 eligible_nodes=[]，模型只能提出 wait/ask_human。failed/cancelled 且 inactive 可提出重试方向，仍由人工采用和现有 runner 核验。采用写失败后产生的新 run 事实也改变执行观察，需重新协调，不能继续采用旧提议。
 
-复用任务投影为 reused，event_id 是当前复用事实，completion_event_id 是更早的原始 ok 完成；缺省非复用字段归一化为 null，hook 输入类型 CoordinationExecutionContextInput 允许旧实现省略此字段。严格校验原完成的同 session/流程版本/节点、类型/状态/correlation、重试编号不超过上限、摘要一致及中间没有覆盖它的 started/completed。缺失、未来、自引用、另一复用或坏最新引用为 invalid，不回退旧成功。reused 不声明新的重试编号，不等于新执行、当前输入永远有效或 gate 通过。当前 server 的执行观察使用 v6 域，无 hook 仍为 v4；旧 server 轮次需重新协调。提议来源用当前 reused event_id，事件视图可继续跳到已加载的原完成，前端只导航、不复制复用判定。
+复用任务投影为 reused，event_id 是当前复用事实，completion_event_id 是更早的原始 ok 完成；缺省非复用字段归一化为 null，hook 输入类型 CoordinationExecutionContextInput 允许旧实现省略此字段。严格校验原完成的同 session/流程版本/节点、类型/状态/correlation、重试编号不超过上限、摘要一致及中间没有覆盖它的 started/completed。缺失、未来、自引用、另一复用或坏最新引用为 invalid，不回退旧成功。reused 不声明新的重试编号，不等于新执行、当前输入永远有效或 gate 通过。该阶段 server 使用 v6 域，无 hook 为 v4；后续策略升级仍要求旧轮次重新协调。提议来源用当前 reused event_id，事件视图可继续跳到已加载的原完成，前端只导航、不复制复用判定。
+
+ADR-0050 的 tool_policy=none.v1 绑定当前独立协调策略：server 域 v7，无执行观察 hook 的库模式 v5。消费到任意 tool_use（含只读、空/未知负载或 result 后工具）立即 abort、关闭迭代器并保存 failed/driver，提议为 null，不保存工具名称/参数/raw；已确认失败不被清理错误覆盖。用户实际取消仍为 cancelled，宿主策略中止不写 cancel_requested。ACP 清理等待单次启动、有界发送的 session/cancel 序列后回收进程，避免提前 return 丢失通知。旧 v6/v4 提议保留历史但不可视为符合新策略，须重新协调。检测不撤销通知前副作用，不认证 driver 的报告完整性，也不改变普通 worker 工具通道。
 
 REST 创建 `POST /requirements/:req_id/coordination` 输入 `{agent, sdlc_id?, sdlc_version?, timeout_ms?}`，返回 202；列表/读取使用 GET，取消 `POST .../:round_id/cancel` 先落 cancel_requested 再 abort。写命令使用 Idempotency-Key；跨 method/path 复用键返回 409，创建并发同键合并为一轮。每需求只允许一轮在途协调，resolver 在创建时固定，归档版本拒绝新轮次。事件写入失败必须报告宿主，不能伪造 completed。server 重启将未完成轮次落 failed/interrupted；已有取消请求则落 cancelled，不重放模型调用。
 

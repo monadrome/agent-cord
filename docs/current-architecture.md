@@ -119,11 +119,13 @@ intake → align → plan → implement → verify → review → done
 
 协调者还接收当前 run 的声明机器验证观察，区分 missing/failed/passed 与过期、取消或不可读结果。prompt 只携带严格元信息，不读取测试日志；观察参与输入身份，新结果使旧提议失效。模型可引用当前 verification event_id，控制台链接定位结果事件；引用不是 gate 放行依据（ADR-0044）。
 
-独立协调以首尾片段覆盖长需求的最新附记和各份报告；每文档采集上限 20000 字符，总预算内均衡分配、短文档额度回流。片段索引给出 UTF-16 原文范围与省略数，未显示内容不能视为已核验。共享采集贯穿模型完成、查询与采用；input v4 绑定策略版本，旧策略成功轮次保留历史但须重新协调。普通 worker 的默认前缀快照保持不变（ADR-0046）。
+独立协调以首尾片段覆盖长需求的最新附记和各份报告；每文档采集上限 20000 字符，总预算内均衡分配、短文档额度回流。片段索引给出 UTF-16 原文范围与省略数，未显示内容不能视为已核验。共享采集贯穿模型完成、查询与采用；input 自 v4 起绑定采集策略版本，旧策略成功轮次保留历史但须重新协调。普通 worker 的默认前缀快照保持不变（ADR-0046）。
 
-当前 server 的协调输入还绑定执行观察：worker started/completed 带 run_id，宿主按当前发布/run 投影最新任务状态、失败阶段和重试编号，原始任务日志不注入模型。活动 run 阻止新的 advance/complete；started 事实不冒称进程当前存活，任务 ok 不冒称测试/gate 通过。完成/查询/采用共用重检，冷启动 active=false；任务来源链接定位事件。无 hook 的库调用保持 v4（ADR-0048）。
+当前 server 的协调输入还绑定执行观察：worker started/completed 带 run_id，宿主按当前发布/run 投影最新任务状态、失败阶段和重试编号，原始任务日志不注入模型。活动 run 阻止新的 advance/complete；started 事实不冒称进程当前存活，任务 ok 不冒称测试/gate 通过。完成/查询/采用共用重检，冷启动 active=false；任务来源链接定位事件（ADR-0048）。
 
-跨 run checkpoint 复用经原输入/源码/产物校验后落 agent.task.reused，链接原始 completed 并按当前 run 去重。协调者得到 reused 与原完成 ID，使用当前复用事件作来源；坏引用不回退历史成功，复用不伪造当前新调用。执行观察的 input v6 绑定此解释策略。事件视图支持“复用→原完成”的两步导航，前端不复制状态机（ADR-0049）。
+跨 run checkpoint 复用经原输入/源码/产物校验后落 agent.task.reused，链接原始 completed 并按当前 run 去重。协调者得到 reused 与原完成 ID，使用当前复用事件作来源；坏引用不回退历史成功，复用不伪造当前新调用。执行观察自 input v6 起绑定此解释策略。事件视图支持“复用→原完成”的两步导航，前端不复制状态机（ADR-0049）。
+
+独立协调消费到任何 tool_use（含只读工具或延迟工具结果）立即 abort 并关闭迭代器，固定记录 failed/driver、丢弃提议和工具负载；清理错误不覆盖已确认的失败。ACP 清理等待单次、有界的 session/cancel 发送序列再回收进程。tool_policy=none.v1 纳入当前输入：server 使用 v7，无执行观察 hook 的库调用使用 v5，旧策略提议需要重新协调。这是报告工具事件后的拒绝，不回滚既有副作用或认证外部 CLI 完整性（ADR-0050）。
 
 人工采用只接受当前有效 advance，重检位于 RunService 预留槽位内，采用事实落盘后进入绑定版本的整个 SDLC runner；其余提议不生成 gate 决策。查询新鲜度与历史完成状态分离，重复采用返回原 run。运行登记的 coordination_round_id 保留启动来源，恢复缺少匹配采用事实时 fail-closed，旧 SQLite 表自动兼容。
 

@@ -9,6 +9,7 @@ import { initSession } from "../../src/core/session.js";
 import { EVENT_PAYLOAD_SCHEMAS, type CoordinationProposal, type CoordinationVerification, type EventType, type WorkflowDef } from "../../src/core/schema.js";
 import { buildCoordinationPrompt, coordinationInputHash, createContextSessionAgent, parseCoordinationProposal } from "../../src/coordinator/session-agent.js";
 import { readSnapshot } from "../../src/coordinator/snapshot.js";
+import { canonicalJson, sha256Hex } from "../../src/core/hash.js";
 
 const def: WorkflowDef = { apiVersion: "agent-cord.dev/v1alpha1", kind: "Workflow", metadata: { id: "coordination" }, spec: { nodes: [
   { id: "intake", artifact: "prd.md", depends_on: [], gates: [] },
@@ -49,6 +50,56 @@ function coordinate(worker: AgentDriver, input: { signal?: AbortSignal; timeout_
 }
 
 describe("独立协调轮次", () => {
+  it.each([
+    { label: "只读工具", data: { name: "Read", input: { path: "PRIVATE_TOOL_INPUT" } }, result_first: false, cleanup_error: false },
+    { label: "未知工具负载", data: null, result_first: false, cleanup_error: false },
+    { label: "结果后的工具", data: { name: "exec", input: "PRIVATE_TOOL_INPUT" }, result_first: true, cleanup_error: false },
+    { label: "清理异常", data: { name: "Read", input: "PRIVATE_TOOL_INPUT" }, result_first: false, cleanup_error: true },
+  ])("$label 使协调失败并中止 driver，工具参数和清理错误不进入事实", async ({ data, result_first, cleanup_error }) => {
+    let continued = false; let closed = false; let aborted = false;
+    const worker = driver();
+    worker.run = async function* (task) {
+      worker.tasks.push(task);
+      try {
+        if (result_first) yield { type: "result", data: { text: JSON.stringify(proposal) } };
+        yield { type: "tool_use", data };
+        continued = true;
+        yield { type: "result", data: { text: JSON.stringify(proposal) } };
+      } finally {
+        closed = true; aborted = task.signal?.aborted === true;
+        if (cleanup_error) throw new Error("PRIVATE_TOOL_CLEANUP");
+      }
+    };
+    expect(await coordinate(worker)).toMatchObject({ status: "failed", proposal: null, error: "独立协调轮次禁止使用工具，请修正 Agent 配置后重新协调" });
+    expect({ continued, closed, aborted }).toEqual({ continued: false, closed: true, aborted: true });
+    const events = await session.events.readOrdered();
+    expect(events.find((event) => event.type === "coordinator.round.completed")?.payload).toMatchObject({ status: "failed", failure_stage: "driver", proposal: null });
+    expect(events.some((event) => event.type === "coordinator.round.cancel_requested")).toBe(false);
+    expect(JSON.stringify(events)).not.toContain("PRIVATE_TOOL_");
+  });
+
+  it("工具违规终态写失败仍上抛，driver 已收束，修复后的新轮次可恢复", async () => {
+    const worker = driver([{ type: "tool_use", data: { input: "PRIVATE_TOOL_INPUT" } }, { type: "result", data: { text: JSON.stringify(proposal) } }]);
+    const real_append = session.events.append.bind(session.events);
+    const mock = vi.spyOn(session.events, "append").mockImplementation((draft) => draft.type === "coordinator.round.completed" ? Promise.reject(new Error("completion unavailable")) : real_append(draft));
+    await expect(coordinate(worker)).rejects.toThrow("completion unavailable");
+    expect(worker.tasks[0]?.signal?.aborted).toBe(true);
+    expect((await session.events.readOrdered()).filter((event) => event.type === "coordinator.round.completed")).toHaveLength(0);
+    mock.mockRestore();
+    expect(await coordinate(driver())).toMatchObject({ status: "ok", proposal });
+  });
+
+  it.each([false, true])("禁用工具策略改变协调输入身份（执行观察=%s），旧轮次不可声称遵守新策略", async (with_execution) => {
+    const snapshot = await readSnapshot(session, { workflow_id: def.metadata.id, files: ["design/plan.md"] });
+    const execution = with_execution ? { run: null, tasks: [] } : undefined;
+    const old_hash = sha256Hex(canonicalJson({ domain: with_execution ? "cord.coordination-input.v6" : "cord.coordination-input.v4", context_policy: "balanced-head-tail.v1",
+      workflow: def, configuration_hash: "a".repeat(64), max_prompt_chars: 60_000, ...(execution === undefined ? {} : { execution_context: execution }),
+      req_id: snapshot.req_id, title: snapshot.title, docs: snapshot.docs.map(({ file, exists, content_hash }) => ({ file, exists, content_hash })),
+      ledger: snapshot.ledger, workflow_progress: { ...snapshot.workflow, waiting: snapshot.workflow.waiting ?? [] } }));
+    expect(coordinationInputHash(def, snapshot, "a".repeat(64), undefined, null, [], execution)).not.toBe(old_hash);
+    expect(buildCoordinationPrompt(def, snapshot, undefined, null, [], execution)).toContain("tool_policy: none.v1");
+  });
+
   it("当前失败验证以受限数据进入 prompt，可作为 Draft 来源，轮次仅保存摘要", async () => {
     const worker = driver([{ type: "result", data: { text: JSON.stringify(failure_proposal) } }]);
     const observer = createContextSessionAgent({ resolveDriver: () => worker, workspaceRoot: root, read_verifications: async () => [verification] });

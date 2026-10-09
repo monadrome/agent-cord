@@ -44,7 +44,7 @@ beforeEach(async () => {
   await mkdir(join(root, "cord"));
   await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: {
     worker: { kind: "headless", bin: process.execPath, args: [fixture, "--mode", "claude", "--result-text", "# 最新计划\n执行版本验收", "{{prompt}}"] },
-    coordinator: { kind: "headless", bin: process.execPath, args: [fixture, "--mode", "claude", "--result-text", JSON.stringify(proposal), "{{prompt}}"] },
+    coordinator: { kind: "headless", bin: process.execPath, args: [fixture, "--mode", "claude", "--no-tools", "--result-text", JSON.stringify(proposal), "{{prompt}}"] },
   } }));
   server = await buildApp({ root });
   expect((await api("POST", "/api/v1/requirements", { req_id: "REQ-REVISION", title: "执行版本隔离", prd: "# 最新需求\n版本内恢复，版本间隔离" })).status).toBe(201);

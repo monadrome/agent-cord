@@ -8,6 +8,7 @@
 //   --record <path>     把观测到的客户端→agent 消息追加成 JSONL（验证 session/load 走位、
 //                       cwd 透传、permission 应答、session/cancel 等）
 //   --result-text <text> 输出指定最终文本（结构化协调协议测试）
+//   --no-tools          不报告工具事件（独立协调测试）
 import { writeFileSync, appendFileSync } from "node:fs";
 
 const argv = process.argv.slice(2);
@@ -45,7 +46,7 @@ function handlePrompt(params) {
   promptText = params.prompt?.[0]?.text ?? "";
 
   if (resultText === undefined) textChunk("hello ");
-  update({
+  if (!argv.includes("--no-tools")) update({
     sessionUpdate: "tool_call",
     toolCallId: "call-1",
     title: "read file",

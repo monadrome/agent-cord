@@ -8,6 +8,7 @@
 //   --result-text <text>                           最终文本（配置重载验证用）
 //   --pid-file <path>                              把自己的 pid 写进去（验证进程清理）
 //   --child-pid-file <path>                        派生一个孙进程并写 pid（验证进程树清理）
+//   --no-tools                                    Claude/Codex 模式仅输出文本/结果
 //   --help                                         打印含 "acp" 的帮助（registry 探测用）
 import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
@@ -71,7 +72,7 @@ switch (mode) {
       session_id: sessionId,
       message: { content: [{ type: "text", text: "reading files" }] },
     });
-    write({
+    if (!hasFlag("--no-tools")) write({
       type: "assistant",
       session_id: sessionId,
       message: {
@@ -108,7 +109,7 @@ switch (mode) {
     write({ type: "thread.started", thread_id: "thread-1" });
     if (mode === "codex-warning") write({ type: "item.completed", item: { id: "notification", type: "error", message: "NON_FATAL_CONFIGURATION_NOTICE" } });
     write({ type: "item.completed", item: { id: "item-1", type: "agent_message", text: flagValue("--result-text") ?? "codex says hi" } });
-    write({ type: "item.completed", item: { id: "item-2", type: "command_execution", command: "ls -la" } });
+    if (!hasFlag("--no-tools")) write({ type: "item.completed", item: { id: "item-2", type: "command_execution", command: "ls -la" } });
     if (sleepMs > 0) await sleep(sleepMs);
     write({ type: "turn.completed", usage: { input_tokens: 10, output_tokens: 5 } });
     break;

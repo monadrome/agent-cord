@@ -205,6 +205,8 @@ curl -X POST http://127.0.0.1:7250/api/v1/requirements/REQ-001/coordination \
 
 控制台路径：需求详情 → 协调。选择 Agent、SDLC 版本与超时，发起/取消协调，查看轮次、结构化提议、风险与来源；文档、共识与节点引用可跳转现有子视图。server 重新核验最新输入与 Agent 配置，输入变化或版本归档时禁用采用；刷新失败保留历史内容。
 
+独立协调遵守无工具策略：driver 报告任何工具事件时，宿主立即中止并拒绝提议，记录 `failed/driver`，不保存工具参数。只读工具也不能补入快照之外的材料。旧策略提议须重新协调；该检测不替代外部 CLI 的 OS 沙箱或回滚已有副作用，普通 worker 的工具通道保持原行为。详见 [ADR-0050](./docs/adr/ADR-0050-coordination-tool-boundary.md)。
+
 有效 `advance` 提议可由人点击“采用并启动 SDLC”，或调用 `POST .../:round_id/adopt`（空请求体、Idempotency-Key）。建议只能指向执行器实际下一节点；采用启动整个绑定版本，从该节点续跑，仍保留机器/人工 gate。`ask_human`、`wait`、`complete` 不由此入口推进节点。采用事实先落盘再派发，同轮重复采用返回原 run；登记与落盘之间中断时，恢复必须验证采用事实，缺失则失败且不派发。详见 [ADR-0033](./docs/adr/ADR-0033-coordination-adoption-console.md)。
 
 ## 当前边界

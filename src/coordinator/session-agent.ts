@@ -14,6 +14,7 @@ const ADAPTER = "context-session-agent";
 const ABORTED = Symbol("aborted");
 const DEFAULT_MAX_PROMPT_CHARS = 60_000;
 const DEFAULT_MAX_OUTPUT_CHARS = 32_768;
+const COORDINATION_TOOL_POLICY = "none.v1";
 const driver_text_schema = z.object({ text: z.string(), channel: z.enum(["content", "metadata"]).optional() });
 const driver_result_schema = z.object({ text: z.string().nullable(), session_id: z.string().nullable().optional(), usage: z.object(AgentUsagePayloadSchema.shape).nullable().optional() });
 const driver_error_schema = z.object({ message: z.string(), kind: z.string() });
@@ -34,7 +35,8 @@ export interface ContextSessionAgentOptions {
 /** 轮次自己的事件不会改变输入；文档、账本、进度与人工等待会改变。 */
 export function coordinationInputHash(def: WorkflowDef, snapshot: RequirementSnapshot, configuration_hash: string | null, max_prompt_chars = DEFAULT_MAX_PROMPT_CHARS, source_hash: string | null = null, verifications: readonly CoordinationVerification[] = [], execution_context?: CoordinationExecutionContext): string {
   return sha256Hex(canonicalJson({
-    domain: execution_context === undefined ? "cord.coordination-input.v4" : "cord.coordination-input.v6", context_policy: COORDINATION_CONTEXT_POLICY, workflow: def, configuration_hash, max_prompt_chars,
+    domain: execution_context === undefined ? "cord.coordination-input.v5" : "cord.coordination-input.v7", context_policy: COORDINATION_CONTEXT_POLICY,
+    tool_policy: COORDINATION_TOOL_POLICY, workflow: def, configuration_hash, max_prompt_chars,
     ...(execution_context === undefined ? {} : { execution_context }),
     ...(source_hash === null ? {} : { source_hash }),
     ...(verifications.length === 0 ? {} : { verifications }),
@@ -82,6 +84,7 @@ export function buildCoordinationPrompt(def: WorkflowDef, snapshot: RequirementS
   const fixed = [
     "# Context Session Agent：当前需求的协调者",
     "分析最新快照，提出下一步。只产 Draft；不调用工具、不写文件、不启动 worker、不放行 gate。不要读取事件流或旧会话历史。",
+    `tool_policy: ${COORDINATION_TOOL_POLICY}\n宿主拒绝任何工具通知，包括只读工具或工具结果；只分析本包已有内容。`,
     "返回一个严格 JSON 对象，禁止 Markdown 围栏和额外解释。证据引用只允许本包的文档、无冲突 confirmed 条目、workflow 节点、current=true 的验证 event_id 或合法当前 run 的 agent_task event_id。",
     `context_policy: ${COORDINATION_CONTEXT_POLICY}\n文档按首尾片段提供，document_excerpts 标明 UTF-16 字符范围和省略数。未显示的内容不能声称已核验；材料不足时请选择 wait 或 ask_human。`,
     `workflow 来源的 id 只能是 node.id（${JSON.stringify(def.spec.nodes.map((node) => node.id))}），不能是 gate.id；verification 来源的 id 只能是 current=true 观察的 event_id。`,
@@ -220,7 +223,11 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
             if (typeof event.session_id !== "string") throw new Error("协调 driver 会话回执不符合契约");
             extra["agent_session_id"] = event.session_id;
           }
-          if (event.type === "text") {
+          if (event.type === "tool_use") {
+            failure = { status: "failed", error: "独立协调轮次禁止使用工具，请修正 Agent 配置后重新协调", failure_stage: "driver" };
+            controller.abort();
+            break;
+          } else if (event.type === "text") {
             const parsed = driver_text_schema.safeParse(event.data);
             if (!parsed.success) throw new Error("协调 driver 文本事件不符合契约");
             const data = parsed.data;
@@ -254,7 +261,7 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
         }
       } finally { await iterator.return?.(); }
     } catch (error) {
-      failure = { status: "failed", error: error instanceof Error ? error.message.slice(0, 2_000) : "协调 driver 运行失败", failure_stage: "driver" };
+      failure ??= { status: "failed", error: error instanceof Error ? error.message.slice(0, 2_000) : "协调 driver 运行失败", failure_stage: "driver" };
     } finally { clearTimeout(timer); }
     if (input.signal?.aborted) return complete("cancelled", null, "协调轮次已取消", extra);
     if (timed_out) return complete("timeout", null, "协调轮次超时", { ...extra, failure_stage: "driver" });

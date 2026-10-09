@@ -268,6 +268,19 @@ describe("AcpDriver", () => {
     expect(errorData(events.at(-1)).message).toContain("version 2");
   });
 
+  it("工具事件后立即 abort 并关闭迭代器，先送达一次 session/cancel 再回收进程", async () => {
+    const dir = workspace();
+    const pidFile = join(dir, "aborted-agent.pid");
+    const recordFile = join(dir, "abort-messages.jsonl");
+    const controller = new AbortController();
+    const driver = acpDriver(["--mode", "hang", "--pid-file", pidFile, "--record", recordFile]);
+    for await (const event of driver.run(task(dir, { timeout_ms: 30_000, signal: controller.signal }))) {
+      if (event.type === "tool_use") { controller.abort(); break; }
+    }
+    await expectDead(Number(readFileSync(pidFile, "utf8")));
+    expect(recorded(recordFile).filter((entry) => entry.event === "session/cancel")).toHaveLength(1);
+  });
+
   it("消费方提前退出时不留下 agent 进程", async () => {
     const dir = workspace();
     const pidFile = join(dir, "agent.pid");
