@@ -62,6 +62,16 @@ function setup(def: WorkflowDef, agent: AgentDriver) {
 async function latest_goal() { return (await session.events.readOrdered()).filter(e => e.type === "goal.attempt.completed").at(-1)!; }
 
 describe("Goal 自主交付", () => {
+  it("ready 后输入变化且尝试耗尽，blocked 引用已消费编号，不凭空新增尝试", async () => {
+    const agent = driver(async () => { await writeFile(join(root, "value.txt"), "fixed"); return report; });
+    const def = definition({ max_attempts: 1 }); const { runner, node, ctx } = setup(def, agent);
+    expect((await runner.runNode(node, session, ctx)).status).toBe("ok");
+    await writeFile(join(root, "value.txt"), "after-ready");
+    expect((await runner.runNode(node, session, ctx)).status).toBe("timeout");
+    expect((await latest_goal()).payload).toMatchObject({ status: "blocked", failure_kind: "budget", attempt: 1, max_attempts: 1 });
+    expect(agent.prompts).toHaveLength(1);
+    expect((await session.events.readOrdered()).filter(event => event.type === "goal.attempt.started")).toHaveLength(1);
+  });
   it("声明契约保留 goal，非法预算、空命令和只读 Goal 在派发前拒绝", () => {
     expect(definition().spec.nodes[0]!.run!.goal).toMatchObject({ max_attempts: 3, inputs: ["value.txt"] });
     for (const value of [{ checks: [] }, { max_attempts: 0 }, { inputs: [] }, { no_progress_limit: 0 }, { typo: true }]) {
@@ -203,6 +213,22 @@ describe("Goal 自主交付", () => {
     const result = events.filter(event => event.type === "verification.completed").at(-1)!;
     await session.events.append({ event_id: ulid(), session_id: session.req_id, schema_version: "1", type: "verification.completed",
       correlation_id: node.id, actor: { kind: "system", id: "external-ci" }, source: { adapter: "external-ci" }, payload: result.payload });
+    expect(await runner.isCompletionReusable!(node, session, ctx, completion)).toBe(false);
+  });
+
+  it("run 已取消或引用测试已在 worker 之前完成时，不复用 ready", async () => {
+    const agent = driver(async () => { await writeFile(join(root, "value.txt"), "fixed"); return report; });
+    const def = definition(); const { runner, node, ctx } = setup(def, agent);
+    await runner.runNode(node, session, ctx);
+    const events = await session.events.readOrdered();
+    const completion = events.filter(event => event.type === "agent.task.completed").at(-1)!;
+    const result = events.find(event => event.type === "verification.completed")!;
+    const read = vi.spyOn(session.events, "readOrderedStrict").mockResolvedValue(events.filter(event => event.event_id !== result.event_id)
+      .toSpliced(events.findIndex(event => event.event_id === completion.event_id), 0, result));
+    try { expect(await runner.isCompletionReusable!(node, session, ctx, completion)).toBe(false); }
+    finally { read.mockRestore(); }
+    await session.events.append({ event_id: ulid(), session_id: session.req_id, type: "workflow.run.cancelled", schema_version: "1",
+      actor: { kind: "human", id: "test" }, correlation_id: null, payload: { workflow_id: ctx.workflow_id, run_id: ctx.run_id }, source: { adapter: "test" } });
     expect(await runner.isCompletionReusable!(node, session, ctx, completion)).toBe(false);
   });
 });

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { stringify } from "yaml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp, type BuiltServer } from "@agent-cord/server";
+import { readCoordinationExecutionContext } from "../src/services/execution-context.js";
 
 const fixture = fileURLToPath(new URL("../../../tests/driver/fixtures/goal-worker.mjs", import.meta.url));
 let root: string;
@@ -47,6 +48,27 @@ async function prepare(protocol: "headless" | "acp", always_fail = false) {
 }
 
 describe("Goal server 交付闭环", () => {
+  it("ready 协调观察应验证当前输入，代码/指南变化后不能冒称当前交付", async () => {
+    const run_id = await prepare("headless");
+    await waitFor(async () => (await server.sessions.listApprovals("REQ-GOAL")).length === 1);
+    const binding = await server.sdlcs.get("goal-http", 1); const session = await server.sessions.open("REQ-GOAL");
+    const read = () => readCoordinationExecutionContext(binding.def, session, binding.workflow_revision, server.runs);
+    expect((await read()).goals[0]).toMatchObject({ status: "ready", current: true, freshness_reason: "current" });
+    await writeFile(join(root, "value.txt"), "code-after-ready");
+    expect((await read()).goals[0]).toMatchObject({ status: "ready", current: false, freshness_reason: "stale_input" });
+    await writeFile(join(root, "value.txt"), "fixed");
+    expect((await read()).goals[0]).toMatchObject({ current: true });
+    const guide = join(session.dir, "review.md"); const original = await readFile(guide, "utf8");
+    await writeFile(guide, original + "\n新的人审输入\n");
+    expect((await read()).goals[0]).toMatchObject({ current: false, freshness_reason: "stale_input" });
+    await writeFile(guide, original); expect((await read()).goals[0]).toMatchObject({ current: true });
+    await rm(join(root, "value.txt")); await symlink(guide, join(root, "value.txt"));
+    expect((await read()).goals[0]).toMatchObject({ status: "ready", current: null, freshness_reason: "unavailable" });
+    await rm(join(root, "value.txt")); await writeFile(join(root, "value.txt"), "fixed");
+    expect((await read()).goals[0]).toMatchObject({ current: true });
+    await server.runs.cancel(run_id);
+    expect((await read()).goals[0]).toMatchObject({ status: "ready", current: false, freshness_reason: "run_cancelled" });
+  });
   it.each(["headless", "acp"] as const)("%s 真实子进程自主修复、当前验证、人审挂起和冷恢复", async protocol => {
     const run_id = await prepare(protocol);
     await waitFor(async () => (await server.sessions.listApprovals("REQ-GOAL")).length === 1);

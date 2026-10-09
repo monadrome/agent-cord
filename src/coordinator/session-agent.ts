@@ -85,7 +85,8 @@ export function parseCoordinationProposal(text: string, def: WorkflowDef, snapsh
       evidence.source === "ledger" ? snapshot.ledger.some((entry) => entry.entry_id === evidence.id && entry.status === "confirmed" && !entry.conflict) :
       evidence.source === "verification" ? verifications.some((result) => result.event_id === evidence.id && result.current === true && result.status !== "missing" && result.status !== "invalid") :
       evidence.source === "agent_task" ? execution_context?.tasks.some((task) => task.event_id === evidence.id && !["missing", "invalid"].includes(task.status)) === true :
-      evidence.source === "goal" ? execution_context?.goals?.some((goal) => goal.event_id === evidence.id && !["missing", "invalid"].includes(goal.status)) === true :
+      evidence.source === "goal" ? execution_context?.goals?.some((goal) => goal.event_id === evidence.id && !["missing", "invalid"].includes(goal.status)
+        && (goal.status !== "ready" || goal.current === true)) === true :
       evidence.source === "clarification" ? snapshot.clarifications?.some((answer) => answer.event_id === evidence.id) === true :
       def.spec.nodes.some((node) => node.id === evidence.id);
     if (!valid) throw new Error(`协调提议的来源引用不可验证：${evidence.source}/${evidence.id}`);
@@ -111,7 +112,7 @@ export function buildCoordinationPrompt(def: WorkflowDef, snapshot: RequirementS
     ...(snapshot.workflow_revision !== undefined ? [`workflow_revision: ${snapshot.workflow_revision}`] : []),
     ...(source_hash === null ? [] : [`source_hash: ${source_hash}\n源码摘要仅标识当前声明范围，不代表测试通过或内容已被核验。`]),
     ...(verifications.length === 0 ? [] : [`verifications: ${JSON.stringify(verifications)}\n机器观察由宿主核验输入身份。missing、invalid、current=false/null 均不能认作当前通过；当前 failed/timeout/cancelled 也不是通过。验证证据不能代替人工 gate。`]),
-    ...(execution_context === undefined ? [] : [`execution_context: ${JSON.stringify(!execution_context.goals?.length ? { run: execution_context.run, tasks: execution_context.tasks } : execution_context)}\nactive 仅标识宿主当前运行槽位，active=true 时不得推进新 run。started 只证明启动已记录，active=false 时不能声称进程仍活着。reused 表示当前 run 复用原完成事件 completion_event_id，没有新的 worker 调用；来源仍用当前复用 event_id。任务事实不保证对应修改后的输入，ok/reused 也不等于测试或 gate 通过；missing/invalid 不能引用，agent_task 来源只用这里的合法 event_id。Goal status=blocked/invalid/cancelled 时不能 advance，应使用当前 goal event 作为证据提出 ask_human 或 wait。`]),
+    ...(execution_context === undefined ? [] : [`execution_context: ${JSON.stringify(!execution_context.goals?.length ? { run: execution_context.run, tasks: execution_context.tasks } : execution_context)}\nactive 仅标识宿主当前运行槽位，active=true 时不得推进新 run。started 只证明启动已记录，active=false 时不能声称进程仍活着。reused 表示当前 run 复用原完成事件 completion_event_id，没有新的 worker 调用；来源仍用当前复用 event_id。任务事实不保证对应修改后的输入，ok/reused 也不等于测试或 gate 通过；missing/invalid 不能引用，agent_task 来源只用这里的合法 event_id。Goal ready 只有 current=true 才是当前有效交付，current=false/null 表示过期或不可读取，不能作为 ready 来源；历史状态保留，freshness_reason 说明当前核验结果。Goal status=blocked/invalid/cancelled 时不能 advance，应使用当前 goal event 作为证据提出 ask_human 或 wait。`]),
     `progress: ${JSON.stringify(snapshot.workflow)}`,
     `eligible_nodes: ${JSON.stringify(eligibleNodes(def, snapshot, execution_context))}`,
     `ledger: ${JSON.stringify(snapshot.ledger)}`,

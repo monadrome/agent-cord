@@ -8,7 +8,8 @@ import { AgentTaskCompletedPayloadSchema, GoalAttemptCompletedPayloadSchema, Goa
 import type { NodeRunContext, NodeRunner, SessionHandle } from "../core/ports.js";
 import type { WorkflowNode } from "../workflow/executor.js";
 import { matchesWorkflowScope } from "../workflow/scope.js";
-import { goalCommandHash, runHostCheck, type HostCheckResult } from "../workflow/host-verification.js";
+import { runHostCheck, type HostCheckResult } from "../workflow/host-verification.js";
+import { resolveGoalReadiness } from "./goal-evidence.js";
 import { executionInputHash } from "./checkpoint.js";
 import { readSnapshot } from "./snapshot.js";
 import type { CoordinatorOptions } from "./coordinator.js";
@@ -20,9 +21,6 @@ type Check = { command: GoalCommand; result: HostCheckResult; event_id: string }
 
 function scoped(event: EventEnvelope, ctx: NodeRunContext): boolean {
   return matchesWorkflowScope(event.payload, ctx) && event.payload["node_id"] === ctx.node_id && event.payload["run_id"] === ctx.run_id;
-}
-function record(event: EventEnvelope): Record<string, unknown> {
-  return typeof event.payload === "object" && event.payload !== null && !Array.isArray(event.payload) ? event.payload as Record<string, unknown> : {};
 }
 
 function validateGuide(text: string | null): string[] {
@@ -53,26 +51,14 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
     async isCompletionReusable(node, session, ctx, completion) {
       if (node.run?.goal === undefined) return fallback.isCompletionReusable?.(node, session, ctx, completion) ?? false;
       if (ctx.run_id === undefined || !scoped(completion, ctx) || completion.correlation_id !== node.id || ctx.node_id !== node.id) return false;
-      const task = AgentTaskCompletedPayloadSchema.safeParse(completion.payload);
-      if (completion.type !== "agent.task.completed" || !task.success || task.data.status !== "ok" || task.data.failure_stage !== undefined) return false;
       const events = await readSessionEvents(session);
       const event = events.filter(item => item.type === "goal.attempt.completed" && scoped(item, ctx)).at(-1);
-      if (event === undefined || event.correlation_id !== node.id || event.actor.kind !== "system" || event.source.adapter !== ADAPTER) return false;
-      const parsed = GoalAttemptCompletedPayloadSchema.safeParse(event.payload);
-      if (!parsed.success || parsed.data.status !== "ready" || parsed.data.completion_event_id !== completion.event_id || event.seq <= completion.seq) return false;
-      if (events.some(item => item.seq > event.seq && (item.type === "agent.task.started" || item.type === "goal.attempt.started") && scoped(item, ctx))) return false;
+      if (event === undefined) return false;
+      const evidence = resolveGoalReadiness(event, events, node, { workflow_id: ctx.workflow_id, workflow_revision: ctx.workflow_revision, run_id: ctx.run_id });
+      if (evidence === null || evidence.completion.event_id !== completion.event_id) return false;
       const current = await identity(node, session, ctx);
       const guide = await readSessionDocument(session.dir, node.artifact!);
-      if (current.input_hash !== parsed.data.input_hash || current.source_hash !== parsed.data.source_hash || guide === null || sha256Hex(guide) !== parsed.data.artifact_hash) return false;
-      if (node.run.goal.checks.length !== parsed.data.verification_event_ids.length) return false;
-      return node.run.goal.checks.every((command, index) => {
-        const candidate = events.filter(item => item.type === "verification.completed" && scoped(item, ctx) && record(item)["verification_id"] === command.id).at(-1);
-        if (candidate === undefined || candidate.event_id !== parsed.data.verification_event_ids[index] || candidate.correlation_id !== node.id
-          || candidate.actor.kind !== "system" || candidate.source.adapter !== ADAPTER || candidate.seq >= event.seq) return false;
-        const value = VerificationCompletedPayloadSchema.safeParse(candidate.payload);
-        return value.success && value.data.status === "passed" && value.data.exit_code === 0 && value.data.input_hash === current.input_hash
-          && value.data.source_hash === current.source_hash && value.data.command_hash === goalCommandHash(command);
-      });
+      return current.input_hash === evidence.input_hash && current.source_hash === evidence.source_hash && guide !== null && sha256Hex(guide) === evidence.artifact_hash;
     },
     async runNode(node, session, ctx) {
       if (node.run?.goal === undefined) return fallback.runNode(node, session, ctx);
@@ -90,7 +76,7 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
       if (!Number.isFinite(deadline)) throw new Error("Goal 尝试起点时间非法");
       let attempt = Math.max(1, attempt_count + 1);
       const finish = async (status: "ready" | "retrying" | "blocked" | "cancelled", reason: string, fields: Record<string, unknown> = {}) => {
-        const payload = GoalAttemptCompletedPayloadSchema.parse({ ...base(ctx, Math.min(attempt, 10)), max_attempts: goal.max_attempts, status, reason: reason.slice(0, 2000), ...fields });
+        const payload = GoalAttemptCompletedPayloadSchema.parse({ ...base(ctx, Math.min(attempt, goal.max_attempts)), max_attempts: goal.max_attempts, status, reason: reason.slice(0, 2000), ...fields });
         await append(session, ctx, "goal.attempt.completed", payload);
       };
       if (options.read_verification_input === undefined || node.artifact === undefined || node.run.readonly || node.run.retry !== undefined) {

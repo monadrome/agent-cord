@@ -326,6 +326,8 @@ export const CoordinationGoalSchema = z.strictObject({
   run_id: z.string().regex(ULID_RE).nullable(),
   event_id: z.string().regex(ULID_RE).nullable(),
   status: z.enum(["missing", "invalid", "started", "retrying", "ready", "blocked", "cancelled"]),
+  current: z.boolean().nullable().default(null),
+  freshness_reason: z.enum(["not_ready", "current", "stale_input", "unavailable", "invalid_evidence", "run_cancelled"]).default("not_ready"),
   attempt: z.number().int().positive().nullable(),
   max_attempts: z.number().int().positive().nullable(),
   failure_kind: z.enum(["configuration", "environment", "input_changed", "verification", "delivery", "driver", "budget", "no_progress", "attempt_limit", "cancelled"]).nullable(),
@@ -335,7 +337,11 @@ export const CoordinationGoalSchema = z.strictObject({
   artifact_hash: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
   verification_event_ids: z.array(z.string().regex(ULID_RE)).max(16),
 }).refine(value => value.status === "missing" || (value.run_id !== null && value.event_id !== null), { message: "当前 Goal 观察必须绑定 run/event" })
-  .refine(value => value.max_attempts === null || value.attempt === null || value.attempt <= value.max_attempts, { message: "Goal 尝试编号超过上限" });
+  .refine(value => value.max_attempts === null || value.attempt === null || value.attempt <= value.max_attempts, { message: "Goal 尝试编号超过上限" })
+  .refine(value => value.current !== true || (value.status === "ready" && value.freshness_reason === "current" && value.input_hash !== null
+    && value.source_hash !== null && value.artifact_hash !== null && value.verification_event_ids.length > 0), "当前 Goal 就绪必须携带完整身份")
+  .refine(value => value.current === true ? value.freshness_reason === "current" : value.current === false
+    ? ["stale_input", "invalid_evidence", "run_cancelled"].includes(value.freshness_reason) : ["not_ready", "unavailable"].includes(value.freshness_reason), "Goal 新鲜度与原因不一致");
 export type CoordinationGoal = z.infer<typeof CoordinationGoalSchema>;
 export const CoordinationGoalsSchema = z.array(CoordinationGoalSchema).max(128).refine(values =>
   new Set(values.map(value => value.node_id)).size === values.length, { message: "Goal 观察节点不能重复" });
@@ -347,7 +353,9 @@ export const CoordinationExecutionContextSchema = z.strictObject({
 }).refine((value) => new Set(value.tasks.map((task) => task.node_id)).size === value.tasks.length, { message: "任务节点不能重复" })
   .refine((value) => { const ids = value.tasks.flatMap((task) => task.event_id === null ? [] : [task.event_id]); return new Set(ids).size === ids.length; }, { message: "同一任务事件不能归属多个节点" })
   .refine((value) => value.tasks.every((task) => task.run_id === (value.run?.run_id ?? null)), { message: "任务观察必须属于当前 run" })
-  .refine((value) => value.run !== null || value.tasks.every((task) => task.status === "missing"), { message: "没有当前 run 时不能声明任务事实" });
+  .refine((value) => value.run !== null || value.tasks.every((task) => task.status === "missing"), { message: "没有当前 run 时不能声明任务事实" })
+  .refine(value => value.goals.every(goal => goal.run_id === (value.run?.run_id ?? null)), "Goal 观察必须属于当前 run")
+  .refine(value => value.run !== null || value.goals.every(goal => goal.status === "missing"), "没有当前 run 时不能声明 Goal 事实");
 export type CoordinationExecutionContext = z.infer<typeof CoordinationExecutionContextSchema>;
 /** 观察 hook 输入允许省略有默认值的新字段，消费端始终归一化。 */
 export type CoordinationExecutionContextInput = z.input<typeof CoordinationExecutionContextSchema>;

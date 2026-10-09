@@ -53,6 +53,39 @@ beforeEach(async () => {
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
 describe("协调器 Goal 观察", () => {
+  it("只有已核验的 ready 可引用，ready 新鲜度变化使旧协调身份失效", async () => {
+    const execution = structuredClone(blocked);
+    execution.goals[0] = { ...execution.goals[0], status: "ready", current: true, freshness_reason: "current", artifact_hash: "c".repeat(64), verification_event_ids: [ulid()] };
+    const snap = await snapshot();
+    const proposal = { summary: "等待最终 review", next_action: { kind: "wait", reason: "当前就绪", evidence: [{ source: "goal", id: blocked_id }] }, risks: [] };
+    expect(parseCoordinationProposal(JSON.stringify(proposal), def, snap, [], execution).next_action.kind).toBe("wait");
+    const original_hash = coordinationInputHash(def, snap, "c".repeat(64), undefined, null, [], execution);
+    execution.goals[0].current = false; execution.goals[0].freshness_reason = "stale_input";
+    expect(coordinationInputHash(def, snap, "c".repeat(64), undefined, null, [], execution)).not.toBe(original_hash);
+    expect(() => parseCoordinationProposal(JSON.stringify(proposal), def, snap, [], execution)).toThrow(/来源引用不可验证/);
+  });
+
+  it("模型调用期间只有 ready 新鲜度变化也会使本轮 stale，新轮次可恢复", async () => {
+    let execution = structuredClone(blocked);
+    execution.goals[0] = { ...execution.goals[0], status: "ready", current: true, freshness_reason: "current", artifact_hash: "c".repeat(64), verification_event_ids: [ulid()] };
+    let calls = 0;
+    const proposal = { summary: "等待最终 review", next_action: { kind: "wait", reason: "交付就绪观察", evidence: [{ source: "goal", id: blocked_id }] }, risks: [] };
+    const worker: AgentDriver = { name: "ready-observer", configuration_hash: "d".repeat(64), async *run() {
+      if (++calls === 1) { execution.goals[0].current = false; execution.goals[0].freshness_reason = "stale_input"; }
+      yield { type: "result", data: { text: JSON.stringify(proposal) } };
+    }, async *resume() {} };
+    const agent = createContextSessionAgent({ resolveDriver: () => worker, workspaceRoot: root, read_execution_context: async () => structuredClone(execution) });
+    expect(await agent.coordinate(def, session, { round_id: ulid(), agent: worker.name })).toMatchObject({ status: "stale", proposal: null });
+    execution.goals[0].current = true; execution.goals[0].freshness_reason = "current";
+    expect(await agent.coordinate(def, session, { round_id: ulid(), agent: worker.name })).toMatchObject({ status: "ok", proposal });
+  });
+  it.each([false, null, undefined])("ready 新鲜度 %s 时不能作为当前来源", async current => {
+    const execution = structuredClone(blocked);
+    execution.goals[0] = { ...execution.goals[0], status: "ready", current, freshness_reason: current === false ? "stale_input" : "unavailable" } as any;
+    const proposal = { summary: "等待人审", next_action: { kind: "wait", reason: "交付观察", evidence: [{ source: "goal", id: blocked_id }] }, risks: [] };
+    const snap = await snapshot();
+    expect(() => parseCoordinationProposal(JSON.stringify(proposal), def, snap, [], execution)).toThrow(/来源引用不可验证/);
+  });
   it("Context Session Agent 收到 blocked Goal 后可提出带 Goal 证据的人工升级", async () => {
     const proposal = waitProposal({ source: "goal", id: blocked_id });
     const worker: AgentDriver = {

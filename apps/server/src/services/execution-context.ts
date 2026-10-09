@@ -1,6 +1,7 @@
 /** ADR-0048：当前 run 的任务状态投影，不复制 runner 或注入日志。 */
 import { AgentTaskStartedPayloadSchema, AgentTaskCompletedPayloadSchema, AgentTaskReusedPayloadSchema, CoordinationExecutionContextSchema,
   GoalAttemptStartedPayloadSchema, GoalAttemptCompletedPayloadSchema, matchesWorkflowScope, readSessionEvents, resolveReusedCompletion,
+  resolveGoalReadiness, readSessionDocument, sha256Hex, isVerificationRunCancelled,
   type CoordinationExecutionContext, type CoordinationGoal, type CoordinationTask, type EventEnvelope, type SessionHandle, type WorkflowDef } from "agent-cord";
 import type { RunService } from "./run-service.js";
 
@@ -52,23 +53,28 @@ export async function readCoordinationExecutionContext(def: WorkflowDef, session
     }
     return observation;
   });
-  const goals: CoordinationGoal[] = goal_nodes.map((node) => {
+  const goals: CoordinationGoal[] = await Promise.all(goal_nodes.map(async (node) => {
     const observation: CoordinationGoal = { node_id: node.id, run_id: run?.run_id ?? null, event_id: null, status: "missing",
+      current: null, freshness_reason: "not_ready",
       attempt: null, max_attempts: null, failure_kind: null, reason: null, input_hash: null, source_hash: null, artifact_hash: null, verification_event_ids: [] };
     const event = latest_goals.get(node.id);
     if (event === undefined) return observation;
     observation.event_id = event.event_id;
     observation.status = "invalid";
+    observation.current = false; observation.freshness_reason = "invalid_evidence";
+    if (event.actor.kind !== "system" || event.actor.id !== "goal-runner" || event.source.adapter !== "goal-runner") return observation;
     if (event.type === "goal.attempt.started") {
       const parsed = GoalAttemptStartedPayloadSchema.safeParse(event.payload);
-      if (!parsed.success || event.correlation_id !== node.id) return observation;
+      if (!parsed.success || event.correlation_id !== node.id || parsed.data.attempt > node.run!.goal!.max_attempts) return observation;
       observation.status = "started";
+      observation.current = null; observation.freshness_reason = "not_ready";
       observation.attempt = parsed.data.attempt;
       observation.max_attempts = node.run?.goal?.max_attempts ?? null;
       return observation;
     }
     const parsed = GoalAttemptCompletedPayloadSchema.safeParse(event.payload);
-    if (!parsed.success || event.correlation_id !== node.id) return observation;
+    if (!parsed.success || event.correlation_id !== node.id || parsed.data.attempt > node.run!.goal!.max_attempts
+      || (parsed.data.max_attempts !== undefined && parsed.data.max_attempts !== node.run!.goal!.max_attempts)) return observation;
     observation.status = parsed.data.status;
     observation.attempt = parsed.data.attempt ?? null;
     observation.max_attempts = parsed.data.max_attempts ?? null;
@@ -78,8 +84,26 @@ export async function readCoordinationExecutionContext(def: WorkflowDef, session
     observation.source_hash = parsed.data.source_hash ?? null;
     observation.artifact_hash = parsed.data.artifact_hash ?? null;
     observation.verification_event_ids = parsed.data.verification_event_ids;
+    observation.current = null; observation.freshness_reason = "not_ready";
+    if (parsed.data.status === "ready" && run !== null) {
+      if (isVerificationRunCancelled(events, { ...scope, run_id: run.run_id })) {
+        observation.current = false; observation.freshness_reason = "run_cancelled";
+        return observation;
+      }
+      const proof = resolveGoalReadiness(event, events, node, { ...scope, run_id: run.run_id });
+      if (proof === null) return { ...observation, status: "invalid", current: false, freshness_reason: "invalid_evidence" };
+      try {
+        const config = runs.configurationHashFor(session.req_id, node.run!.agent);
+        const before = await runs.readNodeInput(def, node, session, config, workflow_revision);
+        const guide = await readSessionDocument(session.dir, node.artifact!);
+        const after = await runs.readNodeInput(def, node, session, config, workflow_revision);
+        observation.current = before.input_hash === proof.input_hash && before.source_hash === proof.source_hash
+          && after.input_hash === before.input_hash && after.source_hash === before.source_hash && guide !== null && sha256Hex(guide) === proof.artifact_hash;
+        observation.freshness_reason = observation.current ? "current" : "stale_input";
+      } catch { observation.current = null; observation.freshness_reason = "unavailable"; }
+    }
     return observation;
-  });
+  }));
   return CoordinationExecutionContextSchema.parse({ run: run === null ? null : { run_id: run.run_id, status: run.status,
     active: ["running", "waiting_human"].includes(run.status) && runs.activeRunId(session.req_id) === run.run_id }, tasks, goals });
 }

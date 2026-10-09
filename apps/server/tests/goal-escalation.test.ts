@@ -67,6 +67,18 @@ async function startManual(sleep_ms: number) {
 }
 
 describe("Goal blocked 自动协调升级", () => {
+  it("ready 后源码改变且预算耗尽时仍可识别 blocked 并自动升级，不新增 worker 尝试", async () => {
+    await prepare({ checks_pass: true }); await start();
+    await waitFor(async () => (await api("GET", "/requirements/REQ-GOAL-ESC/approvals")).body.approvals.length === 1);
+    const original = (await api("GET", "/requirements/REQ-GOAL-ESC/approvals")).body.approvals[0];
+    await writeFile(join(root, "value.txt"), "new-input");
+    expect((await api("POST", "/requirements/REQ-GOAL-ESC/approvals/" + original.approval_id + "/decide", { choice: original.options[0] })).status).toBe(409);
+    await waitFor(async () => (await rounds())[0]?.status === "ok");
+    expect((await rounds())[0]).toMatchObject({ trigger: "goal_blocked", answerable: true });
+    expect((await events()).filter(event => event.type === "goal.attempt.completed").at(-1)?.payload).toMatchObject({ attempt: 1, max_attempts: 1, status: "blocked", failure_kind: "budget" });
+    expect(Number(await readFile(join(root, ".goal-worker-calls"), "utf8"))).toBe(1);
+    expect((await events()).filter(event => event.type === "human.decision.recorded")).toHaveLength(0);
+  });
   it.each(["headless", "acp"] as const)("%s supervisor 自动解释 blocker，冷恢复不重复调用，答复不等于批准", async protocol => {
     await prepare({ protocol }); const run_id = await start();
     await waitFor(async () => (await rounds())[0]?.status === "ok");

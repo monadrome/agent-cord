@@ -1,5 +1,20 @@
 # 工作进度
 
+## 2026-10-09（阶段 47）
+
+- ca4b93a 工作树干净、与本地 origin 同步，上一轮为已验证实现。核对 Goal 完成审计与协调投影，后者只复制 ready payload，没有来源与当前代码/指南重检。
+- ADR-0061 先行，共享 Goal 结构证据解析；历史 status 与当前有效性分离，过期/不可读不能作当前 ready 来源，blocked 仍保留原阻塞事实。
+- 两个原实现反例先失败：runner 复用先于 worker 的测试，协调 ready 没有当前身份字段。实现 resolveGoalReadiness 与 current/freshness_reason 后，首批 60 项相关测试通过；原人工构造、无 worker/test 来源的 ready 用例改为明确 invalid。
+- 共用解析检查最新任务/验证、真实零退出、命令与输入身份、宿主来源和 run 取消；server 使用相同结构证据后重检当前代码/指南，IO 失败保留 unknown。只允许当前有效的 ready 作为 Goal 来源，旧 hook 默认不声称有效。
+- 全量 1003 测试 / 74 文件、typecheck/build:all/diff 通过。共享证据 32 项、runner/server/协调回归证明过期/不可读/取消、非法来源、错误验证、在途新鲜度变化与恢复，报告补证据前后 hash 不被误判。
+- 首次 HTTP 冷恢复验收错误假设 code-after-ready 不会触发原恢复重检，随后修正为恢复相同输入后核验；另一个假设把旧 warm 活动槽位的提议当作冷输入，实际身份正确失效。验收明确区分 Goal 当前有效与旧轮次 current，再显式建立冷新轮次；不修改运行行为、不重复付费调用。
+- 隔离真实 HTTP/子进程通过：ready/source 有效→代码变化旧轮失效且引用拒绝→指南变化失效→链接不可读为 unknown→恢复相同输入有效→冷恢复同审批无重复 worker。最终 worker 2、显式 observer 5、gate 决定/退出 0、doctor=true，临时证据 /tmp/cord-stage47-real-result.json，预览 60302/PID 27692。
+- 共享解析收尾补齐同编号尝试启动先于 worker 与唯一事件 ID，34 项结构证据、最终全量 1005 测试 / 74 文件通过，typecheck/build:all/diff 通过。Playwright/Chrome 1440/390/320 当前轮次与 Goal 来源导航无溢出/pageerror，桌面与 320 截图已查看无覆盖。
+- 提交前 10 份文档的 157 个本地链接与 ADR-0061 七节/54 行通过。最新预览 PID 53890 核验 current=true、worker 2、显式 observer 5、gate 决定 0，无重复调用；原真实 Draft 7306 审批 1、决定 0、done 未退出。临时运行数据/截图不提交，进入小步功能提交和有界同步。
+- 最终差异审查发现预算终态把未开始的下一次尝试写为 max+1，新反例先失败；终态改为已消费编号，并补 ready 过期后自动升级的完整回归，保留不新增 worker/预算原则。继续最终验证后提交。
+- 最终 1007 测试 / 74 文件与 build:all/diff 通过；预算恢复反例与自动升级完整用例通过。类型/链接和最终差异检查后提交，持续目标保持 active。
+- 最后 typecheck、157 链接、ADR 七节/55 行与 diff 通过；最新预览 PID 74557 current=true、worker 2/observer 5/gate 决定 0，无额外调用。无需再次执行已通过测试，进入小步提交同步。
+
 ## 2026-10-09（阶段 46）
 
 - HEAD 9079288、工作树干净且本地 origin 同步；本轮 ls-remote 有界 20 秒超时，功能实现不受网络影响，上轮为已验证进展。
