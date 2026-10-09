@@ -184,6 +184,8 @@ export const StartCoordinationInputSchema = z.strictObject({
   timeout_ms: z.number().int().min(1).max(600_000).optional(),
 });
 export type StartCoordinationInput = z.infer<typeof StartCoordinationInputSchema>;
+export const AnswerCoordinationInputSchema = z.strictObject({ choice: z.string().trim().min(1).max(500) });
+export type AnswerCoordinationInput = z.infer<typeof AnswerCoordinationInputSchema>;
 export interface CoordinationRoundView {
   round_id: string;
   req_id: string;
@@ -211,6 +213,9 @@ export interface CoordinationRoundView {
   adoption_reason: string | null;
   adopted_run_id: string | null;
   adopted_at: string | null;
+  answer?: { event_id: string; choice: string; answered_at: string; completion_event_id: string } | null;
+  answerable?: boolean;
+  answer_reason?: string | null;
 }
 export const AdoptCoordinationInputSchema = z.strictObject({});
 

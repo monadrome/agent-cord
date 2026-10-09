@@ -24,6 +24,7 @@ export {
   CoordinatorRoundCompletedPayloadSchema,
   CoordinatorRoundCancelRequestedPayloadSchema,
   CoordinatorRoundAdoptedPayloadSchema,
+  CoordinatorRoundAnsweredPayloadSchema,
   EVENT_PAYLOAD_SCHEMAS,
   EventDraftSchema,
   EventEnvelopeSchema,

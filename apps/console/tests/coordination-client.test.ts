@@ -51,6 +51,21 @@ afterEach(async () => {
 });
 
 describe("console 协调客户端", () => {
+  it("typed 答复写入口重放原结果，保存选择并拒绝改选，保持无 run 或 gate 决策", async () => {
+    const asking = { ...proposal, next_action: { kind: "ask_human", question: "平台范围？", options: ["移动端", "桌面和移动端"], reason: "范围待确认", evidence: proposal.next_action.evidence } };
+    await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: { local: { kind: "headless", bin: process.execPath,
+      args: [fixture, "--mode", "claude", "--no-tools", "--result-text", JSON.stringify(asking), "{{prompt}}"] } } }));
+    await client.reloadAgents();
+    const request = await client.startCoordination("REQ-UI", { agent: "local" });
+    expect(await terminal(request.round.round_id)).toMatchObject({ answer: null, answerable: true });
+    const recorded = await client.answerCoordination("REQ-UI", request.round.round_id, { choice: "移动端" }, "record-answer");
+    expect(recorded.round).toMatchObject({ answer: { choice: "移动端" }, answerable: false });
+    expect(await client.answerCoordination("REQ-UI", request.round.round_id, { choice: "移动端" }, "record-answer")).toEqual(recorded);
+    await expect(client.answerCoordination("REQ-UI", request.round.round_id, { choice: "桌面和移动端" })).rejects.toMatchObject({ status: 409 });
+    expect(server.runs.listRuns("REQ-UI")).toHaveLength(0);
+    expect((await server.sessions.readEvents("REQ-UI")).some((event) => event.type === "human.decision.recorded" || event.type === "gate.resolved")).toBe(false);
+  });
+
   it("创建/幂等重放/查询 → 采用 → 人工 gate → 完成，重复采用返回原 run", async () => {
     expect((await client.listCoordination("REQ-UI")).rounds).toEqual([]);
     const input = { agent: "local", sdlc_id: "simple-sdlc", sdlc_version: 1, timeout_ms: 10_000 };

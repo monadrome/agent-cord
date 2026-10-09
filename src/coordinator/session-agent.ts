@@ -34,8 +34,10 @@ export interface ContextSessionAgentOptions {
 
 /** 轮次自己的事件不会改变输入；文档、账本、进度与人工等待会改变。 */
 export function coordinationInputHash(def: WorkflowDef, snapshot: RequirementSnapshot, configuration_hash: string | null, max_prompt_chars = DEFAULT_MAX_PROMPT_CHARS, source_hash: string | null = null, verifications: readonly CoordinationVerification[] = [], execution_context?: CoordinationExecutionContext): string {
+  const clarifications = snapshot.clarifications ?? [];
   return sha256Hex(canonicalJson({
-    domain: execution_context === undefined ? "cord.coordination-input.v5" : "cord.coordination-input.v7", context_policy: COORDINATION_CONTEXT_POLICY,
+    domain: execution_context === undefined ? (clarifications.length === 0 ? "cord.coordination-input.v5" : "cord.coordination-input.v6") : (clarifications.length === 0 ? "cord.coordination-input.v7" : "cord.coordination-input.v8"), context_policy: COORDINATION_CONTEXT_POLICY,
+    ...(clarifications.length === 0 ? {} : { clarifications }),
     tool_policy: COORDINATION_TOOL_POLICY, workflow: def, configuration_hash, max_prompt_chars,
     ...(execution_context === undefined ? {} : { execution_context }),
     ...(source_hash === null ? {} : { source_hash }),
@@ -72,6 +74,7 @@ export function parseCoordinationProposal(text: string, def: WorkflowDef, snapsh
       evidence.source === "ledger" ? snapshot.ledger.some((entry) => entry.entry_id === evidence.id && entry.status === "confirmed" && !entry.conflict) :
       evidence.source === "verification" ? verifications.some((result) => result.event_id === evidence.id && result.current === true && result.status !== "missing" && result.status !== "invalid") :
       evidence.source === "agent_task" ? execution_context?.tasks.some((task) => task.event_id === evidence.id && !["missing", "invalid"].includes(task.status)) === true :
+      evidence.source === "clarification" ? snapshot.clarifications?.some((answer) => answer.event_id === evidence.id) === true :
       def.spec.nodes.some((node) => node.id === evidence.id);
     if (!valid) throw new Error(`协调提议的来源引用不可验证：${evidence.source}/${evidence.id}`);
   }
@@ -98,6 +101,7 @@ export function buildCoordinationPrompt(def: WorkflowDef, snapshot: RequirementS
     `progress: ${JSON.stringify(snapshot.workflow)}`,
     `eligible_nodes: ${JSON.stringify(eligibleNodes(def, snapshot, execution_context))}`,
     `ledger: ${JSON.stringify(snapshot.ledger)}`,
+    ...((snapshot.clarifications?.length ?? 0) === 0 ? [] : [`clarifications: ${JSON.stringify(snapshot.clarifications)}\n人工澄清只说明原问题的选择，不是测试、gate 或执行授权；与最新材料矛盾时需重新询问，来源使用答复 event_id。`]),
     `documents: ${JSON.stringify(snapshot.docs.map(({ file, exists, content_hash, content_length }) => ({ file, exists, content_hash, content_length })))}`,
     `response_schema: ${JSON.stringify(z.toJSONSchema(CoordinationProposalSchema))}`,
   ].join("\n\n");

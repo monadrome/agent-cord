@@ -1,7 +1,7 @@
 /** 独立协调工作台：只消费 server 的轮次、新鲜度与采用投影。 */
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
-import { Bot, ChevronRight, Play, RefreshCw, Square } from "lucide-react";
+import { Bot, Check, ChevronRight, Play, RefreshCw, Square } from "lucide-react";
 import type { AgentCatalogView, CoordinationRoundView, SdlcSummary } from "@agent-cord/server/contracts";
 import { api } from "../api.js";
 import { describeError, Empty, ErrorBanner, formatTime, NoticeBanner } from "../ui.js";
@@ -9,7 +9,7 @@ import { describeError, Empty, ErrorBanner, formatTime, NoticeBanner } from "../
 const STATUS_TEXT: Record<CoordinationRoundView["status"], string> = {
   pending: "待派发", running: "协调中", ok: "已生成", failed: "失败", timeout: "超时", cancelled: "已取消", stale: "输入已变化",
 };
-const ACTION_TEXT = { advance: "推进流程", ask_human: "人工决策", wait: "等待", complete: "完成" } as const;
+const ACTION_TEXT = { advance: "推进流程", ask_human: "人工澄清", wait: "等待", complete: "完成" } as const;
 const FAILURE_TEXT: Record<string, string> = { snapshot: "需求读取", configuration: "Agent 配置", driver: "Agent 运行", output: "结果校验", freshness: "输入核验", interrupted: "运行中断" };
 
 interface Props {
@@ -18,7 +18,7 @@ interface Props {
   event_seq: number;
   run_in_flight: boolean;
   onChanged: () => Promise<void>;
-  onSource: (source: "document" | "ledger" | "workflow" | "verification" | "agent_task", id: string) => void;
+  onSource: (source: "document" | "ledger" | "workflow" | "verification" | "agent_task" | "clarification", id: string) => void;
   onRun: () => void;
 }
 
@@ -40,7 +40,8 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
   const [timeout_seconds, set_timeout_seconds] = useState("120");
   const [selected_round, set_selected_round] = useState<string | null>(null);
   const [loading, set_loading] = useState(true);
-  const [command, set_command] = useState<"start" | "cancel" | "adopt" | null>(null);
+  const [command, set_command] = useState<"start" | "cancel" | "adopt" | "answer" | null>(null);
+  const [answer_choice, set_answer_choice] = useState("");
   const [load_error, set_load_error] = useState<string | null>(null);
   const [command_error, set_command_error] = useState<string | null>(null);
   const [notice, set_notice] = useState<string | null>(null);
@@ -112,12 +113,13 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
   }, [load_rounds]);
 
   const selected = rounds?.find((round) => round.round_id === selected_round) ?? rounds?.[0] ?? null;
+  useEffect(() => { set_answer_choice(""); }, [selected?.round_id]);
   const pending = rounds?.find((round) => round.status === "pending" || round.status === "running");
   const seconds = Number(timeout_seconds);
   const busy = command !== null;
   const can_start = !loading && !busy && pending === undefined && selected_agent !== "" && selected_sdlc !== "" && Number.isInteger(seconds) && seconds >= 1 && seconds <= 600;
 
-  const perform = async (kind: "start" | "cancel" | "adopt"): Promise<void> => {
+  const perform = async (kind: "start" | "cancel" | "adopt" | "answer"): Promise<void> => {
     if (command_loading.current) return;
     command_loading.current = true;
     set_command(kind);
@@ -136,6 +138,9 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
         if (kind === "cancel") {
           await api.cancelCoordination(req_id, selected.round_id);
           if (mounted.current && generation.current === epoch) set_notice("协调已取消");
+        } else if (kind === "answer") {
+          await api.answerCoordination(req_id, selected.round_id, { choice: answer_choice });
+          if (mounted.current && generation.current === epoch) set_notice("答复已记录");
         } else {
           const result = await api.adoptCoordination(req_id, selected.round_id);
           if (mounted.current && generation.current === epoch) set_notice(`已采用提议，SDLC run ${result.run.run_id} 已启动`);
@@ -171,7 +176,7 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
     <div className="coordination-layout" aria-busy={loading && rounds === null}>
       <section className="coordination-history" aria-labelledby="coordination-history-title"><header><h3 id="coordination-history-title">轮次</h3><span className="muted small">{rounds?.length ?? 0}</span></header>
         {rounds === null ? <div className="coordination-loading" role="status">正在读取协调轮次...</div> : rounds.length === 0 ? <Empty text="还没有协调轮次" /> : <ul>{rounds.map((round) => <li key={round.round_id}><button type="button" className={round.round_id === selected?.round_id ? "coordination-round coordination-round-selected" : "coordination-round"} aria-pressed={round.round_id === selected?.round_id} onClick={() => set_selected_round(round.round_id)}>
-          <span className="coordination-round-top"><RoundBadge status={round.status} />{round.adopted_run_id !== null ? <span className="small ok-text">已采用</span> : round.current === false ? <span className="small coordination-warn">依据已变化</span> : null}</span>
+          <span className="coordination-round-top"><RoundBadge status={round.status} />{round.answer != null ? <span className="small ok-text">已答复</span> : round.adopted_run_id !== null ? <span className="small ok-text">已采用</span> : round.current === false ? <span className="small coordination-warn">依据已变化</span> : null}</span>
           <strong>{round.proposal?.summary ?? round.agent}</strong><span className="muted small">{round.sdlc_id} v{round.sdlc_version} · {formatTime(round.requested_at)}</span>
         </button></li>)}</ul>}
       </section>
@@ -183,8 +188,19 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
           {selected.proposal !== null ? <div className="coordination-proposal"><p className="coordination-summary">{selected.proposal.summary}</p>
             <div className="coordination-action-title"><span className="pill">{ACTION_TEXT[selected.proposal.next_action.kind]}</span>{selected.proposal.next_action.kind === "advance" ? <strong className="mono">{selected.proposal.next_action.node_id}</strong> : null}</div>
             <p className="coordination-reason">{selected.proposal.next_action.reason}</p>
-            {selected.proposal.next_action.kind === "ask_human" ? <div className="coordination-question"><h4>{selected.proposal.next_action.question}</h4><ul>{selected.proposal.next_action.options.map((option) => <li key={option}>{option}</li>)}</ul></div> : null}
-            <div className="coordination-evidence"><h4>来源</h4><ul>{selected.proposal.next_action.evidence.map((evidence, index) => <li key={`${evidence.source}:${evidence.id}:${index}`}><span className="muted small">{evidence.source === "document" ? "文档" : evidence.source === "ledger" ? "共识" : evidence.source === "verification" ? "验证" : evidence.source === "agent_task" ? "任务" : "节点"}</span>
+            {selected.proposal.next_action.kind === "ask_human" ? <div className="coordination-question"><h4>{selected.proposal.next_action.question}</h4>
+              {selected.answer != null ? <div className="coordination-answer-receipt"><span className="ok-text"><Check size={16} aria-hidden="true" />已答复</span><strong>{selected.answer.choice}</strong><span className="muted small">{formatTime(selected.answer.answered_at)}</span>
+                <button type="button" className="link mono" onClick={() => onSource("clarification", selected.answer!.event_id)} title="打开澄清答复事件"><span>{selected.answer.event_id}</span><ChevronRight size={14} aria-hidden="true" /></button>
+              </div> : <form className="coordination-answer-form" onSubmit={(event) => { event.preventDefault(); if (!loading && !busy && selected.answerable === true && answer_choice !== "") void perform("answer"); }}>
+                <fieldset className="coordination-answer-options" role="radiogroup" aria-label="澄清选项" disabled={loading || busy || selected.answerable !== true}>
+                  {selected.proposal.next_action.options.map((option) => <label key={option}><input type="radio" name={`answer-${selected.round_id}`} value={option} checked={answer_choice === option} onChange={() => set_answer_choice(option)} /><span>{option}</span></label>)}
+                </fieldset>
+                <div className="coordination-answer-actions"><button type="submit" className="btn btn-primary" disabled={loading || busy || selected.answerable !== true || answer_choice === ""}><Check size={16} aria-hidden="true" />{command === "answer" ? "记录中..." : "记录答复"}</button>
+                  {selected.answerable !== true ? <span className="muted small">{selected.answer_reason ?? "当前问题不可答复，请重新协调"}</span> : null}
+                </div>
+              </form>}
+            </div> : null}
+            <div className="coordination-evidence"><h4>来源</h4><ul>{selected.proposal.next_action.evidence.map((evidence, index) => <li key={`${evidence.source}:${evidence.id}:${index}`}><span className="muted small">{evidence.source === "document" ? "文档" : evidence.source === "ledger" ? "共识" : evidence.source === "verification" ? "验证" : evidence.source === "agent_task" ? "任务" : evidence.source === "clarification" ? "澄清" : "节点"}</span>
               {evidence.source !== "document" || ["prd.md", "plan.md", "adr.md", "findings.md"].includes(evidence.id) ? <button type="button" className="link mono" onClick={() => onSource(evidence.source, evidence.id)}><span>{evidence.id}</span><ChevronRight size={14} aria-hidden="true" /></button> : <code className="mono">{evidence.id}</code>}
             </li>)}</ul></div>
             {selected.proposal.risks.length > 0 ? <div className="coordination-risks"><h4>风险</h4><ul>{selected.proposal.risks.map((risk, index) => <li key={index}>{risk}</li>)}</ul></div> : null}

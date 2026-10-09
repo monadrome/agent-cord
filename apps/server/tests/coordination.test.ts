@@ -102,6 +102,133 @@ async function source_round(key = ulid()): Promise<CoordinationRoundView> {
   return done(response.body.round.round_id);
 }
 
+describe("协调人工澄清", () => {
+  const asking = { ...proposal, next_action: { kind: "ask_human", question: "上线的平台范围？", options: ["ONLY_MOBILE", "DESKTOP_AND_MOBILE"], reason: "需要澄清", evidence: proposal.next_action.evidence } };
+  async function question() { await config(JSON.stringify(asking)); await server.agents.reload(); return valid_round(); }
+  const answer = (id: string, choice = "ONLY_MOBILE", key = ulid()) => request("POST", `/api/v1/requirements/REQ-CONTEXT/coordination/${id}/answer`, { choice }, key);
+
+  it("答复持久化且可重放，重启保留选择；不启动 run 或放行 gate", async () => {
+    const round = await question();
+    const result = await answer(round.round_id, "ONLY_MOBILE", "answer-first");
+    expect(result.status).toBe(200);
+    expect(result.body.round).toMatchObject({ answer: { choice: "ONLY_MOBILE" }, answerable: false, current: false });
+    expect((await answer(round.round_id, "ONLY_MOBILE", "answer-first")).body).toEqual(result.body);
+    expect((await answer(round.round_id)).status).toBe(200);
+    expect((await answer(round.round_id, "DESKTOP_AND_MOBILE")).status).toBe(409);
+    const before = await server.sessions.readEvents("REQ-CONTEXT");
+    expect(before.filter((event) => event.type === "coordinator.round.answered")).toHaveLength(1);
+    expect(before.some((event) => ["workflow.run.started", "human.decision.recorded", "gate.resolved", "coordinator.round.adopted"].includes(event.type))).toBe(false);
+    await restart();
+    expect(await server.coordination.get("REQ-CONTEXT", round.round_id)).toMatchObject({ answer: { choice: "ONLY_MOBILE" }, answerable: false });
+    expect((await server.sessions.readEvents("REQ-CONTEXT")).filter((event) => event.type === "coordinator.round.answered")).toHaveLength(1);
+  });
+
+  it("失效、非法选项和非问题不能记录答复；重新协调后可恢复", async () => {
+    const round = await question();
+    expect((await answer(round.round_id, "unknown")).status).toBe(400);
+    await server.sessions.writeDoc("REQ-CONTEXT", "prd", "# 最新需求\n范围已变化");
+    expect((await answer(round.round_id)).status).toBe(409);
+    const fresh = await question(); expect((await answer(fresh.round_id)).status).toBe(200);
+    await config(); await server.agents.reload(); const advance = await valid_round();
+    expect((await answer(advance.round_id)).status).toBe(409);
+  });
+
+  it("同选择并发只写一次，不同选择并发不会共享错误答复", async () => {
+    const round = await question();
+    const replies = await Promise.all([answer(round.round_id), answer(round.round_id), answer(round.round_id, "DESKTOP_AND_MOBILE")]);
+    expect(replies.map((item) => item.status).sort()).toEqual([200, 200, 409]);
+    expect((await server.sessions.readEvents("REQ-CONTEXT")).filter((event) => event.type === "coordinator.round.answered")).toHaveLength(1);
+  });
+
+  it("追加失败不显示已答复，修复后新幂等键可以记录", async () => {
+    const round = await question(); const session = await server.sessions.open("REQ-CONTEXT");
+    const append = session.events.append.bind(session.events);
+    const mock = vi.spyOn(session.events, "append").mockImplementation((draft) => draft.type === "coordinator.round.answered" ? Promise.reject(new Error("answer store unavailable")) : append(draft));
+    expect((await answer(round.round_id)).status).toBe(500);
+    expect(await server.coordination.get("REQ-CONTEXT", round.round_id)).toMatchObject({ answer: null, answerable: true });
+    mock.mockRestore(); expect((await answer(round.round_id)).status).toBe(200);
+  });
+
+  it("答复在另一模型轮次运行中到达，该轮次 stale，新轮次读取澄清", async () => {
+    const source = await question(); const driver = server.agents.resolver()("coordinator"); const prompts: string[] = [];
+    vi.spyOn(driver, "run").mockImplementation(async function* (task) {
+      prompts.push(task.prompt);
+      if (prompts.length === 1) expect((await answer(source.round_id)).status).toBe(200);
+      yield { type: "result", data: { text: JSON.stringify({ ...proposal, next_action: { kind: "wait", reason: "等待人工 gate", evidence: proposal.next_action.evidence } }) } };
+    });
+    const first = await start(ulid()); expect(await done(first.body.round.round_id)).toMatchObject({ status: "stale", proposal: null });
+    expect(await valid_round()).toMatchObject({ current: true }); expect(prompts[1]).toContain("ONLY_MOBILE");
+  });
+
+  it("答复须带幂等键，归档问题或请求额外字段不能记录", async () => {
+    const round = await question(); const path = `/api/v1/requirements/REQ-CONTEXT/coordination/${round.round_id}/answer`;
+    expect((await request("POST", path, { choice: "ONLY_MOBILE" })).status).toBe(400);
+    expect((await request("POST", path, { choice: "ONLY_MOBILE", gate_id: "human" }, ulid())).status).toBe(400);
+    expect((await request("POST", path, { choice: "ONLY_MOBILE" }, "create")).status).toBe(409);
+    await server.sdlcs.archive("simple-sdlc", 1); expect((await answer(round.round_id)).status).toBe(409);
+  });
+
+  it("损坏答复在恢复时隔离本需求，其他需求仍可协调", async () => {
+    const round = await question(); const session = await server.sessions.open("REQ-CONTEXT");
+    const completed = (await server.sessions.readEvents("REQ-CONTEXT")).find((event) => event.type === "coordinator.round.completed")!;
+    await session.events.append({ event_id: ulid(), session_id: session.req_id, type: "coordinator.round.answered", schema_version: "1", actor: { kind: "human", id: "fixture" }, correlation_id: round.round_id,
+      payload: { round_id: round.round_id, workflow_id: round.workflow_id, workflow_revision: round.workflow_revision, completion_event_id: completed.event_id, input_hash: round.input_hash, choice: "UNKNOWN" }, source: { adapter: "test" } });
+    await restart(); expect((await request("GET", "/api/v1/health")).status).toBe(200);
+    expect((await request("GET", `/api/v1/requirements/REQ-CONTEXT/coordination/${round.round_id}`)).status).toBe(409);
+    expect((await request("POST", "/api/v1/requirements", { req_id: "REQ-HEALTHY", title: "健康需求", prd: "# PRD\n正常澄清" }, ulid())).status).toBe(201);
+    const healthy = await request("POST", "/api/v1/requirements/REQ-HEALTHY/coordination", { agent: "coordinator" }, ulid()); expect(healthy.status).toBe(202);
+    await wait_for(async () => (await server.coordination.get("REQ-HEALTHY", healthy.body.round.round_id)).status === "ok");
+  });
+
+  it("达到当前问题容量时拒绝新增，不丢弃已记录选择", async () => {
+    const session = await server.sessions.open("REQ-CONTEXT"); const binding = await server.sdlcs.get("simple-sdlc", 1);
+    for (let index = 0; index < 128; index++) {
+      const round_id = ulid(); const completed = await session.events.append({ event_id: ulid(), session_id: session.req_id, type: "coordinator.round.completed", schema_version: "1", actor: { kind: "agent", id: "fixture" }, correlation_id: round_id,
+        payload: { round_id, workflow_id: binding.def.metadata.id, workflow_revision: binding.workflow_revision, driver: "fixture", input_hash: "a".repeat(64), status: "ok", error: null, duration_ms: 1,
+          proposal: { ...asking, next_action: { ...asking.next_action, question: `已确认的问题 ${index}` } } }, source: { adapter: "test" } });
+      await session.events.append({ event_id: ulid(), session_id: session.req_id, type: "coordinator.round.answered", schema_version: "1", actor: { kind: "human", id: "fixture" }, correlation_id: round_id,
+        payload: { round_id, workflow_id: binding.def.metadata.id, workflow_revision: binding.workflow_revision, completion_event_id: completed.event_id, input_hash: "a".repeat(64), choice: "ONLY_MOBILE" }, source: { adapter: "test" } });
+    }
+    const round = await question(); expect(round.answerable).toBe(false);
+    expect((await answer(round.round_id)).status).toBe(409);
+    expect((await server.sessions.readEvents("REQ-CONTEXT")).filter((event) => event.type === "coordinator.round.answered")).toHaveLength(128);
+  });
+
+  it("原问题 envelope 损坏时不可答复，不能先写入无法验证的人工事实", async () => {
+    const round = await question(); const session = await server.sessions.open("REQ-CONTEXT");
+    const original = (await server.sessions.readEvents("REQ-CONTEXT")).find((event) => event.type === "coordinator.round.completed")!;
+    await session.events.append({ event_id: ulid(), session_id: session.req_id, type: "coordinator.round.completed", schema_version: "1", actor: { kind: "agent", id: "fixture" }, correlation_id: ulid(),
+      payload: original.payload, source: { adapter: "test" } });
+    expect(await server.coordination.get("REQ-CONTEXT", round.round_id)).toMatchObject({ answerable: false });
+    expect((await answer(round.round_id)).status).toBe(409);
+    expect((await server.sessions.readEvents("REQ-CONTEXT")).filter((event) => event.type === "coordinator.round.answered")).toHaveLength(0);
+  });
+
+  it("已有人工 gate 等待时记录澄清，原等待不被当作已决定", async () => {
+    const started = await request("POST", "/api/v1/requirements/REQ-CONTEXT/runs", {}, ulid()); expect(started.status).toBe(202);
+    await wait_for(async () => (await server.sessions.listApprovals("REQ-CONTEXT")).length === 1);
+    const before = (await server.sessions.listApprovals("REQ-CONTEXT"))[0]!;
+    const before_events = await server.sessions.readEvents("REQ-CONTEXT");
+    const round = await question(); expect((await answer(round.round_id)).status).toBe(200);
+    expect((await server.sessions.listApprovals("REQ-CONTEXT"))[0]?.approval_id).toBe(before.approval_id);
+    const transitions = (events: typeof before_events) => events.filter((event) => ["human.decision.recorded", "workflow.node.exited", "gate.resolved"].includes(event.type)).map((event) => event.event_id);
+    expect(transitions(await server.sessions.readEvents("REQ-CONTEXT"))).toEqual(transitions(before_events));
+  });
+
+  it("读取视图后原问题被替代为非问题，写入前拒绝且不落答复事实", async () => {
+    const round = await question(); const session = await server.sessions.open("REQ-CONTEXT");
+    const original = (await server.sessions.readEvents("REQ-CONTEXT")).find((event) => event.type === "coordinator.round.completed")!;
+    const service = server.coordination as any; const read = service.readEvents.bind(service); let reads = 0;
+    vi.spyOn(service, "readEvents").mockImplementation(async (...args: unknown[]) => {
+      if (++reads === 2) await session.events.append({ event_id: ulid(), session_id: session.req_id, type: "coordinator.round.completed", schema_version: "1", actor: { kind: "agent", id: "fixture" }, correlation_id: round.round_id,
+        payload: { ...(original.payload as Record<string, unknown>), proposal: { ...proposal, next_action: { kind: "wait", reason: "问题已替代", evidence: proposal.next_action.evidence } } }, source: { adapter: "test" } });
+      return read(...args);
+    });
+    expect((await answer(round.round_id)).status).toBe(409);
+    expect((await server.sessions.readEvents("REQ-CONTEXT")).filter((event) => event.type === "coordinator.round.answered")).toHaveLength(0);
+  });
+});
+
 describe("独立协调工具边界", () => {
   it.each(["claude", "codex", "acp"])("已报告工具的 %s 协调结果失败、不可采用，重启保留失败，修复后可重新协调", async (protocol) => {
     const pid_file = join(root, "tool-coordinator.pid");

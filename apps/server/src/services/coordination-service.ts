@@ -4,11 +4,11 @@ import {
   CoordinatorRoundRequestedPayloadSchema, CoordinatorRoundStartedPayloadSchema,
   CoordinatorRoundCompletedPayloadSchema, createContextSessionAgent,
   CoordinatorRoundAdoptedPayloadSchema, coordinationInputHash, parseCoordinationProposal, readCoordinationSnapshot,
-  readSessionEvents, SessionEventReadError,
+  readSessionEvents, SessionEventReadError, CoordinatorRoundAnsweredPayloadSchema, readClarificationAnswers, projectClarifications, MAX_CLARIFICATION_QUESTIONS,
   type AgentDriver, type EventEnvelope, type SessionHandle, type WorkflowDef,
 } from "agent-cord";
-import type { CoordinationRoundView, RunInfo, StartCoordinationInput } from "../contracts.js";
-import { conflict, internalError, notFound } from "../errors.js";
+import type { AnswerCoordinationInput, CoordinationRoundView, RunInfo, StartCoordinationInput } from "../contracts.js";
+import { badRequest, conflict, internalError, notFound } from "../errors.js";
 import type { SessionService } from "./session-service.js";
 import { DEFAULT_SDLC_ID, type SdlcService } from "./sdlc-service.js";
 import type { RunService } from "./run-service.js";
@@ -23,6 +23,7 @@ interface ActiveCoordination {
 }
 
 function projectRounds(events: readonly EventEnvelope[], req_id: string): CoordinationRoundView[] {
+  const answers = readClarificationAnswers(events);
   const rounds = new Map<string, CoordinationRoundView>();
   for (const event of events) {
     if (event.type === "coordinator.round.requested") {
@@ -37,6 +38,7 @@ function projectRounds(events: readonly EventEnvelope[], req_id: string): Coordi
         snapshot_id: null, input_hash: null, agent_configuration_hash: null, source_hash: null, verification_context_hash: null, execution_context_hash: null,
         proposal: null, error: null, failure_stage: null,
         current: null, adoptable: false, adoption_reason: null, adopted_run_id: null, adopted_at: null,
+        answer: null, answerable: false, answer_reason: null,
       });
     } else if (event.type === "coordinator.round.started" || event.type === "coordinator.round.completed") {
       const parsed = event.type === "coordinator.round.started" ? CoordinatorRoundStartedPayloadSchema.safeParse(event.payload) : CoordinatorRoundCompletedPayloadSchema.safeParse(event.payload);
@@ -56,6 +58,8 @@ function projectRounds(events: readonly EventEnvelope[], req_id: string): Coordi
         const completion = CoordinatorRoundCompletedPayloadSchema.parse(event.payload);
         Object.assign(round, { status: completion.status, proposal: completion.proposal, error: completion.error,
           failure_stage: completion.failure_stage ?? null, finished_at: event.timestamp });
+        round.answer_reason = completion.proposal?.next_action.kind === "ask_human" && (completion.workflow_id !== round.workflow_id || event.correlation_id !== completion.round_id || completion.error !== null || completion.failure_stage !== undefined)
+          ? "原问题完成事实不符合来源契约，请重新协调" : null;
       }
     } else if (event.type === "coordinator.round.adopted") {
       const parsed = CoordinatorRoundAdoptedPayloadSchema.safeParse(event.payload);
@@ -68,6 +72,10 @@ function projectRounds(events: readonly EventEnvelope[], req_id: string): Coordi
       Object.assign(round, { adopted_run_id: parsed.data.run_id, adopted_at: event.timestamp });
     }
   }
+  for (const answer of answers) {
+    const round = rounds.get(answer.round_id);
+    if (round !== undefined) round.answer = { event_id: answer.event_id, choice: answer.choice, answered_at: answer.answered_at, completion_event_id: answer.completion_event_id };
+  }
   return [...rounds.values()].reverse();
 }
 
@@ -76,6 +84,7 @@ export class CoordinationService {
   private readonly cancellation = new Map<string, Promise<CoordinationRoundView>>();
   private readonly storage_errors = new Map<string, string>();
   private readonly adoption = new Map<string, Promise<RunInfo>>();
+  private readonly answering = new Map<string, { round_id: string; choice: string; promise: Promise<CoordinationRoundView> }>();
   private closing = false;
 
   constructor(private readonly sessions: SessionService, private readonly sdlcs: SdlcService,
@@ -142,7 +151,9 @@ export class CoordinationService {
   }
 
   private async readRounds(req_id: string): Promise<CoordinationRoundView[]> {
-    const rounds = projectRounds(await this.readEvents(await this.sessions.open(req_id)), req_id);
+    let rounds: CoordinationRoundView[];
+    try { rounds = projectRounds(await this.readEvents(await this.sessions.open(req_id)), req_id); }
+    catch (error) { if (error instanceof SessionEventReadError) throw conflict("协调澄清事实不可验证，请修复后重新核验"); throw error; }
     const active = this.active.get(req_id);
     const current = rounds.find((round) => round.round_id === active?.round_id);
     if (active !== undefined && current !== undefined && current.status !== "pending" && current.status !== "running") await active.promise;
@@ -157,8 +168,8 @@ export class CoordinationService {
     }
   }
 
-  private async inspect(round: CoordinationRoundView, def?: WorkflowDef, workflow_revision?: string): Promise<Pick<CoordinationRoundView, "current" | "adoptable" | "adoption_reason">> {
-    const result = { current: null as boolean | null, adoptable: false, adoption_reason: null as string | null };
+  private async inspect(round: CoordinationRoundView, def?: WorkflowDef, workflow_revision?: string): Promise<Pick<CoordinationRoundView, "current" | "adoptable" | "adoption_reason" | "answerable" | "answer_reason">> {
+    const result = { current: null as boolean | null, adoptable: false, adoption_reason: null as string | null, answerable: false, answer_reason: null as string | null };
     if (round.status !== "ok" || round.proposal === null) return result;
     try {
       const versioned = def === undefined ? await this.sdlcs.get(round.sdlc_id, round.sdlc_version) : { def, workflow_revision };
@@ -185,8 +196,53 @@ export class CoordinationService {
         parseCoordinationProposal(JSON.stringify(round.proposal), workflow, snapshot, verifications, execution_context);
         result.adoptable = true;
       }
+      const action = round.proposal.next_action;
+      if (action.kind === "ask_human") {
+        if (round.answer != null) result.answer_reason = "该问题已答复";
+        else if (round.answer_reason != null) result.answer_reason = round.answer_reason;
+        else if (!result.current || this.sdlcs.isArchived(round.sdlc_id, round.sdlc_version)) result.answer_reason = result.adoption_reason;
+        else if ((snapshot.clarifications?.length ?? 0) >= MAX_CLARIFICATION_QUESTIONS && !snapshot.clarifications?.some((answer) => answer.question === action.question)) result.answer_reason = "当前澄清问题已达到容量上限";
+        else { parseCoordinationProposal(JSON.stringify(round.proposal), workflow, snapshot, verifications, execution_context); result.answerable = true; result.answer_reason = null; }
+      }
     } catch { result.adoption_reason = "无法验证当前协调依据，请刷新或重新协调"; }
     return result;
+  }
+
+  answer(req_id: string, round_id: string, input: AnswerCoordinationInput): Promise<CoordinationRoundView> {
+    if (this.closing) return Promise.reject(conflict("服务正在关闭"));
+    const pending = this.answering.get(req_id);
+    if (pending !== undefined) return pending.round_id === round_id && pending.choice === input.choice ? pending.promise : Promise.reject(conflict("已有在途澄清答复，不能同时记录另一选择"));
+    const operation = this.answerOnce(req_id, round_id, input).finally(() => { if (this.answering.get(req_id)?.promise === operation) this.answering.delete(req_id); });
+    this.answering.set(req_id, { round_id, choice: input.choice, promise: operation });
+    return operation;
+  }
+
+  private async answerOnce(req_id: string, round_id: string, input: AnswerCoordinationInput): Promise<CoordinationRoundView> {
+    const round = await this.get(req_id, round_id);
+    if (round.answer != null) {
+      if (round.answer.choice !== input.choice) throw conflict("该问题已有不同答复，请重新协调形成新的澄清问题");
+      return round;
+    }
+    const action = round.proposal?.next_action;
+    if (action?.kind !== "ask_human") throw conflict("该轮次没有可答复的澄清问题");
+    if (!action.options.includes(input.choice)) throw badRequest("答复选择不属于问题选项");
+    if (round.answerable !== true || round.input_hash === null || round.workflow_revision === null) throw conflict(round.answer_reason ?? round.adoption_reason ?? "当前问题不可答复，请重新协调");
+    const session = await this.sessions.open(req_id);
+    const events = await this.readEvents(session);
+    const completion = [...events].reverse().find((event) => event.type === "coordinator.round.completed" && (event.payload as { round_id?: unknown } | null)?.round_id === round_id);
+    const completed = CoordinatorRoundCompletedPayloadSchema.safeParse(completion?.payload);
+    if (completion === undefined || !completed.success || completed.data.input_hash !== round.input_hash || completed.data.workflow_id !== round.workflow_id
+      || completed.data.workflow_revision !== round.workflow_revision || completion.correlation_id !== round_id || completed.data.status !== "ok"
+      || completed.data.error !== null || completed.data.failure_stage !== undefined) throw conflict("问题完成事实已变化，请重新协调");
+    const current_action = completed.data.proposal?.next_action;
+    if (current_action?.kind !== "ask_human" || current_action.question !== action.question || JSON.stringify(current_action.options) !== JSON.stringify(action.options)) throw conflict("澄清问题或选项已变化，请重新协调");
+    const current = projectClarifications(events, { workflow_id: round.workflow_id, workflow_revision: round.workflow_revision });
+    if (current.length >= MAX_CLARIFICATION_QUESTIONS && !current.some((answer) => answer.question === action.question)) throw conflict("当前澄清问题已达到容量上限");
+    const payload = CoordinatorRoundAnsweredPayloadSchema.parse({ round_id, workflow_id: round.workflow_id, workflow_revision: round.workflow_revision,
+      completion_event_id: completion.event_id, input_hash: round.input_hash, choice: input.choice });
+    await session.events.append({ event_id: ulid(), session_id: req_id, type: "coordinator.round.answered", schema_version: "1", actor: { kind: "human", id: "local-human" },
+      correlation_id: round_id, payload, source: { adapter: "console-server" } });
+    return this.get(req_id, round_id);
   }
 
   private async read_source_hash(def: WorkflowDef): Promise<string | null> {
@@ -271,13 +327,14 @@ export class CoordinationService {
     for (const req_id of await this.sessions.listIds()) {
       const session = await this.sessions.open(req_id);
       let events: EventEnvelope[];
-      try { events = await readSessionEvents(session); }
+      let rounds: CoordinationRoundView[];
+      try { events = await readSessionEvents(session); rounds = projectRounds(events, req_id); }
       catch (error) {
         if (!(error instanceof SessionEventReadError)) throw error;
         this.options.onError?.(new SessionEventReadError(`需求 ${req_id} 的协调恢复未执行：${error.message}`));
         continue;
       }
-      for (const round of projectRounds(events, req_id)) {
+      for (const round of rounds) {
         if (round.status !== "pending" && round.status !== "running") continue;
         const cancelled = events.some((event) => event.type === "coordinator.round.cancel_requested" && (event.payload as { round_id?: string })?.round_id === round.round_id);
         await this.finishInterrupted(session, round, cancelled);
@@ -307,5 +364,6 @@ export class CoordinationService {
     const active = [...this.active.values()];
     for (const round of active) round.controller.abort();
     await Promise.all(active.map((round) => round.promise));
+    await Promise.allSettled([...this.answering.values()].map((answer) => answer.promise));
   }
 }

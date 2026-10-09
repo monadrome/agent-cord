@@ -316,6 +316,7 @@ export const CoordinationEvidenceSchema = z.discriminatedUnion("source", [
   z.strictObject({ source: z.literal("workflow"), id: z.string().min(1).max(500) }),
   z.strictObject({ source: z.literal("verification"), id: z.string().regex(ULID_RE) }),
   z.strictObject({ source: z.literal("agent_task"), id: z.string().regex(ULID_RE) }),
+  z.strictObject({ source: z.literal("clarification"), id: z.string().regex(ULID_RE) }),
 ]);
 const coordination_action_fields = {
   reason: z.string().trim().min(1).max(2_000),
@@ -365,6 +366,7 @@ export const EVENT_TYPES = [
   "coordinator.round.started",
   "coordinator.round.requested",
   "coordinator.round.completed",
+  "coordinator.round.answered",
   "coordinator.round.cancel_requested",
   "coordinator.round.adopted",
   "human.decision.recorded",
@@ -696,6 +698,14 @@ export const CoordinatorRoundAdoptedPayloadSchema = z.looseObject({
   input_hash: z.string().length(64), run_id: z.string().regex(ULID_RE),
 });
 
+/** ADR-0052：人工澄清引用原问题完成，不是 gate 决策。 */
+export const CoordinatorRoundAnsweredPayloadSchema = z.strictObject({
+  round_id: z.string().regex(ULID_RE), workflow_id: z.string().min(1),
+  workflow_revision: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  completion_event_id: z.string().regex(ULID_RE), input_hash: z.string().regex(/^[0-9a-f]{64}$/),
+  choice: z.string().min(1).max(500),
+});
+
 /** 已知 payload 的 schema 表；未列出的类型（如 M3 才落地的 reconcile.requested）尚无固化形状。 */
 export const EVENT_PAYLOAD_SCHEMAS: Partial<Record<EventType, z.ZodType>> = {
   "cli.message.received": CliMessageReceivedPayloadSchema,
@@ -719,6 +729,7 @@ export const EVENT_PAYLOAD_SCHEMAS: Partial<Record<EventType, z.ZodType>> = {
   "coordinator.round.started": CoordinatorRoundStartedPayloadSchema,
   "coordinator.round.requested": CoordinatorRoundRequestedPayloadSchema,
   "coordinator.round.completed": CoordinatorRoundCompletedPayloadSchema,
+  "coordinator.round.answered": CoordinatorRoundAnsweredPayloadSchema,
   "coordinator.round.cancel_requested": CoordinatorRoundCancelRequestedPayloadSchema,
   "coordinator.round.adopted": CoordinatorRoundAdoptedPayloadSchema,
 };

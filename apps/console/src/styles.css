@@ -1215,6 +1215,18 @@ p {
 .coordination-evidence .link > span, .coordination-adopted .link > span { min-width: 0; overflow-wrap: anywhere; }
 .coordination-risks ul, .coordination-question ul { margin: 0; padding-left: 20px; font-size: 13px; color: var(--ink-soft); overflow-wrap: anywhere; }
 .coordination-risks li + li, .coordination-question li + li { margin-top: 5px; }
+.coordination-question h4 { overflow-wrap: anywhere; }
+.coordination-answer-options { display: grid; gap: 0; margin: 12px 0; padding: 0; border: 0; min-width: 0; }
+.coordination-answer-options label { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px; cursor: pointer; }
+.coordination-answer-options input { flex: 0 0 16px; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--accent); }
+.coordination-answer-options span { min-width: 0; overflow-wrap: anywhere; }
+.coordination-answer-options:disabled label { cursor: default; color: var(--ink-soft); }
+.coordination-answer-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.coordination-answer-actions .btn { display: inline-flex; gap: 6px; align-items: center; justify-content: center; min-width: 112px; min-height: 36px; }
+.coordination-answer-receipt { display: grid; gap: 8px; margin-top: 12px; padding-left: 12px; border-left: 2px solid var(--ok); overflow-wrap: anywhere; }
+.coordination-answer-receipt .ok-text, .coordination-answer-receipt .link { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.coordination-answer-receipt .link > span { min-width: 0; overflow-wrap: anywhere; }
+.coordination-answer-receipt svg { flex-shrink: 0; }
 .coordination-failure { margin-top: 18px; border-left: 3px solid var(--danger); padding: 9px 12px; background: var(--danger-soft); color: var(--danger); font-size: 13px; overflow-wrap: anywhere; }
 .coordination-failure p { margin-top: 6px; white-space: pre-wrap; }
 .coordination-record { margin-top: 22px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-soft); }

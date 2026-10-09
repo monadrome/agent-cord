@@ -198,6 +198,12 @@ server 执行观察进入 prompt、输入身份与完成/查询/采用重检，�
 
 ADR-0050 的 tool_policy=none.v1 绑定当前独立协调策略：server 域 v7，无执行观察 hook 的库模式 v5。消费到任意 tool_use（含只读、空/未知负载或 result 后工具）立即 abort、关闭迭代器并保存 failed/driver，提议为 null，不保存工具名称/参数/raw；已确认失败不被清理错误覆盖。用户实际取消仍为 cancelled，宿主策略中止不写 cancel_requested。ACP 清理等待单次启动、有界发送的 session/cancel 序列后回收进程，避免提前 return 丢失通知。旧 v6/v4 提议保留历史但不可视为符合新策略，须重新协调。检测不撤销通知前副作用，不认证 driver 的报告完整性，也不改变普通 worker 工具通道。
 
+ADR-0052 增 coordinator.round.answered，严格 payload={round_id,workflow_id,workflow_revision?,completion_event_id,input_hash,choice}，actor=human、correlation=round。原完成须更早且为该 round 当前合法 ok/ask_human，流程版本/input 一致、选项存在，不能引用失败/非问题/未来/自引用或被替代的完成；相关坏事实 fail-closed，不回退旧值。写前重新核验最新完成的问题和选项，避免先记录非法引用。每个精确同题在当前 scope 投影最新选择，最多 128 个当前问题；API 达到容量时拒绝新增，不丢弃旧材料。
+
+POST /requirements/:req_id/coordination/:round_id/answer 接收 {choice}，要求 Idempotency-Key。只接受当前有效未归档问题，额外字段/未知选项为 400，过期/非问题/不同已存选择/并发冲突为 409。每需求一个答复槽位，相同轮次/选择共享结果；已记录同选择可重放，不同选择须新有效轮次重新提问。轮次新增可缺省 DTO 字段 answer（event_id/choice/answered_at/completion_event_id）、answerable、answer_reason；原生 server 总是提供，旧 server/客户端仍可只展示问题。
+
+RequirementSnapshot.clarifications 是同批事实的最新 question/choice/event_id/round_id，不是完整对话历史。独立协调可使用 source=clarification 引用答复 event_id，worker 与审批读取同一材料；人工选择不意味着测试/gate/执行授权或对后续文档永远适用。存在澄清时协调域为 server v8 / 无 hook v6、worker execution-input v5、approval-context v2；空数组或老库缺省字段保留 v7/v5、worker v4、审批 v1。答复使旧依据失效，后续显式重新协调/执行；不写 human.decision.recorded、不放行 gate、不启动 run 或恢复模型会话。界面提供原生单选、记录中/失败保留选择/过期禁用/已答复与事件导航。
+
 REST 创建 `POST /requirements/:req_id/coordination` 输入 `{agent, sdlc_id?, sdlc_version?, timeout_ms?}`，返回 202；列表/读取使用 GET，取消 `POST .../:round_id/cancel` 先落 cancel_requested 再 abort。写命令使用 Idempotency-Key；跨 method/path 复用键返回 409，创建并发同键合并为一轮。每需求只允许一轮在途协调，resolver 在创建时固定，归档版本拒绝新轮次。事件写入失败必须报告宿主，不能伪造 completed。server 重启将未完成轮次落 failed/interrupted；已有取消请求则落 cancelled，不重放模型调用。
 
 协调创建在 requested 前严格预检事件；列表/查询/采用的完整性错误返回 409，不回退旧提议。冷协调恢复隔离坏 session，保留原请求事实且不写中断终态或重放调用，健康需求继续可用；修复并重新启动后执行正常 interrupted 恢复。明确取消遇到读取/落盘错误时仍收束当前匹配轮次的进程，接口保留原错误，不伪造 cancel_requested 或取消成功；能落盘的 completed 如实记录 cancelled，写失败则走已有中断恢复。普通事件诊断浏览和其余 workflow 投影保持原读取语义，本规则保护快照、验证与协调决策边界。

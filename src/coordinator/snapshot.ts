@@ -11,6 +11,7 @@ import { createReducer } from "../core/reducer.js";
 import { readSessionEvents } from "../core/session-events.js";
 import { readSessionDocument } from "./session-files.js";
 import { matchesWorkflowScope } from "../workflow/scope.js";
+import { projectClarifications, type SnapshotClarification } from "./clarifications.js";
 
 export { resolveSessionFile } from "./session-files.js";
 
@@ -51,6 +52,8 @@ export interface RequirementSnapshot {
   docs: SnapshotDoc[];
   ledger: SnapshotLedgerEntry[];
   workflow: WorkflowProgress;
+  /** ADR-0052：同批事实投影的最新同题澄清，旧库快照可省略。 */
+  clarifications?: SnapshotClarification[];
   /** 由快照输入和事件流 provenance 派生的稳定指纹 */
   snapshot_id: string;
   /** 采集时事件流的最大 seq 与 chain hash */
@@ -117,6 +120,7 @@ export async function readSnapshot(
 
   // 账本、进度与 provenance 必须来自同次事件读取，磁盘投影可滞后或缺失。
   const events = await readSessionEvents(session);
+  const clarifications = projectClarifications(events, options.workflow_id === undefined ? undefined : { workflow_id: options.workflow_id, workflow_revision: options.workflow_revision });
   const ledger: SnapshotLedgerEntry[] = createReducer().reduce(events).entries.map((entry) => ({
     entry_id: entry.entry_id,
     title: entry.title,
@@ -160,6 +164,7 @@ export async function readSnapshot(
     })),
     ledger,
     workflow,
+    ...(clarifications.length === 0 ? {} : { clarifications }),
     workflow_id: options.workflow_id ?? null,
     ...(options.workflow_revision !== undefined ? { workflow_revision: options.workflow_revision } : {}),
     event_seq: eventSeq,
@@ -173,6 +178,7 @@ export async function readSnapshot(
     docs,
     ledger,
     workflow,
+    clarifications,
     snapshot_id: sha256Hex(canonicalJson(fingerprint)),
     event_seq: eventSeq,
     event_chain_hash: eventChainHash,
