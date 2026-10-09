@@ -38,6 +38,8 @@ export type {
 } from "./headless.js";
 
 export { AcpDriver, DEFAULT_PERMISSION_TIMEOUT_MS, mapAcpUsage, mapSessionUpdate } from "./acp.js";
+export { AcpPermissionPolicySchema } from "./acp-permissions.js";
+export type { AcpPermissionPolicy, AcpPermissionPolicyInput } from "./acp-permissions.js";
 export type {
   AcpDriverOptions,
   PermissionContext,

@@ -24,6 +24,7 @@ import {
 import { execa } from "execa";
 import type { AgentDriver, AgentEvent, AgentTask } from "../core/ports.js";
 import { canonicalJson, sha256Hex } from "../core/hash.js";
+import { AcpPermissionPolicySchema, decideAcpWorkspacePermission, type AcpPermissionPolicy, type AcpPermissionPolicyInput } from "./acp-permissions.js";
 import {
   AsyncQueue,
   DEFAULT_KILL_GRACE_MS,
@@ -165,6 +166,8 @@ export interface AcpDriverOptions {
   kill_grace_ms?: number;
   /** 自定义审批决策（M3 人工桥接挂载点）；缺省走 M2 规则：只读拒绝，否则取消并上抛 error */
   decidePermission?: PermissionDecider;
+  /** ADR-0060：可写任务的 read/edit 范围预授权，与自定义裁决互斥。 */
+  permission_policy?: AcpPermissionPolicyInput;
   /** 会话 id 回执（宿主也可从 `AgentEvent.session_id` / result 事件的 data 里取） */
   onSession?: (sessionId: string) => void;
 }
@@ -179,6 +182,7 @@ export class AcpDriver implements AgentDriver {
   private readonly permissionTimeoutMs: number;
   private readonly killGraceMs: number;
   private readonly decidePermission: PermissionDecider | undefined;
+  private readonly permission_policy: AcpPermissionPolicy | undefined;
   private readonly onSession: ((sessionId: string) => void) | undefined;
 
   constructor(options: AcpDriverOptions) {
@@ -186,7 +190,10 @@ export class AcpDriver implements AgentDriver {
     this.bin = options.bin;
     this.args = [...(options.args ?? ["acp"])];
     this.name = options.name ?? `acp:${options.bin}`;
-    this.configuration_hash = sha256Hex(canonicalJson({ domain: options.context_revision === undefined ? "cord.agent-config.acp.v1" : "cord.agent-config.acp.v2",
+    if (options.permission_policy !== undefined && options.decidePermission !== undefined) throw new Error("permission_policy 与 decidePermission 不能同时声明");
+    this.permission_policy = options.permission_policy === undefined ? undefined : AcpPermissionPolicySchema.parse(options.permission_policy);
+    this.configuration_hash = sha256Hex(canonicalJson({ domain: this.permission_policy !== undefined ? "cord.agent-config.acp.v3" : options.context_revision === undefined ? "cord.agent-config.acp.v1" : "cord.agent-config.acp.v2",
+      ...(this.permission_policy === undefined ? {} : { permission_policy: this.permission_policy }),
       ...(options.context_revision === undefined ? {} : { context_revision: options.context_revision }), name: this.name, bin: this.bin, args: this.args }));
     this.env = { ...options.env };
     this.permissionTimeoutMs = options.permission_timeout_ms ?? DEFAULT_PERMISSION_TIMEOUT_MS;
@@ -261,7 +268,7 @@ export class AcpDriver implements AgentDriver {
       }
     });
     app.onRequest("session/request_permission", ({ params }) =>
-      this.answerPermission(params, { readonly, push }),
+      this.answerPermission(params, { readonly, push, cwd: task.cwd }),
     );
 
     const connection = app.connect(ndJsonStream(toAgent.writable, fromAgent.readable));
@@ -410,7 +417,7 @@ export class AcpDriver implements AgentDriver {
 
   private async answerPermission(
     request: RequestPermissionRequest,
-    state: { readonly: boolean; push: (events: AgentEvent[]) => void },
+    state: { readonly: boolean; push: (events: AgentEvent[]) => void; cwd: string },
   ): Promise<RequestPermissionResponse> {
     const title = request.toolCall.title ?? request.toolCall.toolCallId;
     const cancelled: RequestPermissionResponse = { outcome: { outcome: "cancelled" } };
@@ -420,7 +427,9 @@ export class AcpDriver implements AgentDriver {
         try {
           return this.decidePermission !== undefined
             ? await this.decidePermission(request, { readonly: state.readonly })
-            : defaultPermissionDecision(request, state.readonly);
+            : this.permission_policy !== undefined && !state.readonly
+              ? await decideAcpWorkspacePermission(request, this.permission_policy, state.cwd)
+              : defaultPermissionDecision(request, state.readonly);
         } catch (error) {
           return { failed: error instanceof Error ? error.message : String(error) };
         }
@@ -431,7 +440,7 @@ export class AcpDriver implements AgentDriver {
     if (decision === TIMED_OUT) {
       state.push([
         errorEvent(
-          `permission request timed out after ${this.permissionTimeoutMs}ms; answered with cancelled: ${title}`,
+          this.permission_policy === undefined ? `permission request timed out after ${this.permissionTimeoutMs}ms; answered with cancelled: ${title}` : "ACP 范围权限校验超时，已取消请求",
           "permission",
           { raw: request },
         ),
@@ -441,7 +450,7 @@ export class AcpDriver implements AgentDriver {
 
     if ("failed" in decision) {
       state.push([
-        errorEvent(`permission decision failed (${decision.failed}); answered with cancelled: ${title}`, "permission", {
+        errorEvent(this.permission_policy === undefined ? `permission decision failed (${decision.failed}); answered with cancelled: ${title}` : "ACP 范围权限校验失败，已取消请求", "permission", {
           raw: request,
         }),
       ]);
@@ -462,17 +471,19 @@ export class AcpDriver implements AgentDriver {
       }
       const denied = option.kind === "reject_once" || option.kind === "reject_always";
       state.push([
-        textEvent(`[permission ${denied ? "denied" : "granted"}: ${option.name}] ${title}`, request),
+        this.permission_policy === undefined ? textEvent(`[permission ${denied ? "denied" : "granted"}: ${option.name}] ${title}`, request)
+          : textEvent(denied ? "ACP 权限请求已拒绝" : "ACP 文件操作已按声明范围一次授权", request, "metadata"),
       ]);
       return { outcome: { outcome: "selected", optionId: option.optionId } };
     }
 
     if (state.readonly) {
-      state.push([textEvent(`[permission denied: readonly] ${title}`, request)]);
+      state.push([this.permission_policy === undefined ? textEvent(`[permission denied: readonly] ${title}`, request) : textEvent("ACP 只读任务权限请求已拒绝", request, "metadata")]);
     } else {
       state.push([
         errorEvent(
-          `permission request requires human approval (M2 未接人工审批); answered with cancelled: ${title}`,
+          this.permission_policy === undefined ? `permission request requires human approval (M2 未接人工审批); answered with cancelled: ${title}`
+            : "ACP 权限请求超出声明范围或无法验证，已取消；需要调整授权后再执行",
           "permission",
           { raw: request },
         ),

@@ -146,6 +146,10 @@ Goal 问题记录当前有效人工答复后，view.goal_retry 提供 available/
 
 `run.retry`（ADR-0025）：`{ max_attempts(1-10, 默认 1), backoff_ms(默认 0) }`。协调 agent 按尝试循环，退避为 `backoff_ms × 第 n 次失败`，每次尝试落独立的 agent.task.started/completed（带 `attempt`/`max_attempts`），重试的上下文包附上次失败摘要。驱动解析失败属定义性错误，不重试。
 
+ACP 条目/原生 options 的可选 permission_policy 声明 read/edit 相对范围，归一化去重排序后纳入 ACP 配置 v3；未声明保留 v1/v2。可写任务只按 ACP kind 和全部 absolute locations 核验 cwd 与普通文件边界，edit 可创建，read 须存在，匹配时只选 allow_once；readonly 继续拒绝。未知操作、缺位置、越界/链接/管理文件或 IO 不可判定均取消，回执 metadata 不混入产物，清单仅返回范围数量。该协议检查不替代 OS 沙箱，也不推断 rawInput 中的自由命令（ADR-0060）。
+
+permission 驱动错误同样 retryable=false；权限拒绝后即使收到普通 agent 错误也不能自动获得重试。Goal 由该事实形成 blocked，可走既有 supervisor/人工处理路径，不用重复派发取得授权。
+
 ADR-0038 增可选 `run.output`（auto/text，缺省 auto）。auto 保留 agent 文件通道优先/文本回退，可写任务按既有语义写回，readonly 不写 artifact。text 必须声明 artifact，worker 最终文本由 coordinator 经共享文档 helper 代写，readonly 权限保持原样；文本模式观察到文件前后变化时保留现状并失败，不能改记 agent 自写。完整有效正文才可写，空/占位/metadata/失败/取消不生成成功报告，事件记录显式 output 与产物证据。
 
 text artifact 属当前节点输出，不参与该节点语义输入 hash，避免自身代写使 checkpoint 失效；复用仍要求 artifact_written 与 artifact_after_hash 匹配。PRD、上游资料、账本、workflow/配置变化仍使未退出任务失效。后置 gate 和人工审批按新产物核验，报告存在不证明结论正确，不自动批准或合入。

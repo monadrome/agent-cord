@@ -142,6 +142,16 @@ function asPayload(event: { payload: unknown }): Record<string, unknown> {
 // ---------------------------------------------------------------------------
 
 describe("coordinator（NodeRunner）", () => {
+  it("权限拒绝后再收到普通错误也不重新授予自动重试", async () => {
+    const driver = fakeDriver([
+      { type: "error", data: { kind: "permission", message: "需要新的授权" } },
+      { type: "error", data: { kind: "agent", message: "agent 后续回执失败" } },
+    ]);
+    const runner = createNodeRunner(DEF_RETRY, { resolveDriver: () => driver, workspaceRoot: root });
+    expect((await runner.runNode(DEF_RETRY.spec.nodes[1]!, session, { workflow_id: DEF_RETRY.metadata.id, node_id: "plan" })).status).toBe("failed");
+    expect(driver.prompts).toHaveLength(1);
+    expect((await session.events.readOrdered()).filter(event => event.type === "agent.task.completed")[0]?.payload).toMatchObject({ failure_stage: "driver", retryable: false });
+  });
   it("只有协议或思考辅助文本时不能生成 artifact，保留原文", async () => {
     const old = "# ORIGINAL_ARTIFACT";
     await writeFile(join(session.dir, "plan.md"), old);

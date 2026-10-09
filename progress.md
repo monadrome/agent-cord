@@ -1,5 +1,16 @@
 # 工作进度
 
+## 2026-10-09（阶段 46）
+
+- HEAD 9079288、工作树干净且本地 origin 同步；本轮 ls-remote 有界 20 秒超时，功能实现不受网络影响，上轮为已验证进展。
+- ACP 原生可注入 PermissionDecider，但 YAML 没有范围策略；可写 worker 的普通请求也被默认取消。读取本地 SDK 证实 kind/absolute locations 可机验，选择 read/edit 显式范围与 allow_once，不解析自由标题或命令。
+- ADR-0060 先行；readonly 与独立协调保留原权限行为，未知/越界/无法验证继续取消。配置身份绑定策略，清单仅显示范围数量。
+- 实现 permission_policy.read/edit 归一化、严格 kind/absolute locations 与普通文件边界，allow_once/readonly 兼容、ACP config v3、公开数量与 Agent 页。回执 metadata 不污染产物，权限 error 不自动重试，后续普通错误也不重新授予重试。
+- 首轮 62 项 driver 通过，追加真实 read/edit/readonly 后 87 项相关回归通过；5 项 server/真 ACP 验证成功、越界失败/修正、旧 resolver、人审策略变化、公开隐私和普通 retry 拒绝权限重试。
+- 最终全量 963 测试 / 73 文件、build:all/typecheck/diff 通过。隔离真实 HTTP 首次因空正文携带 JSON content-type 被拒绝，已修正并清理旧进程；新工作区完整验证拒绝→显式策略重载→一次授权→host passed→人审未决，worker 2、决定/退出 0、冷恢复同审批不重复、doctor=true。
+- Playwright/Chrome 1440/390/320 Agent 页只显示预授权读/写数量，私有标记不可见；搜索、最终审批、无溢出/pageerror 通过，桌面与 320 截图已查看。证据 /tmp/cord-stage46-real-result.json 与 browser-result，预览 59645/PID 27074；不调用付费模型、不操作真实未决 gate。
+- 提交前 10 份公开文档的 154 个本地链接与 ADR-0060 七节/56 行通过，diff 检查通过。原真实 Draft 7306 实时审批 1、gate 决定 0、done 未退出；进入小步提交和有界同步，完整持续目标 active。
+
 ## 2026-10-09（阶段 45）
 
 - HEAD 4795f6c、工作树干净且与 origin 同步，自动升级功能为已验证进展；继续实现答复后的显式 Goal 续跑。

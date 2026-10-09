@@ -113,6 +113,7 @@ export function Agents(): ReactElement {
                   <div className="agent-protocol"><span>{agent.kind === "acp" ? "ACP" : "Headless"}</span>{agent.template !== null ? <code className="muted small">{agent.template}</code> : null}</div>
                   <div className="agent-identity"><code className="agent-config-hash" title={agent.configuration_hash ?? "未提供"}>{agent.configuration_hash?.slice(0, 12) ?? "未提供"}</code>
                     {agent.context_revision !== undefined ? <span className="agent-context-revision muted small">上下文 v{agent.context_revision}</span> : null}
+                    {agent.permission_policy !== undefined ? <span className="muted small" title="可写 ACP 任务按声明文件范围一次授权；只读任务仍拒绝权限请求">预授权：读 {agent.permission_policy.read_count} / 写 {agent.permission_policy.edit_count}</span> : null}
                   </div>
                 </li>
               ))}

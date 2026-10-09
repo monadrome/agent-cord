@@ -28,5 +28,7 @@ agents:
     kind: acp
     bin: kimi
     args: [acp]
+# ACP worker 可显式声明 permission_policy: {read: [src, tests], edit: [src]}。
+# 仅匹配 absolute locations 的 read/edit 请求可一次授权；只读任务仍拒绝。
 # 自定义 wrapper 可用 kind: headless / bin / args；args 只替换 {{prompt}}。
 # wrapper 自己负责只读权限和结果输出；需要协议权限请求时优先 ACP。

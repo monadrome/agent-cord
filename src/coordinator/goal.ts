@@ -182,7 +182,7 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
           } else {
             if (task_result?.success) {
               raw_feedback = task_result.data.error?.slice(0, 2000) ?? "";
-              if (task_result.data.retryable === false) { terminal = true; reason = "worker 配置、快照或产物错误不可自动重试，请查看任务事实"; }
+              if (task_result.data.retryable === false) { terminal = true; reason = "worker 权限、配置、快照或产物错误不可自动重试，请查看任务事实"; }
             }
             try { current = await identity(node, session, ctx); } catch { terminal = true; kind = "environment"; reason = "失败后无法读取当前 Goal 输入"; }
           }

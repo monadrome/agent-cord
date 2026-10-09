@@ -8,6 +8,7 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import type { AgentDriver } from "../core/ports.js";
 import { AcpDriver } from "./acp.js";
+import { AcpPermissionPolicySchema } from "./acp-permissions.js";
 import {
   HeadlessDriver,
   getHeadlessCliTemplate,
@@ -27,6 +28,7 @@ const AgentEntrySchema = z.discriminatedUnion("kind", [
     args: z.array(z.string()).optional(),
     env: z.record(z.string(), z.string()).optional(),
     context_revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+    permission_policy: AcpPermissionPolicySchema.optional(),
   }),
   z.strictObject({
     kind: z.literal("headless"),
@@ -68,6 +70,7 @@ export interface AgentDefinitionInfo {
   template: string | null;
   /** ADR-0054：公开的外部行为版本声明，不是环境摘要。 */
   context_revision?: number;
+  permission_policy?: { read_count: number; edit_count: number };
 }
 
 export interface AgentRegistry extends AgentsLoadResult {
@@ -126,9 +129,11 @@ function compileAgentsYaml(yaml: AgentsYaml | null): {
         args: [...(entry.args ?? ["acp"])],
         name: `acp:${name}`,
         ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }),
+        ...(entry.permission_policy === undefined ? {} : { permission_policy: entry.permission_policy }),
         ...(entry.env !== undefined ? { env: { ...entry.env } } : {}),
       }));
-      entries.push({ name, kind: "acp", source: "workspace", template: null, ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }) });
+      entries.push({ name, kind: "acp", source: "workspace", template: null, ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }),
+        ...(entry.permission_policy === undefined ? {} : { permission_policy: { read_count: entry.permission_policy.read.length, edit_count: entry.permission_policy.edit.length } }) });
       continue;
     }
     if ((entry.template === undefined) === (entry.args === undefined)) {
@@ -259,7 +264,8 @@ export function createAgentRegistry(yaml: AgentsYaml | null, rejectedNames: read
     registered: [...compiled.drivers.keys()],
     warnings: compiled.warnings,
     rejected: [...rejected],
-    list: () => [...entries.values()].sort((a, b) => a.name.localeCompare(b.name)).map((entry) => ({ ...entry })),
+    list: () => [...entries.values()].sort((a, b) => a.name.localeCompare(b.name)).map((entry) => ({ ...entry,
+      ...(entry.permission_policy === undefined ? {} : { permission_policy: { ...entry.permission_policy } }) })),
     resolve(name: string): AgentDriver {
       const index = name.indexOf(":");
       const prefix = index === -1 ? undefined : name.slice(0, index);

@@ -42,6 +42,8 @@ agent 外部行为：[2026-10-09 上下文版本](./2026-10-09-agent-context-rev
 
 卡点处理后续跑：[2026-10-09 人工授权 Goal](./2026-10-09-human-goal-retry.md)，记录有效答复、当前输入 token、新预算来源、索引重建、真实 Codex 与浏览器恢复到最终人审。
 
+ACP 自主权限：[2026-10-09 文件范围预授权](./2026-10-09-acp-workspace-permissions.md)，记录结构化位置、一次授权、越界取消、固定配置与真实子进程/HTTP/浏览器验收。
+
 | # | 文件 | 主题 | 核心结论 |
 |---|---|---|---|
 | 01 | [2026-09-24-01-orchestration-workflow-engines.md](./2026-09-24-01-orchestration-workflow-engines.md) | 多 agent 编排与工作流引擎 | 无引擎满足「YAML 图 + gate + 审批暂停 + git/文件为唯一 SSOT」的组合；允许外部状态源的仅 4 个（Vercel Workflow SDK 的 World 适配器最彻底）。编排内核自研，gate 状态机可用 XState v5；Inngest（SSPL）、Restate（BSL）许可排除 |

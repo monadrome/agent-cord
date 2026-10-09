@@ -343,7 +343,8 @@ function createTaskNodeRunner(def: WorkflowDef, options: CoordinatorOptions): No
     let agentSessionId: string | null = null;
     let usage: ResultEventData["usage"] = null;
     let cancelled = false;
-    let failure: { status: NodeRunStatus; message: string } | null = null;
+    let permission_denied = false;
+    let failure: { status: NodeRunStatus; message: string; retryable?: boolean } | null = null;
     try {
       const task = {
         prompt,
@@ -375,11 +376,13 @@ function createTaskNodeRunner(def: WorkflowDef, options: CoordinatorOptions): No
             usage = data.usage ?? usage;
           } else if (event.type === "error") {
             const data = event.data as ErrorEventData;
+            if (data.kind === "permission") permission_denied = true;
             agentSessionId = data.session_id ?? agentSessionId;
             // 取最后一个 error 为准（超时后可能还有 agent 错误余波）
             failure = {
               status: data.kind === "timeout" ? "timeout" : "failed",
               message: data.message,
+              retryable: data.kind !== "permission",
             };
           }
         }
@@ -407,7 +410,7 @@ function createTaskNodeRunner(def: WorkflowDef, options: CoordinatorOptions): No
         agent_session_id: agentSessionId,
         usage: usage ?? null,
         failure_stage: "driver",
-        retryable: true,
+        retryable: !permission_denied && failure.retryable !== false,
       });
     }
 

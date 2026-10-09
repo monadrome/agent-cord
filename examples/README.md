@@ -4,6 +4,8 @@
 
 编辑配置后调用 `POST /api/v1/agents/reload`，从 `GET /api/v1/agents` 核验清单、诊断与配置指纹；控制台 Agent 页使用同一接口。清单只证明配置可解析，安装、认证、模型权限由实际调用验证。命名角色的外部定义文件和环境变化不在配置指纹覆盖范围内。
 
+ACP 可写 worker 可声明 `permission_policy: { read: [src, tests, package.json], edit: [src] }`，路径为工作区相对文件或目录前缀；所有请求位置必须在该类范围内，宿主只选 allow_once，不授予长期权限。只接受 read/edit 与 ACP absolute locations，不解析标题或 rawInput 的路径；缺位置、execute/delete/move/fetch、越界、链接/硬链接/管理文件或 IO 不可判断均取消。readonly worker/协调仍拒绝权限请求。策略变化纳入配置指纹，旧 resolver 固定；清单和控制台仅公开范围数量。协议授权不提供 OS 沙箱或对恶意 agent 的安全证明，部署者仍需隔离工作区。详见 [ADR-0060](../docs/adr/ADR-0060-acp-workspace-permission-policy.md)。
+
 `agent-sdlc.yaml` 是可发布流程：检查人工 PRD → Codex 计划草稿 → 内容/章节门禁 → 人工审核。发布到独立 SDLC 名称后，在需求详情的协调页选择该版本与 `context-coordinator` 发起轮次；有效 advance 提议可显式采用，之后仍需人工批准计划。选择 `claude-architect` 或 `kimi-acp` 可验证不同驱动的协调角色，不改变流程推进规则。
 
 `goal-sdlc.yaml` 是推荐的代码交付流程：需求检查 → Goal 自主实现/宿主验证/修复/review 指南 → 人工终审。控制台“Agent 协作 · Goal”模板提供同一模式。运行在已授权的隔离检出中，按目标项目调整 `run.goal.inputs` 与 `checks` 的 bin/args；示例命令对应本仓库的 npm 脚本，声明路径必须实际存在。Goal 支持 ACP/headless 注册别名，artifact 是带非空“变更 / 验收 / 风险”章节的指南。

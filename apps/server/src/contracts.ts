@@ -32,6 +32,7 @@ export interface AgentCatalogView {
     template: string | null;
     configuration_hash: string | null;
     context_revision?: number;
+    permission_policy?: { read_count: number; edit_count: number };
   }>;
   warnings: string[];
   rejected: string[];
