@@ -11,6 +11,7 @@
 - 1440/390/320 授权前预算、成功后的 run/按钮移除/最终审批无溢出/pageerror，桌面与 320 截图已查看；首次同 hash 页面未刷新导致旧 token 被正确拒绝，核验事实后继续原场景，未重启模型。冷恢复同审批、旧 failed run 保留、worker/supervisor 无重复、doctor=true。
 - 证据 `/tmp/cord-stage45-real-result.json` 与 browser-result，最新预览 PID 6525/58537。所有临时数据不提交，原真实待审 Draft 不操作，完整持续目标 active。
 - 提交前 git diff --check、10 份文档的 150 个本地链接、ADR-0059 七节/55 行通过；原真实 Draft 7306 实时审批 1、gate 决定 0、done 未退出。进入小步功能提交与有界推送。
+- 功能提交 `a236faa`（feat: authorize goal retries after human clarification），HTTP/1.1 有界推送成功 4795f6c → a236faa，ls-remote 核验远端 `a236faa63b93c798268431d9cc6704e491f55290`。阶段 45 已完成受控续跑与实际验收；动态额度、费用/token 与统一权限仍待继续，目标不标记完成。
 
 ## 2026-10-09（阶段 44）
 
