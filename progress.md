@@ -11,6 +11,7 @@
 - 人审拒绝缺覆盖反例修复后通过；冷缺覆盖 failed 无重复 worker。首个恢复测试误假设普通 failed run 会因修复历史自动再执行，改为独立当前有效覆盖的冷人审成功对照；保留原普通 failed 恢复边界，不扩展授权。
 - 最终 1043 项 / 74 文件、typecheck/build:all/diff 通过；新 post 人审/冷等待拒绝与合法当前覆盖最终人审通过对照全绿。隔离最新 HTTP 缺覆盖人审 409、worker 2/observer 1/人工决定 0/退出 0，doctor=true，同一审批保持；预览 62939/PID 61215。
 - 最新浏览器 1440/390/320 矩阵两行/四列、长事件 ID/转义文本、无溢出/pageerror 通过，桌面/320 viewport 与全页截图均已查看。8 份文档 135 本地链接及 diff 通过；原真实 7306 审批 1/gate 决策 0/done 退出 0。进入小步功能提交与有界同步；完整业务覆盖、权限与资源治理仍待继续，持续目标 active。
+- 功能提交 `e57118d`（feat: bind goal acceptance criteria to host evidence）。HTTP/1.1 与 HTTP/2 有界推送均报低于 1 bytes/sec 持续 10 秒；独立 ls-remote 达到 20 秒上限。远端同步未确认，本地 tracking ahead 3（含阶段 49 两提交）；实现/验收保留，无需因网络失败重跑模型或测试。最新预览审批 1/worker 2/gate 决策 0/节点退出 0，完整持续目标 active。
 
 ## 2026-10-09（阶段 49）
 
