@@ -15,6 +15,7 @@
 - 最终 846 测试 / 64 文件、build:all/typecheck/git diff --check 通过，替代完成在写前拒绝且不留答复事实。最新 detached 预览 `http://127.0.0.1:7315/#/requirements/REQ-ANSWER-LOOP/coordination`（PID 60540）已健康，真实 Claude wait current=true，旧问题保留选择且不可重复改选。
 - 1440/390/320 的失败/保存禁用/一次答复/重启/长问题与选项/过期/来源导航已验收；截图查看无重叠。模拟答复没有新增 gate/节点退出/人工决定，原需求 PRD 不变、worker 0、人工待审 1、doctor=true。运行证据仅在临时目录，协议/架构/README/ADR 索引及公开记录同步。
 - 最终差异审查与 git diff --check 通过；7315 最新预览与 7306 原真实 Draft 实时健康、审批各 1、人工决定各 0、done 未退出。核心契约修改已有先行 ADR-0052；进入独立提交与 HTTP/2 有界推送，持续目标保持 active。
+- 功能提交 `c0e6f01`（28 文件），HTTP/2 推送退出码 128：低于 1 bytes/sec 持续 15 秒；ls-remote 在 20 秒上限后终止并报 10 秒低速，独立 GitHub 443 连接测试 5 秒超时。保留本地提交，实际远端状态未确认；记录待同步并作仅当前命令的 IPv4 有界重试，不改全局 Git 配置。
 
 ## 2026-10-08（阶段 37）
 
