@@ -1,5 +1,15 @@
 # 工作进度
 
+## 2026-10-09（阶段 41）
+
+- 接续阶段 35 交接与最新阶段 40 摘要；当前分支 exp/impl、HEAD aee9139、工作树干净，领先本地 origin/exp/impl 一个提交。
+- 消费中断前远端核验终态：ls-remote 因低于 1 bytes/sec 持续 10 秒失败；curl HTTP/2 可达 GitHub，不能据此认定 Git 分支同步成功。
+- 用户提出默认 Goal 执行认知并授权写入核心 feature；已读 agent-optimizer 与 planning-with-files，核对定位、轻量升级、节点协调和当前实现。
+- 本轮限定为设计与文档：宿主目标闭环覆盖 ACP/headless，正常路径自主完成可审 Draft，最终 review 和关键权限保留人工；未更改 runtime 或操作真实 Draft。
+- 新增 docs/core-features.md 与 ADR-0055；同步 README、当前架构、文档/ADR 索引和路线图。定义目标/权限/资源边界、代码+实际自测+review 指南交付包、宿主完成审计、自动修复、人工升级、恢复与零中途干预验收。
+- 保留旧 ADR 历史，补充执行默认；明确 ACP 通信与 Goal 完成职责分层、单次任务成功不等于目标达成。下一实现阶段需先定义交付/事件契约，不回滚退出事实、不引入第二个 SDLC 状态机。
+- 提交前完整 npm test 通过：873 测试 / 64 文件；7 份产品/架构/索引文档共 140 个本地链接均存在，ADR-0055 符合七节与 200 行上限（67 行）。git diff --check 通过；本轮纯文档，不重复 build/typecheck 或真实模型调用。
+
 ## 2026-10-09（阶段 40）
 
 - 上轮为已验证并推送的进展，HEAD=adc4ae2，工作树干净且同步。

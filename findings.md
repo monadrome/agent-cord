@@ -124,6 +124,14 @@
 - workspace doctor 的 merge driver 检查不同于 session doctor，临时 git 仓库仍需注册本地 merge driver；完成该初始化后 HTTP/浏览器验收与 workspace doctor 全通过。
 - 读错误后的 UI 不能解锁编辑或显示“已与磁盘一致”，真实 404 才进入新文档状态；浏览器已验证错误、缺失、保存与恢复，控制台仍只展示 server 投影。
 
+## 设计校准（2026-10-09，默认 Goal 交付）
+
+- 用户要求把“自主完成代码、自测与 human review 指南，happy path 无中途人工干预”纳入核心 feature。该原则与 Draft-only、最终人工控制和默认轻量升级兼容。
+- ACP 是通信协议；当前一次 session/prompt、driver 成功退出和 agent.task.completed=ok 都不能证明目标达成。默认 Goal 语义应归宿主执行层并覆盖 ACP/headless。
+- 当前 coordinator 的 run.retry 只对失败任务退避重试；尚无围绕机器验证失败的实现修复循环，也无完整交付包审计。
+- 执行者运行自测与独立验证并不冲突：测试是外部行为信号，完成判定需要宿主核验实际结果和当前输入/产物身份，模型自述不是通过证据。
+- 普通可修复错误应自行处理；必要事实缺失、权限越界、外部依赖不可恢复、预算耗尽或持续无进展才进入人工关注。最终 review 单独度量。
+
 ## 实现校准（2026-10-09，agent 上下文版本）
 
 - env 中既有凭据也有角色/路由行为，全部排除保护隐私，但外部行为变化没有显式身份声明。

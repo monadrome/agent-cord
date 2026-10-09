@@ -48,6 +48,12 @@ worker agent 子进程（ACP / 裸 headless CLI）
 
 跨模块结构以 [`src/core/schema.ts`](../src/core/schema.ts) 和 [`src/core/ports.ts`](../src/core/ports.ts) 为准。
 
+### 已采纳的 Goal 执行设计
+
+[默认 Goal 驱动的自主 Draft 交付](./core-features.md) 是真实 agent 开发流程的核心设计基线：自主完成代码、实际自测与 human review 指南，正常执行无需中途人工干预，最终 review 与关键权限仍人工控制（[ADR-0055](./adr/ADR-0055-goal-driven-draft-delivery.md)）。
+
+当前 ACP/headless 提供任务调用，coordinator 提供输入、产物和任务重试，workflow 提供门禁与恢复；尚无目标级交付审计及“宿主验证失败 → 自动修复 → 再验证”闭环。后续 Goal 职责属于宿主 workflow/NodeRunner 生命周期，driver 保持协议适配职责；独立协调的一次提议也不等于自主 Goal 监督。以下章节仍描述当前已实现行为。
+
 ## 3. 数据和写入路径
 
 每个需求对应 `cord/<req-id>/`：

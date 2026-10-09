@@ -4,6 +4,12 @@
 
 agent-cord 是一个多 agent 共识协作基座：把需求、决策、证据和人工审核放进同一条可追溯的工作流。workflow 节点可声明执行体，由协调 agent 以最新需求快照驱动 worker agent（claude / codex / kimi / 自定义注册）产出草稿；最终合入和高风险决策保留人工参与。
 
+## 核心 Feature
+
+**默认 Goal 驱动的自主 Draft 交付。** 用户给出目标后，系统在约定权限与预算内自主完成实现、自测、失败修复和交付整理，交付代码、当前版本的实际测试证据及 human review 指南。happy path 无需中途人工干预；真实卡点再升级，最终 review、合入、发布及关键权限仍由人控制。
+
+这是已采纳的产品与架构基线，覆盖 ACP/headless；完整 Goal 闭环尚未实现，当前任务重试不等于目标达成。详见 [核心 feature 与验收标准](./docs/core-features.md) 和 [ADR-0055](./docs/adr/ADR-0055-goal-driven-draft-delivery.md)。
+
 ## 能做什么
 
 - 为每个需求维护一个共识快照目录：Markdown 文档、`ledger.yaml` 账本和 `events.jsonl` 事件流。

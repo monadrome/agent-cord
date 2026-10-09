@@ -7,6 +7,7 @@
 | 文档 | 内容 |
 |---|---|
 | [README.md](../README.md) | 安装、运行、控制台操作和当前能力边界。 |
+| [core-features.md](./core-features.md) | 已采纳的核心 feature：默认 Goal 自主 Draft 交付、交付契约、人工边界与待实现项。 |
 | [current-architecture.md](./current-architecture.md) | 当前代码的分层、数据布局、运行路径、API 和非目标。 |
 | [protocol.md](./protocol.md) | 事件、账本、workflow、gate 和 voting 的实现协议速查。 |
 | [10-roadmap.md](./10-roadmap.md) | 后续工作、已完成项和未实现能力。 |
@@ -18,6 +19,7 @@
 | 目的 | 顺序 |
 |---|---|
 | 只想运行项目 | [README](../README.md) |
+| 想理解核心产品原则 | [core-features.md](./core-features.md) → [ADR-0055](./adr/ADR-0055-goal-driven-draft-delivery.md) |
 | 想理解当前代码 | [current-architecture.md](./current-architecture.md) → [protocol.md](./protocol.md) |
 | 想修改跨模块协议 | [protocol.md](./protocol.md) → [adr/](./adr/) → 源码和测试 |
 | 想了解未来设计或风险 | [10-roadmap.md](./10-roadmap.md) → 旧章节 → [research/](./research/) |
@@ -37,6 +39,7 @@
 | **盲评投票** | k=2~3 票独立提交结论和证据锚点。 | [protocol.md](./protocol.md) |
 | **证据锚点** | 结论与代码、测试、契约、知识或文档的可审计连接点。 | [04-consensus-ledger.md](./04-consensus-ledger.md) |
 | **上下文包** | 提供给工作单元的最小上下文派生视图。 | [07-context.md](./07-context.md) |
+| **Goal** | 在权限与预算内持续推进的交付目标；完整执行闭环待实现，交付就绪与最终人审分离。 | [core-features.md](./core-features.md) |
 
 ## 参考文档约定
 
