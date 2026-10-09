@@ -5,6 +5,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp, type BuiltServer } from "@agent-cord/server";
 
@@ -164,6 +165,8 @@ describe("SDLC 模板库", () => {
       "strict",
       "agent-collab",
     ]);
+    const goal_template = parseYaml(listed.body.templates.find((item: any) => item.id === "agent-collab").yaml) as any;
+    expect(goal_template.spec.nodes.find((node: any) => node.id === "deliver").run.goal.checks).toHaveLength(3);
     for (const template of listed.body.templates) {
       const validated = await api("POST", "/api/v1/sdlcs/tpl-check/versions/validate", {
         body: { yaml: template.yaml },

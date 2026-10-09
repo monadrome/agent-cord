@@ -1,6 +1,6 @@
 # 当前实现架构
 
-> 状态：M2/MVP + 节点协调 + 独立 Context Session Agent（2026-10-07）。本文描述仓库当前代码，不替代 ADR 的决策记录。
+> 状态：M2/MVP + 节点协调 + 独立 Context Session Agent + 节点内 Goal 交付原型（2026-10-09）。本文描述仓库当前代码，不替代 ADR 的决策记录。
 
 ## 1. 一句话概览
 
@@ -52,7 +52,9 @@ worker agent 子进程（ACP / 裸 headless CLI）
 
 [默认 Goal 驱动的自主 Draft 交付](./core-features.md) 是真实 agent 开发流程的核心设计基线：自主完成代码、实际自测与 human review 指南，正常执行无需中途人工干预，最终 review 与关键权限仍人工控制（[ADR-0055](./adr/ADR-0055-goal-driven-draft-delivery.md)）。
 
-当前 ACP/headless 提供任务调用，coordinator 提供输入、产物和任务重试，workflow 提供门禁与恢复；尚无目标级交付审计及“宿主验证失败 → 自动修复 → 再验证”闭环。后续 Goal 职责属于宿主 workflow/NodeRunner 生命周期，driver 保持协议适配职责；独立协调的一次提议也不等于自主 Goal 监督。以下章节仍描述当前已实现行为。
+ACP/headless 保持任务调用。coordinator/goal.ts 在 NodeRunner 内承载 run.goal：worker 产出代码与指南 → 宿主按声明 argv 执行检查 → 输入重检与指南审计 → 失败反馈修复或 ready。host-verification.ts 计算完整输出 hash、有界内存尾部并回收超时/取消进程组；失败原文不持久化。指南补入实际结果事件与命令元信息，当前源码与最终指南绑定验证输入。连续无进展、时长与尝试从 goal.attempt 事实恢复；卡点归 run failed 并公开原因。独立协调的一次提议仍不等于自主 Goal 监督。
+
+“Agent 协作 · Goal”模板默认使用该原型，旧发布流程保持原执行语义。缺宿主能力或 NodeRunner 的 Goal 拒绝跳过；正常闭环在未退出节点内完成，最终 post gate 保留人工。未退出 Goal 的同 run 冷恢复校验最新 ready、worker 完成引用、当前源码/指南与宿主验证事件，输入变化先重做；新 run 不复用旧 ready。独立监督、结构化人工卡点续跑和权限策略统一仍待后续实现，完整输出日志未持久化。
 
 ## 3. 数据和写入路径
 
@@ -148,6 +150,7 @@ ask_human 的人工选择由独立 answer 写入口形成 coordinator.round.answ
 server 默认监听 `127.0.0.1:7250`，工作区由 `CORD_ROOT` 指定。核心接口包括：
 
 - 查询：`/health`、`/dashboard`、`/requirements`、需求详情、timeline、ledger、votes、runs、approvals。
+- 产物：`GET /requirements/:req_id/artifacts?path=...` 只读当前绑定 SDLC 的声明文件，复用普通文档边界；需求 detail 投影 artifacts 清单，控制台文档页展示指南原文/预览，固定快照仍可编辑。
 - Agent：`GET /agents` 查看配置 revision、公开清单和诊断；`POST /agents/reload` 显式重载（幂等键），清单不包含 env、args 或角色 prompt。
 - 协调：`POST/GET /requirements/:req_id/coordination`、`GET /requirements/:req_id/coordination/:round_id`、`POST .../:round_id/cancel`、`POST .../:round_id/adopt`；创建/采用返回 202，每需求至多一个在途协调轮次。
 - 机器验证：`GET /requirements/:req_id/runs/:run_id/nodes/:node_id/verification-context` 获取当前输入 hash；`POST /requirements/:req_id/runs/:run_id/verifications` 记录带 run/input hash 的验证事实。需求详情概览展示各 run 的最新验证状态。

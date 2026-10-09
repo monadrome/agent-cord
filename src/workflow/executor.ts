@@ -188,6 +188,7 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
 
           if (node.run !== undefined) {
             if (options.nodeRunner === undefined) {
+              if (node.run.goal !== undefined) throw new WorkflowDefinitionError("Goal 节点缺少 NodeRunner，不能跳过交付执行");
               notes.push("节点声明了 run 执行体但未注入 NodeRunner，执行被跳过（fail-visible）");
             } else {
               const completion = state.agentDone.get(nodeId);

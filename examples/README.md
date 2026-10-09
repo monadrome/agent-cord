@@ -6,6 +6,14 @@
 
 `agent-sdlc.yaml` 是可发布流程：检查人工 PRD → Codex 计划草稿 → 内容/章节门禁 → 人工审核。发布到独立 SDLC 名称后，在需求详情的协调页选择该版本与 `context-coordinator` 发起轮次；有效 advance 提议可显式采用，之后仍需人工批准计划。选择 `claude-architect` 或 `kimi-acp` 可验证不同驱动的协调角色，不改变流程推进规则。
 
+`goal-sdlc.yaml` 是推荐的代码交付流程：需求检查 → Goal 自主实现/宿主验证/修复/review 指南 → 人工终审。控制台“Agent 协作 · Goal”模板提供同一模式。运行在已授权的隔离检出中，按目标项目调整 `run.goal.inputs` 与 `checks` 的 bin/args；示例命令对应本仓库的 npm 脚本，声明路径必须实际存在。Goal 支持 ACP/headless 注册别名，artifact 是带非空“变更 / 验收 / 风险”章节的指南。
+
+宿主直接运行声明命令，不经过 shell。测试失败和缺交付项自动回灌 worker；次数、总时长与无进展达到上限后 run=failed，错误与 goal.attempt.completed 保留具体原因，不生成放行选择。普通失败不需要人点击继续；代码或指南在人审期间变化时旧审批 409，剩余预算内重做 Goal。只有同 run 的最新 ready 与当前宿主验证/源码/指南身份一致才能恢复复用；未退出 Goal 的新 run 重新验证，已经退出的节点仍遵循原执行版本语义。
+
+宿主证据附在指南中，含实际 argv、工作目录、退出状态、耗时、输出 hash 和结果事件 ID。完整原始输出不落盘；失败尾部只在内存中供下一次修复。声明测试脚本与依赖仍处于工作区信任边界，源码 hash 只证明身份，不证明验收质量或恶意 worker 抗篡改。Goal 不改变 ACP 权限策略，也不替代最终 review。详见 [ADR-0056](../docs/adr/ADR-0056-goal-node-execution.md)。
+
+最终指南可在需求详情 → 文档 → review.md 只读查看原文与预览；REST 使用 GET artifacts?path=review.md，未声明文件不会被开放。人工审批仍在“审批”页操作，阅读指南不生成任何 gate 决策。
+
 `development-sdlc.yaml` 扩展为五节点：需求检查 → 只读计划 → 可写实现 Draft → 只读评审报告 → 人工终审。必须运行在独立检出/隔离工作区；示例本身不会创建 OS 隔离。实现 worker 可修改工作区，禁止提交、推送和合入；评审 worker 使用新会话，只读核验代码和测试，报告由协调层写入 findings.md。默认 Codex 角色别名仍可能使用同模型，这不等价于异构盲评；需要异构时替换评审 driver，并实际核验模型与权限。
 
 评审报告完成后，`host-tests` gate 等待宿主提交 `offline-tests` 事实；最终 `human-review` 再检查同一验证结果，避免机器 gate 通过后代码变化仍可批准。宿主按当前上下文执行命令并提交结果，人工终审保持独立。

@@ -544,6 +544,9 @@ export class RunService {
         const status = payload["status"];
         if (status === "ok") failedNodes.delete(nodeId);
         else if (status === "failed" || status === "timeout") failedNodes.add(nodeId);
+      } else if (event.type === "goal.attempt.completed" && payload["run_id"] === runId && typeof nodeId === "string") {
+        if (payload["status"] === "ready") failedNodes.delete(nodeId);
+        else if (payload["status"] !== "cancelled") failedNodes.add(nodeId);
       } else if (event.type === "gate.resolved" && payload["action"] === "stop") {
         stopped = true;
       } else if (event.type === "workflow.node.entered") {
@@ -578,6 +581,8 @@ export class RunService {
               resolveDriver: driverResolver,
               workspaceRoot,
               read_source_hash: async (node) => (await readVerificationSource(workspaceRoot, verificationSourceInputs(node))).source_hash,
+              read_verification_input: async (node, current_session, ctx) => this.readNodeInput(def, node, current_session,
+                driverResolver(node.run!.agent).configuration_hash ?? null, ctx.workflow_revision),
             }),
           }
         : {}),
@@ -587,7 +592,9 @@ export class RunService {
       .then(async () => {
         const events = await session.events.readOrdered();
         const status = this.computeFinalStatus(events, def, run.run_id, run.workflow_revision ?? undefined) ?? "completed";
-        this.safeFinish(run.run_id, status, null);
+        const blocked_goal = [...events].reverse().find(event => event.type === "goal.attempt.completed" && matchesWorkflowScope(event.payload, { workflow_id: def.metadata.id, workflow_revision: run.workflow_revision ?? undefined })
+          && event.payload["run_id"] === run.run_id && event.payload["status"] === "blocked");
+        this.safeFinish(run.run_id, status, status === "failed" && blocked_goal !== undefined ? String(asRecord(blocked_goal.payload)?.["reason"]) : null);
         await session.rebuildLedger();
       })
       .catch((error: unknown) => {

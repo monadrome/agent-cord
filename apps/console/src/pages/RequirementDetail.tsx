@@ -104,7 +104,7 @@ export function RequirementDetail({ reqId, tab, onTab, onBack }: Props): ReactEl
   /** 可启动的 SDLC 选项（`<sdlc_id>@<version>` 编码）；缺省 = server 默认 SDLC */
   const [sdlcOptions, setSdlcOptions] = useState<SdlcSummary[]>([]);
   const [selectedSdlc, setSelectedSdlc] = useState<string>("");
-  const [focused_doc, set_focused_doc] = useState<SnapshotDocName>("prd");
+  const [focused_doc, set_focused_doc] = useState("prd.md");
   const [focused_event, set_focused_event] = useState<string | null>(null);
 
   useEffect(() => {
@@ -331,8 +331,8 @@ export function RequirementDetail({ reqId, tab, onTab, onBack }: Props): ReactEl
       {tab === "overview" ? <OverviewTab timeline={timeline} activeRun={activeRun} events={events} /> : null}
       {tab === "coordination" ? <CoordinationPanel req_id={reqId} default_sdlc={timeline?.sdlc_version !== null && timeline?.sdlc_version !== undefined ? `${timeline.sdlc_id}@${timeline.sdlc_version}` : ""}
         event_seq={events.at(-1)?.seq ?? 0} run_in_flight={runInFlight} onChanged={loadProjections} onRun={() => onTab("overview")}
-        onSource={(source, id) => { if (source === "document") { set_focused_doc(id.replace(/\.md$/, "") as SnapshotDocName); onTab("docs"); } else if (source === "verification" || source === "agent_task" || source === "clarification") { set_focused_event(id); onTab("events"); } else onTab(source === "ledger" ? "ledger" : "overview"); }} /> : null}
-      {tab === "docs" ? <DocsTab reqId={reqId} docs={detail?.docs ?? null} initial_doc={focused_doc} /> : null}
+        onSource={(source, id) => { if (source === "document") { set_focused_doc(id); onTab("docs"); } else if (source === "verification" || source === "agent_task" || source === "clarification") { set_focused_event(id); onTab("events"); } else onTab(source === "ledger" ? "ledger" : "overview"); }} /> : null}
+      {tab === "docs" ? <DocsTab reqId={reqId} docs={detail?.docs ?? null} artifacts={detail?.artifacts ?? []} initial_doc={focused_doc} /> : null}
       {tab === "ledger" ? <LedgerTab ledger={ledger} /> : null}
       {tab === "votes" ? <VotesTab votes={votes} /> : null}
       {tab === "events" ? <EventsTab events={events} focused_event={focused_event} onFocus={set_focused_event} /> : null}
@@ -546,8 +546,11 @@ function GateLine({ gate }: { gate: GateState }): ReactElement {
 // 文档
 // ---------------------------------------------------------------------------
 
-function DocsTab({ reqId, docs, initial_doc = "prd" }: { reqId: string; docs: Record<SnapshotDocName, boolean> | null; initial_doc?: SnapshotDocName }): ReactElement {
-  const [doc, setDoc] = useState<SnapshotDocName>(initial_doc);
+function DocsTab({ reqId, docs, artifacts, initial_doc = "prd.md" }: { reqId: string; docs: Record<SnapshotDocName, boolean> | null; artifacts: NonNullable<RequirementDetailView["artifacts"]>; initial_doc?: string }): ReactElement {
+  const [doc, setDoc] = useState(initial_doc);
+  const builtin_doc = SNAPSHOT_DOCS.find(name => `${name}.md` === doc);
+  const doc_list = [...SNAPSHOT_DOCS.map(name => ({ path: `${name}.md`, available: docs?.[name] ?? false })),
+    ...artifacts.filter(item => !SNAPSHOT_DOCS.some(name => `${name}.md` === item.path))];
   const [content, setContent] = useState("");
   const [saved, setSaved] = useState("");
   const [loading, setLoading] = useState(true);
@@ -562,8 +565,7 @@ function DocsTab({ reqId, docs, initial_doc = "prd" }: { reqId: string; docs: Re
     setReadable(false);
     setNotice(null);
     setError(null);
-    void api
-      .readDoc(reqId, doc)
+    void (builtin_doc === undefined ? api.readArtifact(reqId, doc) : api.readDoc(reqId, builtin_doc))
       .then((result) => {
         if (cancelled) return;
         setContent(result.content);
@@ -573,7 +575,7 @@ function DocsTab({ reqId, docs, initial_doc = "prd" }: { reqId: string; docs: Re
       .catch((cause: unknown) => {
         if (cancelled) return;
         // 文档尚未生成：允许人直接编写并保存（living 文档）
-        if (cause instanceof ApiClientError && cause.status === 404) {
+        if (builtin_doc !== undefined && cause instanceof ApiClientError && cause.status === 404) {
           setContent("");
           setSaved("");
           setReadable(true);
@@ -593,11 +595,12 @@ function DocsTab({ reqId, docs, initial_doc = "prd" }: { reqId: string; docs: Re
   const dirty = content !== saved;
 
   const save = async (): Promise<void> => {
+    if (builtin_doc === undefined) return;
     setBusy(true);
     try {
-      await api.writeDoc(reqId, doc, content);
+      await api.writeDoc(reqId, builtin_doc, content);
       setSaved(content);
-      setNotice(`${doc}.md 已保存`);
+      setNotice(`${doc} 已保存`);
       setError(null);
     } catch (cause) {
       setError(describeError(cause));
@@ -614,16 +617,16 @@ function DocsTab({ reqId, docs, initial_doc = "prd" }: { reqId: string; docs: Re
       }
     >
       <div className="tabs tabs-sub">
-        {SNAPSHOT_DOCS.map((name) => (
+        {doc_list.map((item) => (
           <button
-            key={name}
+            key={item.path}
             type="button"
-            className={name === doc ? "tab tab-active" : "tab"}
+            className={item.path === doc ? "tab tab-active" : "tab"}
             disabled={busy}
-            onClick={() => { if (name !== doc) { setLoading(true); setDoc(name); } }}
+            onClick={() => { if (item.path !== doc) { setLoading(true); setDoc(item.path); } }}
           >
-            {name}.md
-            {docs !== null && !docs[name] ? <span className="muted small"> · 不可用</span> : null}
+            {item.path}
+            {docs !== null && !item.available ? <span className="muted small"> · 不可用</span> : null}
           </button>
         ))}
       </div>
@@ -637,9 +640,10 @@ function DocsTab({ reqId, docs, initial_doc = "prd" }: { reqId: string; docs: Re
             rows={18}
             value={content}
             disabled={loading || !readable || busy}
+            readOnly={builtin_doc === undefined}
             onChange={(event) => setContent(event.target.value)}
             placeholder={loading ? "加载中…" : "在此编写文档内容（Markdown）"}
-            aria-label={`${doc}.md 内容`}
+            aria-label={`${doc} 内容`}
           />
         </div>
         <div className="doc-pane">
@@ -648,10 +652,10 @@ function DocsTab({ reqId, docs, initial_doc = "prd" }: { reqId: string; docs: Re
         </div>
       </div>
       <div className="form-actions">
-        <button type="button" className="btn btn-primary" disabled={loading || !readable || busy || !dirty} onClick={() => void save()}>
+        <button type="button" className="btn btn-primary" disabled={builtin_doc === undefined || loading || !readable || busy || !dirty} onClick={() => void save()}>
           {busy ? "保存中…" : "保存"}
         </button>
-        {!readable ? <span className="muted small">未读取文档</span> : dirty ? <span className="muted small">有未保存的修改</span> : <span className="muted small">已与磁盘一致</span>}
+        {!readable ? <span className="muted small">未读取文档</span> : builtin_doc === undefined ? <span className="muted small">只读</span> : dirty ? <span className="muted small">有未保存的修改</span> : <span className="muted small">已与磁盘一致</span>}
       </div>
     </Section>
   );

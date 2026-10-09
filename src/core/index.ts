@@ -9,6 +9,10 @@ export {
   AgentTaskReusedPayloadSchema,
   VerificationCompletedPayloadSchema,
   VerificationResultSchema,
+  GoalConfigSchema,
+  GoalCommandSchema,
+  GoalAttemptStartedPayloadSchema,
+  GoalAttemptCompletedPayloadSchema,
   AnchorSchema,
   CliMessageReceivedPayloadSchema,
   ConfidenceSourceSchema,
@@ -69,6 +73,8 @@ export type {
   VoteRecord,
   WorkflowDef,
   WorkflowScope,
+  GoalConfig,
+  GoalCommand,
 } from "./schema.js";
 
 export type {

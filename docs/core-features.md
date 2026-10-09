@@ -1,6 +1,6 @@
 # 核心 Feature：默认 Goal 驱动的自主 Draft 交付
 
-> 状态：已采纳的产品与架构基线（2026-10-09）；完整 Goal 执行闭环待实现。当前代码能力见 [当前架构](./current-architecture.md)，决策见 [ADR-0055](./adr/ADR-0055-goal-driven-draft-delivery.md)。
+> 状态：已采纳的产品与架构基线（2026-10-09）；节点内 Goal 原型已实现，完整监督与人工卡点闭环仍待实现。当前能力见 [当前架构](./current-architecture.md)，原则见 [ADR-0055](./adr/ADR-0055-goal-driven-draft-delivery.md)，原型协议见 [ADR-0056](./adr/ADR-0056-goal-node-execution.md)。
 
 ## 1. 默认认知
 
@@ -92,7 +92,8 @@ flowchart LR
 | 最新快照、输入/产物指纹、checkpoint 校验、版本化审批 | 已实现 |
 | `verification.completed`、源码范围、验证 checker 与证据新鲜度 | 已实现；接入结果事实不等于自动运行并可信观察测试 |
 | `run.retry` 的失败摘要、次数与退避 | 已实现；成功任务后的验证失败尚不会自动触发实现修复闭环 |
-| Goal 交付包、宿主完成审计、自动验证与修复循环、目标级预算与卡点治理 | 待实现 |
+| 节点内 Goal、宿主实际验证/修复、指南结构审计与实际证据、次数/时长/无进展边界 | 原型已实现；显式 run.goal，推荐 Agent 模板默认采用 |
+| 完整验收覆盖判定、结构化人工卡点答复续跑、统一权限策略、费用预算 | 待实现；现有卡点归 run failed 并保留原因，不能等同完整人工升级闭环 |
 | 独立 Context Session Agent | 已实现一次 Draft 提议与人工采用；尚未承担自动 Goal 监督循环 |
 
-真实 agent 开发流程的设计默认是 Goal；零外部依赖的离线 `simple-sdlc` 继续用于验证平台内核。现有 API、示例与人工 gate 未因本次文档采纳而改变。后续按 [路线图](./10-roadmap.md) 分步实现，跨模块协议先更新 ADR。
+真实 agent 开发流程的设计默认是 Goal；“Agent 协作 · Goal”模板与 [goal-sdlc.yaml](../examples/goal-sdlc.yaml) 提供当前原型。零外部依赖的离线 `simple-sdlc` 继续用于验证平台内核，既有发布版本与人工 gate 保留原语义。后续按 [路线图](./10-roadmap.md) 继续完善，跨模块协议先更新 ADR。

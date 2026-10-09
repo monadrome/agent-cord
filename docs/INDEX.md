@@ -39,7 +39,7 @@
 | **盲评投票** | k=2~3 票独立提交结论和证据锚点。 | [protocol.md](./protocol.md) |
 | **证据锚点** | 结论与代码、测试、契约、知识或文档的可审计连接点。 | [04-consensus-ledger.md](./04-consensus-ledger.md) |
 | **上下文包** | 提供给工作单元的最小上下文派生视图。 | [07-context.md](./07-context.md) |
-| **Goal** | 在权限与预算内持续推进的交付目标；完整执行闭环待实现，交付就绪与最终人审分离。 | [core-features.md](./core-features.md) |
+| **Goal** | 在权限与预算内持续推进的交付目标；节点内原型已实现，交付就绪与最终人审分离。 | [core-features.md](./core-features.md) |
 
 ## 参考文档约定
 

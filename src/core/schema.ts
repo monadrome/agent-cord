@@ -202,6 +202,22 @@ export const GateDefSchema = z.object({
 });
 export type GateDef = z.infer<typeof GateDefSchema>;
 
+export const GoalCommandSchema = z.strictObject({
+  id: z.string().min(1).max(200),
+  bin: z.string().min(1).max(500),
+  args: z.array(z.string().max(10_000)).max(128).default([]),
+  timeout_ms: z.number().int().positive().max(86_400_000).default(120_000),
+});
+export const GoalConfigSchema = z.strictObject({
+  inputs: z.array(z.string().min(1).max(500)).min(1).max(64),
+  checks: z.array(GoalCommandSchema).min(1).max(16).refine(values => new Set(values.map(value => value.id)).size === values.length, "Goal 检查 id 必须唯一"),
+  max_attempts: z.number().int().min(1).max(10).default(3),
+  timeout_ms: z.number().int().positive().max(86_400_000).default(1_800_000),
+  no_progress_limit: z.number().int().min(1).max(10).default(2),
+});
+export type GoalConfig = z.infer<typeof GoalConfigSchema>;
+export type GoalCommand = z.infer<typeof GoalCommandSchema>;
+
 export const WorkflowDefSchema = z.object({
   apiVersion: z.literal("agent-cord.dev/v1alpha1"),
   kind: z.literal("Workflow"),
@@ -224,6 +240,8 @@ export const WorkflowDefSchema = z.object({
               /** ADR-0038：text 仅返回完整文本，声明产物由 coordinator 代写；auto 保持原行为。 */
               output: z.enum(["auto", "text"]).optional(),
               timeout_ms: z.number().int().positive().optional(),
+              /** ADR-0056：代码、自测与 review 指南在未退出节点内形成目标闭环。 */
+              goal: GoalConfigSchema.optional(),
               /**
                * 失败重试（agent 任务 flaky 是常态：限流/网络）：max_attempts 含首次，默认 1 = 不重试；
                * backoff_ms 为逐次等待基数（线性）。每次尝试都落 agent.task.started/completed（带 attempt 编号）。
@@ -239,6 +257,8 @@ export const WorkflowDefSchema = z.object({
           gates: z.array(GateDefSchema).default([]),
         }).refine((node) => node.run?.output !== "text" || node.artifact !== undefined, {
           path: ["run", "output"], message: "output=text 必须声明节点 artifact",
+        }).refine(node => node.run?.goal === undefined || (node.artifact !== undefined && !node.run.readonly && node.run.retry === undefined), {
+          path: ["run", "goal"], message: "Goal 必须声明 review artifact、保持可写且不能同时使用 run.retry",
         }),
       )
       .min(1),
@@ -363,6 +383,8 @@ export const EVENT_TYPES = [
   "agent.task.completed",
   "agent.task.reused",
   "verification.completed",
+  "goal.attempt.started",
+  "goal.attempt.completed",
   "coordinator.round.started",
   "coordinator.round.requested",
   "coordinator.round.completed",
@@ -638,6 +660,23 @@ export const VerificationCompletedPayloadSchema = VerificationResultSchema.loose
   source_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
 });
 
+export const GoalAttemptStartedPayloadSchema = z.strictObject({
+  workflow_id: z.string().min(1), workflow_revision: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  run_id: z.string().regex(ULID_RE), node_id: z.string().min(1), attempt: z.number().int().positive().max(10),
+});
+export const GoalAttemptCompletedPayloadSchema = GoalAttemptStartedPayloadSchema.safeExtend({
+  status: z.enum(["ready", "retrying", "blocked", "cancelled"]),
+  failure_kind: z.enum(["configuration", "environment", "input_changed", "verification", "delivery", "driver", "budget", "no_progress", "attempt_limit", "cancelled"]).optional(),
+  reason: z.string().max(2000),
+  completion_event_id: z.string().regex(ULID_RE).optional(),
+  input_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  source_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  artifact_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  verification_event_ids: z.array(z.string().regex(ULID_RE)).max(16).default([]),
+  progress_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+}).refine(value => value.status !== "ready" || (value.failure_kind === undefined && value.completion_event_id !== undefined
+  && value.input_hash !== undefined && value.source_hash !== undefined && value.artifact_hash !== undefined && value.verification_event_ids.length > 0), "Goal ready 必须携带当前交付与验证身份");
+
 /** `workflow.run.cancelled`：run 取消（ADR-0025）。取消是事实：落盘后执行器在节点边界止步 */
 export const WorkflowRunCancelledPayloadSchema = z.looseObject({
   workflow_id: z.string().min(1),
@@ -732,6 +771,8 @@ export const EVENT_PAYLOAD_SCHEMAS: Partial<Record<EventType, z.ZodType>> = {
   "agent.task.completed": AgentTaskCompletedPayloadSchema,
   "agent.task.reused": AgentTaskReusedPayloadSchema,
   "verification.completed": VerificationCompletedPayloadSchema,
+  "goal.attempt.started": GoalAttemptStartedPayloadSchema,
+  "goal.attempt.completed": GoalAttemptCompletedPayloadSchema,
   "coordinator.round.started": CoordinatorRoundStartedPayloadSchema,
   "coordinator.round.requested": CoordinatorRoundRequestedPayloadSchema,
   "coordinator.round.completed": CoordinatorRoundCompletedPayloadSchema,

@@ -29,6 +29,7 @@ import { readSnapshot, resolveSessionFile, type RequirementSnapshot } from "./sn
 import { readSessionDocument, SessionFileConflictError, SessionFileError, writeSessionDocument } from "./session-files.js";
 import { executionInputHash } from "./checkpoint.js";
 import { nodeProducesArtifact } from "./artifact-policy.js";
+import { withGoalDelivery } from "./goal.js";
 
 const ADAPTER = "coordinator";
 const PROMPT_EXCERPT_CHARS = 4_096;
@@ -62,6 +63,10 @@ export interface CoordinatorOptions {
   maxResultChars?: number;
   /** ADR-0042：宿主声明的只读源码摘要；可写节点不读取此钩子。 */
   read_source_hash?: (node: WorkflowNode) => Promise<string | null>;
+  /** ADR-0056：宿主提供与 gate 相同的当前验证输入/源码身份。 */
+  read_verification_input?: (node: WorkflowNode, session: SessionHandle, ctx: NodeRunContext) => Promise<{ input_hash: string; source_hash: string | null }>;
+  /** Goal 的必需说明与失败反馈；计入最终上下文预算，不改变工作流定义。 */
+  additional_context?: string;
 }
 
 interface ArtifactSettle {
@@ -73,7 +78,7 @@ interface ArtifactSettle {
 }
 
 class ArtifactEvidenceError extends SessionFileError {
-  constructor(message: string, readonly actual_hash: string | null) { super(message); }
+  constructor(message: string, readonly actual_hash: string | null, readonly can_repair = false) { super(message); }
 }
 
 interface AttemptOutcome {
@@ -113,7 +118,7 @@ async function settleArtifact(
     if (current_hash !== sha256Hex(draft)) throw new ArtifactEvidenceError("代写后产物再次变化，无法确认本次写回，请重新核验", current_hash);
     return { artifact_written: true, written_by: "coordinator", artifact_before_hash: before_hash, artifact_after_hash: current_hash, artifact_changed: current_hash !== before_hash };
   }
-  throw new ArtifactEvidenceError("本次任务没有产生新的 artifact 或完整最终文本，旧文档不能作为本次产物", after_hash);
+  throw new ArtifactEvidenceError("本次任务没有产生新的 artifact 或完整最终文本，旧文档不能作为本次产物", after_hash, true);
 }
 
 function truncate(text: string, maxChars: number): string {
@@ -122,6 +127,10 @@ function truncate(text: string, maxChars: number): string {
 }
 
 export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions): NodeRunner {
+  return withGoalDelivery(def, options, feedback => createTaskNodeRunner(def, { ...options, additional_context: feedback }), createTaskNodeRunner(def, options));
+}
+
+function createTaskNodeRunner(def: WorkflowDef, options: CoordinatorOptions): NodeRunner {
   const read_source_hash = async (node: WorkflowNode): Promise<string | null> => {
     if (node.run?.readonly !== true || options.read_source_hash === undefined) return null;
     const hash = await options.read_source_hash(node);
@@ -253,7 +262,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
         ...snapshotFields,
         ...artifact_fields,
         driver: driver_name,
-        ...(prompt.length > 0 ? { prompt_excerpt: truncate(prompt, PROMPT_EXCERPT_CHARS) } : {}),
+        ...(prompt.length > 0 ? { prompt_excerpt: node.run?.goal === undefined ? truncate(prompt, PROMPT_EXCERPT_CHARS) : "Goal 任务上下文；命令原输出不写入事件" } : {}),
       }, node.id);
     };
 
@@ -291,6 +300,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
         artifact_fields = { artifact_before_hash };
       }
       const additional_context = [
+        ...(options.additional_context === undefined ? [] : [options.additional_context]),
         ...(source_hash === null ? [] : [`## 源码输入身份\nsource_hash: ${source_hash}\n报告必须依据本次只读源码输入；完成后协调层会重新核验源码摘要。`]),
         ...(previousError === null ? [] : [`## 上次尝试失败（第 ${attempt - 1} 次）\n${truncate(previousError, 2_000)}\n请避开同一失败模式。`]),
       ].join("\n\n");
@@ -440,7 +450,7 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
         agent_session_id: agentSessionId,
         usage: usage ?? null,
         failure_stage: "artifact",
-        retryable: !(error instanceof SessionFileError),
+        retryable: !(error instanceof SessionFileError) || (node.run?.goal !== undefined && error instanceof ArtifactEvidenceError && error.can_repair),
         ...failed_evidence,
       });
     }

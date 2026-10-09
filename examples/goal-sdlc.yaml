@@ -1,0 +1,47 @@
+apiVersion: agent-cord.dev/v1alpha1
+kind: Workflow
+metadata: { id: goal-development-example, name: Goal 自主开发交付 }
+spec:
+  nodes:
+    - id: intake
+      artifact: prd.md
+      gates:
+        - id: requirement-ready
+          role: {}
+          attach: { node: intake, when: pre }
+          checks: [{ ref: file-nonempty, with: { path: prd.md, min_bytes: 20 } }]
+          pass: { require: all, human_confirm: false }
+          on_fail: block
+    - id: deliver
+      artifact: review.md
+      depends_on: [intake]
+      run:
+        agent: codex-implementer
+        timeout_ms: 600000
+        prompt: >-
+          在隔离开发工作区依据当前 PRD 自主调研、计划、实现和自测。
+          保留未合入的代码 Draft，不提交、推送、合入、发布或批准 gate。
+          review.md 包含非空的变更、验收、风险章节，指明文件/符号和操作路径。
+          宿主检查失败时依据实际反馈修复，直到交付通过当前自测的代码和 review 指南。
+        goal:
+          inputs: [src, apps, tests, package.json, package-lock.json, tsconfig.json, vitest.config.ts]
+          max_attempts: 3
+          timeout_ms: 1800000
+          no_progress_limit: 2
+          checks:
+            - { id: offline-tests, bin: npm, args: [test], timeout_ms: 180000 }
+            - { id: typecheck, bin: npm, args: [run, typecheck], timeout_ms: 120000 }
+            - { id: build, bin: npm, args: [run, build:all], timeout_ms: 180000 }
+      gates:
+        - id: human-review
+          role: { approvers: [local-human] }
+          attach: { node: deliver, when: post }
+          checks:
+            - { ref: verification-passed, with: { verification_id: offline-tests } }
+            - { ref: verification-passed, with: { verification_id: typecheck } }
+            - { ref: verification-passed, with: { verification_id: build } }
+            - { ref: file-nonempty, with: { path: review.md, min_bytes: 100 } }
+          pass: { require: all, human_confirm: true }
+          on_fail: block
+    - id: done
+      depends_on: [deliver]

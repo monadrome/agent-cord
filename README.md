@@ -8,7 +8,7 @@ agent-cord 是一个多 agent 共识协作基座：把需求、决策、证据�
 
 **默认 Goal 驱动的自主 Draft 交付。** 用户给出目标后，系统在约定权限与预算内自主完成实现、自测、失败修复和交付整理，交付代码、当前版本的实际测试证据及 human review 指南。happy path 无需中途人工干预；真实卡点再升级，最终 review、合入、发布及关键权限仍由人控制。
 
-这是已采纳的产品与架构基线，覆盖 ACP/headless；完整 Goal 闭环尚未实现，当前任务重试不等于目标达成。详见 [核心 feature 与验收标准](./docs/core-features.md) 和 [ADR-0055](./docs/adr/ADR-0055-goal-driven-draft-delivery.md)。
+已实现覆盖 ACP/headless 的节点内 Goal 原型：`run.goal` 声明源码、验证命令和资源上限，宿主实际检查、自动反馈修复并补入指南证据。“Agent 协作”模板默认使用 Goal；既有发布版本保持原行为。独立协调的自主监督与人工卡点续跑仍待实现。详见 [核心 feature](./docs/core-features.md)、[Goal 示例](./examples/goal-sdlc.yaml) 和 [ADR-0056](./docs/adr/ADR-0056-goal-node-execution.md)。
 
 ## 能做什么
 
@@ -25,6 +25,7 @@ agent-cord 是一个多 agent 共识协作基座：把需求、决策、证据�
 - 控制台「Agent」页可搜索与筛选公开配置、查看诊断和配置指纹、刷新与重载；启动参数身份纳入任务和审批输入，同名 agent 改模型或角色后不复用旧任务。
 - 用参数化 checker（`checks[].with`）拼装证据门禁：文件存在/非空/含章节/锚点数/事件已发，参数非法 fail-closed。
 - 声明 `run.retry` 让节点内的 agent 任务按退避重试（重试附上次失败摘要）；run 可随时取消——取消先落事件再中止执行器，driver 杀进程树，人工 gate 挂起同时失效。
+- 用 `run.goal` 在同一未退出节点内自主实现代码、运行宿主检查、修复失败与完成 review 指南；持久化次数/时长预算，连续源码与失败集合无进展时停止。就绪仍需最终人审，源码变化使旧交付和审批失效。
 - 用独立盲评投票处理适合自动化的决策点，分歧和高风险情况升级人工。
 - 通过 Fastify server 和 React 控制台查看需求、编辑文档、观察事件、启动 run、处理人工 gate，并管理 SDLC 的草稿、版本、归档与模板库。
 
@@ -169,6 +170,7 @@ POST /requirements/:req_id/coordination/:round_id/cancel
 POST /requirements/:req_id/coordination/:round_id/adopt   # 人工采用并启动绑定 SDLC，202
 POST /runs/:run_id/cancel                     # 幂等；已终态返回现状
 GET  /requirements/:req_id/timeline
+GET  /requirements/:req_id/artifacts?path=review.md # 只读当前 SDLC 声明产物
 GET  /requirements/:req_id/ledger
 GET  /requirements/:req_id/events/stream   # SSE，支持 Last-Event-ID
 GET  /requirements/:req_id/approvals

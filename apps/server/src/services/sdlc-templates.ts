@@ -95,44 +95,30 @@ const STRICT: WorkflowDef = {
 const AGENT_COLLAB: WorkflowDef = {
   apiVersion: "agent-cord.dev/v1alpha1",
   kind: "Workflow",
-  metadata: { id: "my-agent-sdlc", name: "Agent 协作流程" },
+  metadata: { id: "my-agent-sdlc", name: "Goal 自主开发交付" },
   spec: {
     nodes: [
       { id: "intake", artifact: "prd.md", depends_on: [], gates: [] },
       {
-        id: "align",
-        artifact: "adr.md",
-        depends_on: ["intake"],
-        // agent 任务 flaky 是常态（限流/网络）：失败重试 2 次，线性退避 5s
-        run: { agent: "claude", readonly: false, retry: { max_attempts: 2, backoff_ms: 5_000 } },
-        gates: [gate("adr-written", "align", [{ ref: "file-nonempty", with: { path: "adr.md" } }], false)],
+        id: "deliver", artifact: "review.md", depends_on: ["intake"],
+        run: { agent: "claude", readonly: false, timeout_ms: 600_000,
+          prompt: "按当前 PRD 自主调研、计划、实现与自测，保持代码 Draft。review.md 包含变更定位、验收与风险，宿主验证失败后继续修复。",
+          goal: { inputs: ["src", "apps", "tests", "package.json", "package-lock.json", "tsconfig.json", "vitest.config.ts"],
+            max_attempts: 3, timeout_ms: 1_800_000, no_progress_limit: 2,
+            checks: [
+              { id: "offline-tests", bin: "npm", args: ["test"], timeout_ms: 180_000 },
+              { id: "typecheck", bin: "npm", args: ["run", "typecheck"], timeout_ms: 120_000 },
+              { id: "build", bin: "npm", args: ["run", "build:all"], timeout_ms: 180_000 },
+            ] },
+        },
+        gates: [gate("human-review", "deliver", [
+          { ref: "verification-passed", with: { verification_id: "offline-tests" } },
+          { ref: "verification-passed", with: { verification_id: "typecheck" } },
+          { ref: "verification-passed", with: { verification_id: "build" } },
+          { ref: "file-nonempty", with: { path: "review.md", min_bytes: 100 } },
+        ], true)],
       },
-      {
-        id: "plan",
-        artifact: "plan.md",
-        depends_on: ["align"],
-        run: { agent: "claude", readonly: false, retry: { max_attempts: 2, backoff_ms: 5_000 } },
-        gates: [gate("plan-written", "plan", [{ ref: "file-nonempty", with: { path: "plan.md" } }], false)],
-      },
-      {
-        id: "implement",
-        depends_on: ["plan"],
-        run: { agent: "claude", readonly: false, timeout_ms: 1_800_000, retry: { max_attempts: 2, backoff_ms: 5_000 } },
-        gates: [],
-      },
-      {
-        id: "verify",
-        artifact: "findings.md",
-        depends_on: ["implement"],
-        run: { agent: "claude", readonly: false, retry: { max_attempts: 2, backoff_ms: 5_000 } },
-        gates: [gate("verify-written", "verify", [{ ref: "file-nonempty", with: { path: "findings.md" } }], false)],
-      },
-      {
-        id: "review",
-        depends_on: ["verify"],
-        gates: [gate("human-review", "review", [{ ref: "anchors-present" }], true, "escalate")],
-      },
-      { id: "done", depends_on: ["review"], gates: [] },
+      { id: "done", depends_on: ["deliver"], gates: [] },
     ],
   },
 };
@@ -160,8 +146,8 @@ export function listSdlcTemplates(): SdlcTemplate[] {
     },
     {
       id: "agent-collab",
-      name: "Agent 协作",
-      description: "节点挂 run 执行体（需 agents.yaml 或本机 agent CLI）+ 产物验收 gate + 人工终审",
+      name: "Agent 协作 · Goal",
+      description: "自主代码/宿主测试/修复/review 指南 + 人工终审；需按项目调整 agent、验证命令与 inputs",
       yaml: render(AGENT_COLLAB),
     },
   ];

@@ -28,6 +28,7 @@
 | `workflow.run.*` | 发布绑定启动（started，ADR-0034）与取消（cancelled，ADR-0025） |
 | `agent.task.*` | 节点执行体的 agent 任务（started / completed；中间流式输出不入流） |
 | `verification.completed` | 宿主/CI 机器验证结果（带输入与输出摘要 hash） |
+| `goal.attempt.started` / `goal.attempt.completed` | 节点内 Goal 尝试与交付状态（ready / retrying / blocked / cancelled） |
 | `coordinator.round.*` | 独立协调轮次（requested / started / completed / cancel_requested）与人工采用（adopted） |
 | `human.*` | 人工选择记录 |
 
@@ -124,7 +125,15 @@ REST 快照文档 read/write/detail 使用同一 helper：readDoc 仅真实缺�
 
 console 读取失败保持编辑/保存禁用，不能声明已与磁盘一致或当成新文档；真实 404 仍允许创建，切换文档可重新读取修复后的文件，保存期间禁用编辑与文档切换。
 
-节点可声明执行体 `run`（ADR-0023）：`{ agent, prompt?, readonly?, timeout_ms?, retry? }`。执行顺序为 pre gates → node.run → post gates；node.run 由注入执行器的 `NodeRunner` 端口处理（生产实现是协调 agent，见 `src/coordinator/`），未注入时跳过并在 node.exited 记 `notes`。未退出节点恢复时通过 `NodeRunner.isCompletionReusable` 验证当前输入 hash 与产物后态，相同才复用历史 ok；旧事件没有指纹、验证错误或接口未提供时重新执行（ADR-0030）。已退出节点保持原事实，不自动回滚。
+节点可声明执行体 `run`（ADR-0023/0056）：`{ agent, prompt?, readonly?, timeout_ms?, retry?, goal? }`。执行顺序为 pre gates → node.run → post gates；node.run 由注入执行器的 `NodeRunner` 端口处理（生产实现是协调 agent，见 `src/coordinator/`），未注入时普通任务跳过并在 node.exited 记 `notes`，Goal 节点拒绝跳过。未退出节点恢复时通过 `NodeRunner.isCompletionReusable` 验证当前输入 hash 与产物后态，相同才复用历史 ok；旧事件没有指纹、验证错误或接口未提供时重新执行（ADR-0030）。已退出节点保持原事实，不自动回滚。
+
+`run.goal`（ADR-0056）：`{ inputs, checks: [{id, bin, args, timeout_ms}], max_attempts?, timeout_ms?, no_progress_limit? }`。inputs/checks 必须非空，命令 id 唯一；节点必须声明 review artifact、可写且不同时声明 retry。缺省尝试 3 次、总时长 30 分钟、连续无进展 2 次；命令缺省 2 分钟。NodeRunner 需要 run_id 与 read_verification_input 宿主钩子，server 复用当前源码/审批输入。检查 argv 在工作区根直接 spawn，无 shell；超时/取消回收进程组。普通失败与指南缺项自动反馈修复，预算/环境/输入变化等阻塞记 run failed，不自动人工放行。
+
+`goal.attempt.started/completed` 绑定 workflow/run/node 与 attempt；首个 started.timestamp 锁定同 run 总时长，已开始但中断的尝试也消耗预算。completed 的 ready 包含 completion_event_id、input/source/artifact hash 及 verification_event_ids；retrying/blocked 含 failure_kind、原因与可选 progress_hash（源码+失败集合，指南文字变化不算代码进展）。宿主审计“变更 / 验收 / 风险”非空章节，补入实际命令证据，再把 verification.completed 绑定最终指南输入；补写期间源码/需求变化不能记 ready。完整输出不持久化，失败尾部只作内存反馈，Goal prompt_excerpt 不含原命令输出。
+
+Goal 复用只接受同 run 最新 ready、原完成引用、当前输入/指南和声明命令对应的最新宿主验证事实全部一致；成功 task 本身不足以让 Goal 节点退出。新 run 的未退出 Goal 重新验证；既有退出事实仍按发布执行版本隔离。最终 post gate 保持原语义；检查脚本与依赖仍是授权工作区的信任边界，不承诺 OS 隔离或对恶意 worker 的证据防篡改。
+
+需求 detail 的 artifacts 列出当前绑定 SDLC 声明的路径与可读状态。`GET /requirements/:req_id/artifacts?path=...` 只读声明产物：未声明/缺失 404，普通文件边界冲突 409，IO 失败 500；不提供写入口。控制台文档页复用 Markdown 原文/预览视图，只读查看自定义指南；固定四份快照仍可编辑。Goal blocked 在需求投影显示 blocked，具体原因见 run.error 与尝试事件。
 
 `run.retry`（ADR-0025）：`{ max_attempts(1-10, 默认 1), backoff_ms(默认 0) }`。协调 agent 按尝试循环，退避为 `backoff_ms × 第 n 次失败`，每次尝试落独立的 agent.task.started/completed（带 `attempt`/`max_attempts`），重试的上下文包附上次失败摘要。驱动解析失败属定义性错误，不重试。
 

@@ -243,19 +243,34 @@ export class SessionService {
         docs[doc] = false;
       }
     }
-    return { ...summary, docs, active_run: null };
+    const artifacts: Array<{ path: string; available: boolean }> = [];
+    for (const file of [...new Set(def?.spec.nodes.flatMap(node => node.artifact === undefined ? [] : [node.artifact]) ?? [])]) {
+      let available = false;
+      try { available = await statSessionDocument(handle.dir, file) !== null; } catch { /* 读取时仍按普通文件边界报告错误。 */ }
+      artifacts.push({ path: file, available });
+    }
+    return { ...summary, docs, artifacts, active_run: null };
   }
 
   async readDoc(reqId: string, doc: SnapshotDocName): Promise<string> {
+    return this.readDocumentFile(reqId, docFileName(doc));
+  }
+
+  async readArtifact(reqId: string, file: string, def: WorkflowDef | null): Promise<string> {
+    if (!def?.spec.nodes.some(node => node.artifact === file)) throw notFound("当前 SDLC 未声明此产物");
+    return this.readDocumentFile(reqId, file);
+  }
+
+  private async readDocumentFile(reqId: string, file: string): Promise<string> {
     const handle = await this.open(reqId);
     let content: string | null;
     try {
-      content = await readSessionDocument(handle.dir, docFileName(doc));
+      content = await readSessionDocument(handle.dir, file);
     } catch (error) {
-      if (error instanceof SessionFileError) throw conflict(`文档路径或文件类型不符合访问边界：${reqId}/${docFileName(doc)}`);
-      throw internalError(`文档读取失败，请核验文件和访问权限：${reqId}/${docFileName(doc)}`);
+      if (error instanceof SessionFileError) throw conflict(`文档路径或文件类型不符合访问边界：${reqId}/${file}`);
+      throw internalError(`文档读取失败，请核验文件和访问权限：${reqId}/${file}`);
     }
-    if (content === null) throw notFound(`文档不存在：${reqId}/${docFileName(doc)}`);
+    if (content === null) throw notFound(`文档不存在：${reqId}/${file}`);
     return content;
   }
 
@@ -417,6 +432,10 @@ function computeStatus(
   if (!hasWorkflow) return "idle";
   const lastResolved = [...events].reverse().find((event) => event.type === "gate.resolved");
   const lastExited = [...events].reverse().find((event) => event.type === "workflow.node.exited");
+  const last_goal = [...events].reverse().find(event => event.type === "goal.attempt.completed");
+  if (last_goal !== undefined && asRecord(last_goal.payload)?.["status"] === "blocked"
+    && !events.some(event => event.type === "workflow.node.exited" && event.seq > last_goal.seq
+      && asRecord(event.payload)?.["node_id"] === asRecord(last_goal.payload)?.["node_id"])) return "blocked";
   if (
     lastResolved !== undefined &&
     asRecord(lastResolved.payload)?.["action"] === "stop" &&

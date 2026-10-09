@@ -56,8 +56,10 @@ export interface RequirementSummary {
 
 export interface RequirementDetail extends RequirementSummary {
   docs: Record<SnapshotDocName, boolean>;
+  artifacts?: Array<{ path: string; available: boolean }>;
   active_run: RunInfo | null;
 }
+export const ReadArtifactInputSchema = z.strictObject({ path: z.string().min(1).max(500) });
 
 export const SNAPSHOT_DOC_NAMES = ["prd", "plan", "adr", "findings"] as const;
 export type SnapshotDocName = (typeof SNAPSHOT_DOC_NAMES)[number];

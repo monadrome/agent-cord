@@ -23,6 +23,7 @@ import {
   AnswerCoordinationInputSchema,
   RevokeCoordinationAnswerInputSchema,
   UpdateDocInputSchema,
+  ReadArtifactInputSchema,
   ValidateSdlcInputSchema,
   type DashboardView,
   type RequirementStatus,
@@ -361,6 +362,12 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
   });
 
   // ---- 快照文档（living 文档：允许人编辑；状态机流转只经事件流） -------------
+  app.get("/api/v1/requirements/:req_id/artifacts", async req => {
+    const { req_id } = req.params as { req_id: string };
+    const { path: file } = parseOrThrow(ReadArtifactInputSchema, req.query);
+    const binding = await defFor(req_id);
+    return { request_id: requestId(req), path: file, content: await sessions.readArtifact(req_id, file, binding?.def ?? null) };
+  });
   app.get("/api/v1/requirements/:req_id/docs/:doc", async (req) => {
     const { req_id: reqId, doc } = req.params as { req_id: string; doc: string };
     if (!isDocName(doc)) throw notFound(`未知文档：${doc}（可选 ${SNAPSHOT_DOC_NAMES.join("/")}）`);

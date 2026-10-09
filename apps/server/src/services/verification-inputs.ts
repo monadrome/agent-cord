@@ -22,7 +22,7 @@ export interface VerificationSource {
 
 /** 当前节点所有验证检查的声明取并集，保持 context 与每个 gate 的指纹一致。 */
 export function verificationSourceInputs(node: WorkflowDef["spec"]["nodes"][number]): string[] {
-  const paths: string[] = [];
+  const paths: string[] = [...(node.run?.goal?.inputs ?? [])];
   for (const gate of node.gates) for (const check of gate.checks) {
     if (check.ref !== "verification-passed" || check.with?.["inputs"] === undefined) continue;
     const parsed = InputPathsSchema.safeParse(check.with["inputs"]);

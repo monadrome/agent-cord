@@ -136,6 +136,7 @@ export interface DocResponse {
   doc: SnapshotDocName;
   content: string;
 }
+export interface ArtifactResponse { request_id: string; path: string; content: string }
 
 export interface DocUpdatedResponse {
   request_id: string;
@@ -307,6 +308,7 @@ export interface ApiClient {
   ): Promise<DecideApprovalResponse>;
 
   readDoc(reqId: string, doc: SnapshotDocName): Promise<DocResponse>;
+  readArtifact(reqId: string, path: string): Promise<ArtifactResponse>;
   writeDoc(reqId: string, doc: SnapshotDocName, content: string, key?: string): Promise<DocUpdatedResponse>;
 
   listSdlcs(): Promise<SdlcsResponse>;
@@ -365,6 +367,7 @@ export function createClient(baseUrl = ""): ApiClient {
       request<DecideApprovalResponse>(baseUrl, decidePath(reqId, approvalId), writeInit("POST", { choice }, key)),
 
     readDoc: (reqId, doc) => request<DocResponse>(baseUrl, docPath(reqId, doc)),
+    readArtifact: (reqId, file) => request<ArtifactResponse>(baseUrl, `${reqPath(reqId)}/artifacts?${new URLSearchParams({ path: file })}`),
     writeDoc: (reqId, doc, content, key) =>
       request<DocUpdatedResponse>(baseUrl, docPath(reqId, doc), writeInit("PUT", { content }, key)),
 
