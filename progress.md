@@ -9,6 +9,7 @@
 - 新增 docs/core-features.md 与 ADR-0055；同步 README、当前架构、文档/ADR 索引和路线图。定义目标/权限/资源边界、代码+实际自测+review 指南交付包、宿主完成审计、自动修复、人工升级、恢复与零中途干预验收。
 - 保留旧 ADR 历史，补充执行默认；明确 ACP 通信与 Goal 完成职责分层、单次任务成功不等于目标达成。下一实现阶段需先定义交付/事件契约，不回滚退出事实、不引入第二个 SDLC 状态机。
 - 提交前完整 npm test 通过：873 测试 / 64 文件；7 份产品/架构/索引文档共 140 个本地链接均存在，ADR-0055 符合七节与 200 行上限（67 行）。git diff --check 通过；本轮纯文档，不重复 build/typecheck 或真实模型调用。
+- 文档提交 `1c5f86d`（docs: define goal-driven autonomous draft delivery）；45 秒上限的 HTTP/2 推送成功 adc4ae2 → 1c5f86d，随后 ls-remote 与本地 HEAD 同为 1c5f86dc11ed6ef35f2df24b3afe2c8fe1a9c772，工作树干净。阶段 40 aee9139 已一并同步；完整 Goal runtime 尚待实现，持续优化目标保持 active。
 
 ## 2026-10-09（阶段 40）
 
@@ -20,6 +21,7 @@
 - 最终 873 测试 / 64 文件、build:all/typecheck/git diff --check 通过。隔离真实 HTTP 同 argv + 环境角色 A→B/context_revision 1→2 使身份改变、旧报告重跑，worker 2 次；重启不重复调用、审批 ID 保持、PRD 不变、人工决定/节点退出 0、doctor=true。
 - Playwright/Chrome 1440/390/320 清单显示上下文 v2，公开响应/页面无私有环境标记，无溢出/pageerror；截图已查看无重叠。仅临时 fixture，不调用付费模型；协议/README/架构/ADR 索引与公开验收同步。
 - 最新 detached 预览 `http://127.0.0.1:7317/#/agents`（PID 8433）健康，worker 声明上下文 v2；最终差异审查/git diff --check 通过。7317 与原真实 Draft 7306 审批各 1、人工决定各 0、done 未退出；进入小步提交和有界同步，持续目标保持 active。
+- 阶段 41 收尾核验：功能提交 aee9139 已随 1c5f86d 成功推送，远端 hash 已实际核验，旧同步未决已解决。
 
 ## 2026-10-09（阶段 39）
 
