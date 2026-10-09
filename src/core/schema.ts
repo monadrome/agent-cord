@@ -736,7 +736,12 @@ export const GoalRetryAuthorizedPayloadSchema = z.strictObject({
   run_id: z.string().regex(ULID_RE), failed_run_id: z.string().regex(ULID_RE), node_id: z.string().min(1),
   goal_event_id: z.string().regex(ULID_RE), answer_event_id: z.string().regex(ULID_RE), input_hash: z.string().regex(/^[0-9a-f]{64}$/),
   max_attempts: z.number().int().min(1).max(10), timeout_ms: z.number().int().positive().max(86_400_000),
-});
+  /** ADR-0062：新授权保存完整身份组；旧事件可以全部缺省。 */
+  agent_configuration_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  supervisor_configuration_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  node_input_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+}).refine(value => [value.agent_configuration_hash, value.supervisor_configuration_hash, value.node_input_hash]
+  .filter(hash => hash !== undefined).length % 3 === 0, "Goal 授权配置与输入身份必须完整声明");
 
 const coordination_round_fields = {
   round_id: z.string().regex(ULID_RE),

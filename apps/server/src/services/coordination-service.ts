@@ -346,7 +346,7 @@ export class CoordinationService {
       || goal === undefined || goal.max_attempts !== auth.max_attempts || goal.timeout_ms !== auth.timeout_ms) throw conflict("Goal 续跑授权预算与发布版本不匹配");
   }
 
-  private async readGoalRetryState(round: CoordinationRoundView, pending_run_id?: string) {
+  private async readGoalRetryState(round: CoordinationRoundView, pending_run_id?: string, resolver = this.options.resolver()) {
     if (round.trigger !== "goal_blocked" || round.status !== "ok" || round.proposal?.next_action.kind !== "ask_human"
       || round.workflow_revision === null || round.answer_reason != null) throw conflict("当前轮次不是有效的 Goal 人工问题");
     const trigger = roundGoalBlocker(round)!;
@@ -374,15 +374,20 @@ export class CoordinationService {
     const answers = currentClarificationAnswers(events, { workflow_id: versioned.def.metadata.id, workflow_revision: round.workflow_revision });
     const answer = answers.find(item => item.round_id === round.round_id && item.revoked_at === undefined);
     if (answer === undefined || round.answer?.event_id !== answer.event_id) throw conflict("Goal 续跑需要当前未撤回的人工答复");
-    const resolver = this.options.resolver();
     const supervisor_hash = resolver(round.agent).configuration_hash;
     const worker_hash = resolver(node.run!.agent).configuration_hash;
     if (supervisor_hash === undefined || supervisor_hash !== round.agent_configuration_hash || worker_hash === undefined) throw conflict("无法核验本轮 supervisor 或 worker 配置，请重新协调");
+    const assert_current = () => {
+      const current = this.options.resolver();
+      if (current(round.agent).configuration_hash !== supervisor_hash || current(node.run!.agent).configuration_hash !== worker_hash) throw conflict("Goal 续跑 agent 配置已变化，请刷新后重新授权");
+    };
+    assert_current();
     const input = await this.options.runs.readNodeInput(versioned.def, node, session, worker_hash, round.workflow_revision);
+    assert_current();
     const input_hash = sha256Hex(canonicalJson({ domain: "cord.goal-retry-input.v1", req_id: round.req_id, round_id: round.round_id,
       blocker: trigger, blocked: blocked.data, answer_event_id: answer.event_id, completion_event_id: answer.completion_event_id,
       node_input_hash: input.input_hash, worker_hash, supervisor_hash, max_attempts: goal.max_attempts, timeout_ms: goal.timeout_ms }));
-    return { input_hash, answer, goal };
+    return { input_hash, answer, goal, agent_configuration_hash: worker_hash, supervisor_configuration_hash: supervisor_hash, node_input_hash: input.input_hash };
   }
 
   retry_goal(req_id: string, round_id: string, input: RetryGoalInput): Promise<RunInfo> {
@@ -405,14 +410,14 @@ export class CoordinationService {
       if (previous.answer_event_id !== input.answer_event_id || previous.input_hash !== input.input_hash) throw conflict("本轮已使用不同依据授权续跑，请查看已启动 run");
       return this.options.runs.getRun(previous.run_id);
     }
+    const driverResolver = this.options.resolver();
     const check = async (pending_run_id?: string) => {
       const current = await this.readRound(req_id, round_id);
-      const state = await this.readGoalRetryState(current, pending_run_id);
+      const state = await this.readGoalRetryState(current, pending_run_id, driverResolver);
       if (state.answer.event_id !== input.answer_event_id || state.input_hash !== input.input_hash) throw conflict("Goal 续跑依据已变化，请刷新后重新授权");
       return state;
     };
     await check();
-    const driverResolver = this.options.resolver();
     return this.options.runs.start(req_id, round.sdlc_id, round.sdlc_version, {
       goal_retry_round_id: round_id,
       driverResolver,
@@ -422,7 +427,8 @@ export class CoordinationService {
         const trigger = roundGoalBlocker(round)!;
         const payload = GoalRetryAuthorizedPayloadSchema.parse({ round_id, workflow_id: round.workflow_id, workflow_revision: round.workflow_revision,
           run_id, failed_run_id: trigger.run_id, node_id: trigger.node_id, goal_event_id: trigger.goal_event_id, answer_event_id: input.answer_event_id,
-          input_hash: input.input_hash, max_attempts: state.goal.max_attempts, timeout_ms: state.goal.timeout_ms });
+          input_hash: input.input_hash, max_attempts: state.goal.max_attempts, timeout_ms: state.goal.timeout_ms,
+          agent_configuration_hash: state.agent_configuration_hash, supervisor_configuration_hash: state.supervisor_configuration_hash, node_input_hash: state.node_input_hash });
         await current_session.events.append({ event_id: ulid(), session_id: req_id, type: "goal.retry.authorized", schema_version: "1",
           actor: { kind: "human", id: "local-human" }, correlation_id: round_id, payload, source: { adapter: "console-server" } });
       },

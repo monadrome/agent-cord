@@ -22,6 +22,7 @@ import {
   VerificationCompletedPayloadSchema,
   matchesWorkflowScope,
   readGoalRetryAuthorization,
+  readGoalRetryAgentIdentity,
   GoalRetryAuthorizedPayloadSchema,
   GoalAttemptCompletedPayloadSchema,
   type AgentDriver,
@@ -210,6 +211,7 @@ export class RunService {
     // 预留槽位必须发生在首个 await 之前，否则并发请求都可能通过检查。
     const reservedRunId = ulid();
     const controller = new AbortController();
+    const driverResolver = guard?.driverResolver ?? this.options.driverResolverForRun?.() ?? this.options.driverResolver;
     this.active.set(reqId, { run_id: reservedRunId, req_id: reqId, promise: Promise.resolve(), controller });
     let registered = false;
     try {
@@ -243,7 +245,8 @@ export class RunService {
           ...(guard?.coordination_round_id === undefined ? {} : { coordination_round_id: guard.coordination_round_id }),
           ...(guard?.goal_retry_round_id === undefined ? {} : { goal_retry_round_id: guard.goal_retry_round_id }) }, source: { adapter: "console-server" } });
       await guard?.record(session, reservedRunId);
-      this.launch(session, run, versioned.def, controller, guard?.driverResolver);
+      await this.assertGoalRetryIdentity(session, await session.events.readOrdered(), run, versioned.def, driverResolver);
+      this.launch(session, run, versioned.def, controller, driverResolver);
       return runRowToInfo(run);
     } catch (error) {
       if (registered) this.safeFinish(reservedRunId, "failed", error instanceof Error ? error.message : String(error));
@@ -354,9 +357,11 @@ export class RunService {
     const node = versioned.def.spec.nodes.find((item) => item.id === key.node_id);
     const gate = node?.gates.find((item) => item.id === key.gate_id);
     if (node === undefined || gate === undefined) throw conflict("绑定流程中找不到当前审批，拒绝记录决策");
+    const driverResolver = active?.driverResolver ?? this.options.driverResolverForRun?.() ?? this.options.driverResolver;
+    await this.assertGoalRetryIdentity(session, events, latest, versioned.def, driverResolver);
     let current_hash: string;
     try {
-      const evaluated = await this.evaluateRunGate(session, latest, versioned.def, node, gate);
+      const evaluated = await this.evaluateRunGate(session, latest, versioned.def, node, gate, driverResolver);
       current_hash = evaluated.evaluation_hash;
     } catch {
       throw conflict("无法验证当前审批依据，拒绝记录放行，请先修复输入");
@@ -369,7 +374,10 @@ export class RunService {
       this.pendingAsks.delete(stale_key);
       this.decided.delete(stale_key);
       if (pending !== undefined) pending.resolve({ kind: "recheck" });
-      else if (!this.active.has(reqId)) await this.start(reqId, versioned.sdlc_id, versioned.version);
+      else if (!this.active.has(reqId)) {
+        if (latest.goal_retry_round_id != null) await this.recover(latest.run_id);
+        else await this.start(reqId, versioned.sdlc_id, versioned.version);
+      }
       throw conflict("审批依据已变化，已重新检查；请确认当前审批");
     }
 
@@ -443,7 +451,8 @@ export class RunService {
       if (this.closing) break;
       if (run_id !== undefined && run.run_id !== run_id) continue;
       if (this.active.has(run.req_id)) continue;
-      if (run.status !== "running" && run.status !== "waiting_human") continue;
+      const explicit_retry_recovery = run_id !== undefined && run.status === "failed" && run.goal_retry_round_id != null;
+      if (run.status !== "running" && run.status !== "waiting_human" && !explicit_retry_recovery) continue;
       const session = await this.sessions.open(run.req_id);
       const events = await session.events.readOrdered();
       const started = events.filter((event) => event.type === "workflow.run.started").map((event) => WorkflowRunStartedPayloadSchema.safeParse(event.payload)).find((parsed) =>
@@ -464,6 +473,7 @@ export class RunService {
         continue;
       }
       const scope = { workflow_id: versioned.def.metadata.id, workflow_revision: run.workflow_revision };
+      const driverResolver = this.options.driverResolverForRun?.() ?? this.options.driverResolver;
       if (!matchesWorkflowScope(started.data, scope)) { this.index.finishRun(run.run_id, "failed", new Date().toISOString(), "工作流启动绑定与定义不一致，拒绝恢复派发"); continue; }
       if (run.coordination_round_id != null) {
         const adoption = events.find((event) => {
@@ -483,13 +493,9 @@ export class RunService {
       }
       if (run.goal_retry_round_id != null) {
         try {
-          const event = readGoalRetryAuthorization(events, run.run_id);
-          const auth = GoalRetryAuthorizedPayloadSchema.safeParse(event?.payload);
-          const goal = auth.success ? versioned.def.spec.nodes.find(node => node.id === auth.data.node_id)?.run?.goal : undefined;
-          if (!auth.success || auth.data.round_id !== run.goal_retry_round_id || !matchesWorkflowScope(auth.data, scope)
-            || goal === undefined || goal.max_attempts !== auth.data.max_attempts || goal.timeout_ms !== auth.data.timeout_ms) throw new Error("Goal 授权预算不匹配");
-        } catch {
-          this.index.finishRun(run.run_id, "failed", new Date().toISOString(), "Goal 续跑授权缺失或来源/预算不可验证，拒绝恢复派发");
+          await this.assertGoalRetryIdentity(session, events, run, versioned.def, driverResolver);
+        } catch (error) {
+          this.index.finishRun(run.run_id, "failed", new Date().toISOString(), error instanceof Error ? error.message : "Goal 续跑授权不可验证，拒绝恢复派发");
           continue;
         }
       }
@@ -515,7 +521,7 @@ export class RunService {
         });
         if (!has_result) continue;
         try {
-          const evaluated = await this.evaluateRunGate(session, run, versioned.def, node, gate);
+          const evaluated = await this.evaluateRunGate(session, run, versioned.def, node, gate, driverResolver);
           if (evaluated.evaluation_hash !== waiting.evaluation_hash) {
             recorded_verification = true;
             break;
@@ -547,11 +553,33 @@ export class RunService {
         continue;
       }
       const latest = await this.latestRun(run.req_id);
-      if (latest?.run_id !== run.run_id || (latest.status !== "running" && latest.status !== "waiting_human") || this.active.has(run.req_id)) continue;
-      this.launch(session, run, versioned.def, new AbortController());
+      if (latest?.run_id !== run.run_id || (latest.status !== "running" && latest.status !== "waiting_human" && !explicit_retry_recovery) || this.active.has(run.req_id)) continue;
+      this.index.setRunStatus(run.run_id, "running");
+      this.launch(session, run, versioned.def, new AbortController(), driverResolver);
       resumed.push(`${run.req_id}(${run.run_id})`);
     }
     return resumed;
+  }
+
+  /** 授权身份在恢复与人审共用；首次派发还须保持人工确认的节点输入。 */
+  private async assertGoalRetryIdentity(session: SessionHandle, events: readonly EventEnvelope[], run: RunRow, def: WorkflowDef, resolver?: (name: string) => AgentDriver): Promise<void> {
+    if (run.goal_retry_round_id == null) return;
+    let event;
+    try { event = readGoalRetryAuthorization(events, run.run_id); }
+    catch (error) { throw conflict(error instanceof Error ? error.message : "Goal 续跑授权来源不可验证"); }
+    const auth = GoalRetryAuthorizedPayloadSchema.safeParse(event?.payload);
+    const node = auth.success ? def.spec.nodes.find(node => node.id === auth.data.node_id) : undefined;
+    const goal = node?.run?.goal;
+    if (!auth.success || auth.data.round_id !== run.goal_retry_round_id || !matchesWorkflowScope(auth.data, { workflow_id: def.metadata.id, workflow_revision: run.workflow_revision ?? undefined })
+      || node === undefined || goal === undefined || goal.max_attempts !== auth.data.max_attempts || goal.timeout_ms !== auth.data.timeout_ms) throw conflict("Goal 续跑授权缺失或来源/预算不可验证，拒绝派发");
+    let identity;
+    try { identity = readGoalRetryAgentIdentity(events, run.run_id, node); }
+    catch (error) { throw conflict(error instanceof Error ? error.message : "Goal 续跑 worker 配置来源不可验证"); }
+    if (resolver?.(node.run!.agent).configuration_hash !== identity.configuration_hash) throw conflict("Goal 续跑 worker 配置与人工授权不一致，请恢复原配置后恢复原 run");
+    if (!identity.worker_started) {
+      const current = await this.readNodeInput(def, node, session, identity.configuration_hash, run.workflow_revision ?? undefined);
+      if (current.input_hash !== identity.node_input_hash) throw conflict("Goal 续跑首次派发前输入已变化，拒绝执行旧授权");
+    }
   }
 
   /** 终态登记：索引是派生簿记，关闭后（进程退出窗口）登记失败不影响事件流事实 */
@@ -615,6 +643,13 @@ export class RunService {
     const humanGate = this.createHumanGate(session, run, def);
     const { workspaceRoot } = this.options;
     const driverResolver = fixed_resolver ?? this.options.driverResolverForRun?.() ?? this.options.driverResolver;
+    const nodeRunner = driverResolver !== undefined && workspaceRoot !== undefined ? createNodeRunner(def, {
+      resolveDriver: driverResolver,
+      workspaceRoot,
+      read_source_hash: async (node) => (await readVerificationSource(workspaceRoot, verificationSourceInputs(node))).source_hash,
+      read_verification_input: async (node, current_session, ctx) => this.readNodeInput(def, node, current_session,
+        driverResolver(node.run!.agent).configuration_hash ?? null, ctx.workflow_revision),
+    }) : undefined;
     const executor = createExecutor({
       run_id: run.run_id,
       workflow_revision: run.workflow_revision ?? undefined,
@@ -624,15 +659,12 @@ export class RunService {
       payloadFor: (node) => ({ anchors: nodeAnchors(session.req_id, node.artifact) }),
       signal: controller.signal,
       // ADR-0023：节点声明 run 时由协调 agent 派发 worker；未配置 resolver 时执行器记 notes 跳过
-      ...(driverResolver !== undefined && workspaceRoot !== undefined
+      ...(nodeRunner !== undefined
         ? {
-            nodeRunner: createNodeRunner(def, {
-              resolveDriver: driverResolver,
-              workspaceRoot,
-              read_source_hash: async (node) => (await readVerificationSource(workspaceRoot, verificationSourceInputs(node))).source_hash,
-              read_verification_input: async (node, current_session, ctx) => this.readNodeInput(def, node, current_session,
-                driverResolver(node.run!.agent).configuration_hash ?? null, ctx.workflow_revision),
-            }),
+            nodeRunner: { ...nodeRunner, runNode: async (node, current_session, ctx) => {
+              await this.assertGoalRetryIdentity(current_session, await current_session.events.readOrdered(), run, def, driverResolver);
+              return nodeRunner.runNode(node, current_session, ctx);
+            } },
           }
         : {}),
     });
@@ -745,9 +777,9 @@ export class RunService {
     };
   }
 
-  private async evaluateRunGate(session: SessionHandle, run: RunRow, def: WorkflowDef, node: WorkflowDef["spec"]["nodes"][number], gate: GateDef) {
+  private async evaluateRunGate(session: SessionHandle, run: RunRow, def: WorkflowDef, node: WorkflowDef["spec"]["nodes"][number], gate: GateDef, resolver?: (name: string) => AgentDriver) {
     const anchors = nodeAnchors(session.req_id, node.artifact);
-    const configuration_hash = node.run === undefined ? null : this.configurationHashFor(session.req_id, node.run.agent);
+    const configuration_hash = node.run === undefined ? null : resolver === undefined ? this.configurationHashFor(session.req_id, node.run.agent) : resolver(node.run.agent).configuration_hash ?? null;
     const { input_hash } = await this.readNodeInput(def, node, session, configuration_hash, run.workflow_revision ?? undefined);
     return evaluateGate(gate, createBuiltinRegistry(), {
       session_dir: session.dir, session, node_id: node.id, run_id: run.run_id,

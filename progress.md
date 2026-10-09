@@ -1,5 +1,19 @@
 # 工作进度
 
+## 2026-10-09（阶段 48）
+
+- d787af0 工作树干净、与本地 origin 同步；上一轮完成 Goal ready 共用核验，属于实际进展。
+- 发现续跑 check 多次读取 live resolver，launch 使用另一次 frozen 捕获，重载可能校验 A 却执行 B；原授权无可独立核验 agent hash，冷恢复可换角色。
+- ADR-0062 先行：同 resolver 校验/派发、新授权保存身份与节点输入，冷恢复/审批验证身份，旧授权有真实任务来源才归因；配置还原可显式恢复原 run，不重授预算。
+- 接续核验工作树仅有阶段 48 设计记录。确定性 A/B/A 回归先失败，证明 token 校验 A 而 worker.started 实际配置 B。
+- 已实现固定 resolver 校验/派发、授权完整三 hash、共用 worker 身份归因、恢复/审批拒绝漂移与显式原 run 恢复；开始定向验证，尚未完成全量验收。
+- 首轮 15/17 通过；修正验收 API 缺 /decide，以及启动事实 driver 是实际协议名、completion 是别名的现有契约。第二轮 17 项全通过。新增冷旧授权与过期审批预算回归后 19/20 通过；过期机器 gate 按事件保留等待，改为直接核验原 run/尝试预算未增加，避免错误终态假设。
+- 一次多文件补丁的 findings 标题匹配失败，补丁未应用；拆分精确上下文后完成。
+- 20 项续跑与 Goal 交付/自动升级合计 43 项通过；全量 1016 项 / 74 文件通过，typecheck/build:all/diff 通过。公开协议/架构/核心 feature 同步实际状态。
+- 隔离真实 ACP/HTTP 验证旧 token 409、授权 hash=任务 hash、冷漂移 failed/人审 409、还原同 run/同审批、幂等重放；worker 2/supervisor 1/授权 1/gate 决策 0/done 退出 0/doctor=true。证据 /tmp/cord-stage48-real-result.json，预览 61445/PID 51341；原真实 Draft 未操作。
+- Playwright/Chrome 1440/390/320 审批与已执行协调状态、重复按钮移除、无溢出/pageerror 通过，桌面/320 截图已查看。两次脚本文本精确定位超时，按实际组件文案/元素修正后成功；没有重启 worker 或修改产品行为。
+- 最终 typecheck、6 份文档 86 本地链接与 diff 检查通过；原真实 7306 Draft 审批仍 1，未操作。功能与验收已完成，进入小步提交/有界推送；完整验收覆盖与跨 driver 资源治理仍待继续，持续目标 active。
+
 ## 2026-10-09（阶段 47）
 
 - ca4b93a 工作树干净、与本地 origin 同步，上一轮为已验证实现。核对 Goal 完成审计与协调投影，后者只复制 ready payload，没有来源与当前代码/指南重检。

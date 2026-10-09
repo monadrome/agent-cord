@@ -1,6 +1,6 @@
 /** ADR-0059：人工新预算的持久化来源链；只查授权前事实，后续撤回不自动取消 run。 */
-import { GoalAttemptCompletedPayloadSchema, GoalRetryAuthorizedPayloadSchema, CoordinatorRoundRequestedPayloadSchema, WorkflowRunStartedPayloadSchema,
-  type EventEnvelope } from "../core/schema.js";
+import { AgentTaskStartedPayloadSchema, AgentTaskCompletedPayloadSchema, GoalAttemptCompletedPayloadSchema, GoalRetryAuthorizedPayloadSchema, CoordinatorRoundRequestedPayloadSchema, WorkflowRunStartedPayloadSchema,
+  type EventEnvelope, type WorkflowDef } from "../core/schema.js";
 import { SessionEventReadError } from "../core/session-events.js";
 import { matchesWorkflowScope } from "../workflow/scope.js";
 import { currentClarificationAnswers } from "./clarifications.js";
@@ -42,4 +42,29 @@ export function readGoalRetryAuthorization(events: readonly EventEnvelope[], run
     || current.parsed.data.sdlc_id !== requested.data.sdlc_id || current.parsed.data.sdlc_version !== requested.data.sdlc_version
     || !matchesWorkflowScope(original.parsed.data, scope)) throw new SessionEventReadError("Goal 续跑授权与答复、阻塞或启动来源不一致");
   return event;
+}
+
+/** ADR-0062：旧授权仅能归因到首条合法 worker 事实，不跳过坏来源寻找后来成功。 */
+export function readGoalRetryAgentIdentity(events: readonly EventEnvelope[], run_id: string, node: WorkflowDef["spec"]["nodes"][number]) {
+  const authorization = readGoalRetryAuthorization(events, run_id);
+  if (authorization === null) throw new SessionEventReadError("Goal 续跑授权缺失");
+  const auth = GoalRetryAuthorizedPayloadSchema.parse(authorization.payload);
+  if (node.id !== auth.node_id || node.run?.goal === undefined) throw new SessionEventReadError("Goal 续跑授权节点不匹配");
+  const tasks = events.filter(event => ["agent.task.started", "agent.task.completed"].includes(event.type)
+    && payload(event)["run_id"] === run_id && payload(event)["node_id"] === node.id);
+  let configuration_hash = auth.agent_configuration_hash;
+  for (const task of tasks) {
+    const parsed = (task.type === "agent.task.started" ? AgentTaskStartedPayloadSchema : AgentTaskCompletedPayloadSchema).safeParse(task.payload);
+    if (!parsed.success || task.seq <= authorization.seq || events.indexOf(task) <= events.indexOf(authorization)
+      || task.session_id !== authorization.session_id || task.correlation_id !== node.id
+      || task.actor.kind !== "agent" || task.actor.id !== "coordinator" || task.source.adapter !== "coordinator"
+      || !matchesWorkflowScope(parsed.data, auth)
+      || (task.type === "agent.task.completed" && parsed.data.driver !== node.run.agent)
+      || parsed.data.agent_configuration_hash === undefined || !/^[0-9a-f]{64}$/.test(parsed.data.agent_configuration_hash)
+      || events.filter(event => event.event_id === task.event_id).length !== 1) throw new SessionEventReadError("Goal 续跑 worker 配置来源不可验证");
+    configuration_hash ??= parsed.data.agent_configuration_hash;
+    if (configuration_hash !== parsed.data.agent_configuration_hash) throw new SessionEventReadError("Goal 续跑 worker 身份与人工授权不一致");
+  }
+  if (configuration_hash === undefined) throw new SessionEventReadError("旧 Goal 续跑授权没有可归因的 worker 配置身份");
+  return { configuration_hash, worker_started: tasks.length > 0, node_input_hash: auth.node_input_hash };
 }

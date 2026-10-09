@@ -19,7 +19,7 @@ export {
 
 export { createNodeRunner, type CoordinatorOptions } from "./coordinator.js";
 export { readApprovalContextHash } from "./checkpoint.js";
-export { readGoalRetryAuthorization } from "./goal-retry.js";
+export { readGoalRetryAuthorization, readGoalRetryAgentIdentity } from "./goal-retry.js";
 export { resolveGoalReadiness, type GoalReadinessEvidence } from "./goal-evidence.js";
 export { createContextSessionAgent, buildCoordinationPrompt, parseCoordinationProposal, coordinationInputHash, type ContextSessionAgentOptions } from "./session-agent.js";
 export { readCoordinationSnapshot } from "./coordination-context.js";

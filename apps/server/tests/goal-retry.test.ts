@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { stringify } from "yaml";
 import { ulid } from "ulid";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readGoalRetryAuthorization, type EventEnvelope } from "agent-cord";
+import { GoalRetryAuthorizedPayloadSchema, readGoalRetryAgentIdentity, readGoalRetryAuthorization, type EventEnvelope } from "agent-cord";
 import { buildApp, type BuiltServer } from "@agent-cord/server";
 import type { RunStartGuard } from "../src/services/run-service.js";
 
@@ -27,11 +27,14 @@ async function restart() { await server!.app.close(); server!.index.close(); ser
 async function workerCalls() { return Number(await readFile(join(root, ".goal-worker-calls"), "utf8")); }
 const command = (round_id: string) => "/requirements/REQ-RETRY/coordination/" + round_id + "/retry-goal";
 
-async function prepare() {
+async function configure(always_fail = false) {
   await writeFile(join(root, "cord", "agents.yaml"), stringify({ agents: {
-    worker: { kind: "headless", bin: process.execPath, args: [worker, "{{prompt}}"] },
+    worker: { kind: "headless", bin: process.execPath, args: [worker, ...(always_fail ? ["--always-fail"] : []), "{{prompt}}"] },
     supervisor: { kind: "headless", bin: process.execPath, args: [supervisor, "{{prompt}}"] },
   } }));
+}
+async function prepare() {
+  await configure();
   server = await buildApp({ root });
   const yaml = stringify({ apiVersion: "agent-cord.dev/v1alpha1", kind: "Workflow", metadata: { id: "goal-retry" }, spec: { nodes: [
     { id: "intake", artifact: "prd.md" },
@@ -56,6 +59,171 @@ async function answer() {
 }
 
 describe("人工授权 Goal 续跑", () => {
+  it("A/B/A 重载窗口中，校验与派发始终使用同一配置", async () => {
+    await prepare(); const { view, input } = await answer();
+    const authorized_hash = server!.agents.resolver()("worker").configuration_hash;
+    const read_input = server!.runs.readNodeInput.bind(server!.runs);
+    let switched = false;
+    const read = vi.spyOn(server!.runs, "readNodeInput").mockImplementation(async (...args) => {
+      const result = await read_input(...args);
+      if (!switched) { switched = true; await configure(true); await server!.agents.reload(); }
+      return result;
+    });
+    const real_start = server!.runs.start.bind(server!.runs);
+    const start = vi.spyOn(server!.runs, "start").mockImplementation(async (...args) => {
+      await configure(); await server!.agents.reload();
+      return real_start(...args);
+    });
+    try {
+      const response = await api("POST", command(view.round_id), input);
+      if (response.status === 409) {
+        expect(await workerCalls()).toBe(1);
+        expect((await facts()).some(event => event.type === "goal.retry.authorized")).toBe(false);
+        return;
+      }
+      expect(response.status, JSON.stringify(response.body)).toBe(202);
+      await waitFor(async () => (await facts()).some(event => event.type === "goal.attempt.completed" && event.payload["run_id"] === response.body.run.run_id));
+      const task = (await facts()).find(event => event.type === "agent.task.started" && event.payload["run_id"] === response.body.run.run_id)!;
+      expect(task.payload["agent_configuration_hash"]).toBe(authorized_hash);
+      expect((await api("GET", "/requirements/REQ-RETRY/approvals")).body.approvals).toHaveLength(1);
+    } finally { read.mockRestore(); start.mockRestore(); }
+  });
+
+  it("授权记录前重载使旧 token 失效；授权后的重载不替换固定 worker", async () => {
+    await prepare(); const { view, input } = await answer();
+    const original = server!.runs.start.bind(server!.runs);
+    const wrap = (after: boolean) => vi.spyOn(server!.runs, "start").mockImplementation(async (req_id, id, version, guard) => original(req_id, id, version, {
+      ...guard!, record: async (session, run_id) => {
+        if (after) await guard!.record(session, run_id);
+        await configure(true); await server!.agents.reload();
+        if (!after) await guard!.record(session, run_id);
+      },
+    }));
+    const before = wrap(false);
+    try { expect((await api("POST", command(view.round_id), input)).status).toBe(409); }
+    finally { before.mockRestore(); }
+    expect(await workerCalls()).toBe(1);
+    await configure(); await server!.agents.reload();
+    const current = await round(); const after = wrap(true);
+    try {
+      const response = await api("POST", command(view.round_id), { ...input, input_hash: current.goal_retry.input_hash });
+      expect(response.status, JSON.stringify(response.body)).toBe(202);
+      await waitFor(async () => (await api("GET", "/requirements/REQ-RETRY/approvals")).body.approvals.length === 1);
+      const events = await facts(); const auth = readGoalRetryAuthorization(events, response.body.run.run_id)!;
+      const task = events.find(event => event.type === "agent.task.started" && event.payload["run_id"] === response.body.run.run_id)!;
+      expect(task.payload["agent_configuration_hash"]).toBe(auth.payload["agent_configuration_hash"]);
+      expect(task.payload["agent_configuration_hash"]).not.toBe(server!.agents.resolver()("worker").configuration_hash);
+      expect(events.filter(event => event.type === "human.decision.recorded")).toHaveLength(0);
+    } finally { after.mockRestore(); }
+  });
+
+  it("冷配置漂移拒绝审批和派发，还原后恢复原 run 与有效交付", async () => {
+    await prepare(); const { view, input } = await answer();
+    const response = await api("POST", command(view.round_id), input);
+    await waitFor(async () => (await api("GET", "/requirements/REQ-RETRY/approvals")).body.approvals.length === 1);
+    const approval = (await api("GET", "/requirements/REQ-RETRY/approvals")).body.approvals[0];
+    const auth = readGoalRetryAuthorization(await facts(), response.body.run.run_id)!;
+    await configure(true); await restart();
+    expect((await server!.runs.getRun(response.body.run.run_id)).status).toBe("failed"); expect(await workerCalls()).toBe(2);
+    expect((await api("POST", "/requirements/REQ-RETRY/approvals/" + approval.approval_id + "/decide", { choice: approval.options[0] })).status).toBe(409);
+    expect((await facts()).filter(event => event.type === "human.decision.recorded")).toHaveLength(0);
+    await configure(); await server!.agents.reload(); await server!.runs.recover(response.body.run.run_id);
+    expect((await server!.runs.getRun(response.body.run.run_id)).status).toBe("waiting_human");
+    expect((await api("GET", "/requirements/REQ-RETRY/approvals")).body.approvals[0].approval_id).toBe(approval.approval_id);
+    expect(await workerCalls()).toBe(2); expect(readGoalRetryAuthorization(await facts(), response.body.run.run_id)?.event_id).toBe(auth.event_id);
+    expect((await facts()).filter(event => event.type === "workflow.run.started")).toHaveLength(2);
+    expect((await api("POST", "/requirements/REQ-RETRY/approvals/" + approval.approval_id + "/decide", { choice: approval.options[0] })).status).toBe(200);
+    await waitFor(async () => (await server!.runs.getRun(response.body.run.run_id)).status === "completed");
+    expect(await workerCalls()).toBe(2);
+  });
+
+  it.each(["value", "answer"])("首次派发前 %s 输入变化拒绝恢复，恢复相同输入可继续原授权", async change => {
+    await prepare(); const { view, input } = await answer();
+    const original = server!.runs.start.bind(server!.runs);
+    const start = vi.spyOn(server!.runs, "start").mockImplementation(async (req_id, id, version, guard) => original(req_id, id, version, {
+      ...guard!, record: async (session, run_id) => { await guard!.record(session, run_id); throw Error("模拟授权后进程中断"); },
+    }));
+    try { expect((await api("POST", command(view.round_id), input)).status).toBe(500); }
+    finally { start.mockRestore(); }
+    const auth = (await facts()).find(event => event.type === "goal.retry.authorized")!; const run_id = auth.payload["run_id"] as string;
+    const old_value = await readFile(join(root, "value.txt"), "utf8");
+    if (change === "value") await writeFile(join(root, "value.txt"), "new-input");
+    else await api("POST", "/requirements/REQ-RETRY/coordination/" + view.round_id + "/answer/revoke", { answer_event_id: input.answer_event_id });
+    server!.index.setRunStatus(run_id, "running"); await restart();
+    expect(await workerCalls()).toBe(1); expect((await server!.runs.getRun(run_id)).status).toBe("failed");
+    expect((await server!.runs.getRun(run_id)).error).toContain("输入");
+    if (change === "answer") return;
+    await writeFile(join(root, "value.txt"), old_value); await server!.runs.recover(run_id);
+    await waitFor(async () => (await api("GET", "/requirements/REQ-RETRY/approvals")).body.approvals.length === 1);
+    expect(await workerCalls()).toBe(2); expect((await facts()).filter(event => event.type === "workflow.run.started")).toHaveLength(2);
+    expect((await facts()).filter(event => event.type === "goal.retry.authorized")).toHaveLength(1);
+  });
+
+  it("冷旧审批依据变化时仅重检原授权 run，不创建新的 Goal 预算", async () => {
+    await prepare(); const { view, input } = await answer(); const response = await api("POST", command(view.round_id), input);
+    await waitFor(async () => (await api("GET", "/requirements/REQ-RETRY/approvals")).body.approvals.length === 1);
+    const approval = (await api("GET", "/requirements/REQ-RETRY/approvals")).body.approvals[0]; await restart();
+    await writeFile(join(root, "value.txt"), "stale-review");
+    const start = vi.spyOn(server!.runs, "start");
+    try { expect((await api("POST", "/requirements/REQ-RETRY/approvals/" + approval.approval_id + "/decide", { choice: approval.options[0] })).status).toBe(409); expect(start).not.toHaveBeenCalled(); }
+    finally { start.mockRestore(); }
+    await waitFor(async () => !server!.runs.isActive("REQ-RETRY"));
+    expect(await workerCalls()).toBe(2); expect((await facts()).filter(event => event.type === "workflow.run.started")).toHaveLength(2);
+    expect((await facts()).filter(event => event.type === "goal.retry.authorized")).toHaveLength(1);
+    expect((await facts()).filter(event => event.type === "human.decision.recorded")).toHaveLength(0);
+    expect((await server!.runs.getRun(response.body.run.run_id)).run_id).toBe(response.body.run.run_id);
+    expect((await facts()).filter(event => event.type === "goal.attempt.started" && event.payload["run_id"] === response.body.run.run_id)).toHaveLength(1);
+  });
+
+  it.each([true, false])("冷旧授权 worker 来源存在=%s，兼容恢复必须有可证明的身份", async has_task => {
+    await prepare(); const { view, input } = await answer();
+    let run_id: string;
+    if (has_task) {
+      const response = await api("POST", command(view.round_id), input); run_id = response.body.run.run_id;
+      await waitFor(async () => (await api("GET", "/requirements/REQ-RETRY/approvals")).body.approvals.length === 1);
+    } else {
+      const original = server!.runs.start.bind(server!.runs);
+      const start = vi.spyOn(server!.runs, "start").mockImplementation(async (req_id, id, version, guard) => original(req_id, id, version, {
+        ...guard!, record: async (session, id) => { await guard!.record(session, id); throw Error("模拟旧授权后中断"); },
+      }));
+      try { expect((await api("POST", command(view.round_id), input)).status).toBe(500); }
+      finally { start.mockRestore(); }
+      run_id = (await facts()).find(event => event.type === "goal.retry.authorized")!.payload["run_id"] as string;
+      server!.index.setRunStatus(run_id, "running");
+    }
+    const events = await facts(); const session = await server!.sessions.open("REQ-RETRY");
+    await server!.app.close(); server!.index.close(); server = undefined;
+    await writeFile(join(session.dir, "events.jsonl"), events.map(event => {
+      if (event.type !== "goal.retry.authorized") return JSON.stringify(event);
+      const { agent_configuration_hash, supervisor_configuration_hash, node_input_hash, ...payload } = event.payload;
+      return JSON.stringify({ ...event, payload });
+    }).join("\n") + "\n");
+    server = await buildApp({ root });
+    expect(await workerCalls()).toBe(has_task ? 2 : 1);
+    expect((await server.runs.getRun(run_id)).status).toBe(has_task ? "waiting_human" : "failed");
+    if (!has_task) expect((await server.runs.getRun(run_id)).error).toContain("配置身份");
+  });
+
+  it("旧授权必须有因果合法的首条任务身份，部分身份字段和坏来源拒绝", async () => {
+    await prepare(); const { view, input } = await answer(); const response = await api("POST", command(view.round_id), input);
+    await waitFor(async () => (await api("GET", "/requirements/REQ-RETRY/approvals")).body.approvals.length === 1);
+    const events = await facts(); const auth = readGoalRetryAuthorization(events, response.body.run.run_id)!;
+    const { agent_configuration_hash, supervisor_configuration_hash, node_input_hash, ...legacy } = auth.payload;
+    expect(GoalRetryAuthorizedPayloadSchema.safeParse(legacy).success).toBe(true);
+    for (const group of [{ agent_configuration_hash }, { supervisor_configuration_hash, node_input_hash }]) expect(GoalRetryAuthorizedPayloadSchema.safeParse({ ...legacy, ...group }).success).toBe(false);
+    const old_events = events.map(event => event.event_id === auth.event_id ? { ...event, payload: legacy } : event);
+    const node = (await server!.sdlcs.get("goal-retry", 1)).def.spec.nodes.find(node => node.id === "deliver")!;
+    expect(readGoalRetryAgentIdentity(old_events, response.body.run.run_id, node)).toMatchObject({ configuration_hash: agent_configuration_hash, worker_started: true });
+    const tasks = events.filter(event => ["agent.task.started", "agent.task.completed"].includes(event.type) && event.payload["run_id"] === response.body.run.run_id);
+    expect(() => readGoalRetryAgentIdentity(old_events.filter(event => !tasks.includes(event)), response.body.run.run_id, node)).toThrow(/配置身份/);
+    for (const change of [
+      { actor: { kind: "agent", id: "worker" } }, { source: { adapter: "worker" } }, { seq: auth.seq }, { session_id: "REQ-OTHER" },
+      { payload: { ...tasks[0]!.payload, agent_configuration_hash: undefined } },
+      { payload: { ...tasks[0]!.payload, workflow_revision: "b".repeat(64) } },
+    ]) expect(() => readGoalRetryAgentIdentity(old_events.map(event => event.event_id === tasks[0]!.event_id ? { ...event, ...change } as EventEnvelope : event), response.body.run.run_id, node)).toThrow();
+    expect(() => readGoalRetryAgentIdentity(events.map(event => event.event_id === auth.event_id ? { ...event, payload: { ...event.payload, agent_configuration_hash: "b".repeat(64) } } : event), response.body.run.run_id, node)).toThrow(/身份/);
+  });
+
   it("答复只记录事实，独立授权新发布预算后修复并停在最终人审", async () => {
     const original = await prepare();
     expect(original.round.goal_retry).toMatchObject({ available: false, input_hash: null });
