@@ -20,6 +20,7 @@ import { alg, Graph } from "@dagrejs/graphlib";
 import { ulid } from "ulid";
 import {
   AnchorSchema,
+  AgentTaskReusedPayloadSchema,
   GateResultSchema,
   type Actor,
   type Anchor,
@@ -44,6 +45,7 @@ import type {
 import { createBuiltinRegistry } from "./checkers.js";
 import { canonicalJson, sha256Hex } from "../core/hash.js";
 import { matchesWorkflowScope } from "./scope.js";
+import { resolveReusedCompletion } from "./task-evidence.js";
 
 export type WorkflowNode = WorkflowDef["spec"]["nodes"][number];
 
@@ -118,7 +120,7 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
       const nodes = new Map(def.spec.nodes.map((node) => [node.id, node]));
       const gatesByNode = indexGates(def);
       const order = topologicalOrder(def);
-      const state = await scan(session, workflow_id, workflow_revision);
+      const state = await scan(session, workflow_id, workflow_revision, options.run_id);
 
       for (const nodeId of order) {
         if (state.completed.has(nodeId)) continue;
@@ -198,6 +200,15 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
                 }
               }
               if (reusable) {
+                const original = asRecord(completion!.payload)!;
+                if (options.run_id !== undefined && original["run_id"] !== options.run_id && state.agentReused.get(nodeId) !== completion!.event_id) {
+                  const provenance: Record<string, unknown> = { ...scope, run_id: options.run_id, node_id: nodeId, completion_event_id: completion!.event_id };
+                  for (const key of ["execution_input_hash", "agent_configuration_hash", "source_hash", "artifact_after_hash"]) {
+                    if (original[key] !== undefined) provenance[key] = original[key];
+                  }
+                  await appendEvent(session, actor, "agent.task.reused", AgentTaskReusedPayloadSchema.parse(provenance), nodeId);
+                  state.agentReused.set(nodeId, completion!.event_id);
+                }
                 notes.push("历史任务输入与产物仍有效，跳过重复执行");
               } else {
                 for (const gate of nodeGates.filter((item) => item.attach.when === "post")) {
@@ -213,6 +224,7 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
                   ...(options.run_id === undefined ? {} : { run_id: options.run_id }),
                   ...(options.signal !== undefined ? { signal: options.signal } : {}),
                 });
+                state.agentReused.delete(nodeId);
                 // 失败/超时/取消：停在该节点，修复后按新输入重跑。
                 if (outcome.status !== "ok") return;
                 const latest = [...await session.events.readOrdered()].reverse().find((event) =>
@@ -369,15 +381,19 @@ interface ScannedState {
   waiting: Map<string, WaitingGate>;
   /** 最近有效 ok 的候选 checkpoint；恢复仍需 NodeRunner 验证当前输入与产物 */
   agentDone: Map<string, EventEnvelope>;
+  /** 当前 run 已落盘的跨 run 复用，恢复不能重复追加。 */
+  agentReused: Map<string, string>;
 }
 
-async function scan(session: SessionHandle, workflowId: string, workflow_revision?: string): Promise<ScannedState> {
+async function scan(session: SessionHandle, workflowId: string, workflow_revision?: string, run_id?: string): Promise<ScannedState> {
   const completed = new Set<string>();
   const entered = new Set<string>();
   const waiting = new Map<string, WaitingGate>();
   const agentDone = new Map<string, EventEnvelope>();
+  const agentReused = new Map<string, string>();
 
-  for (const event of await session.events.readOrdered()) {
+  const events = await session.events.readOrdered();
+  for (const event of events) {
     const payload = asRecord(event.payload);
     if (!payload || !matchesWorkflowScope(payload, { workflow_id: workflowId, workflow_revision })) continue;
     const nodeId = payload["node_id"];
@@ -386,14 +402,20 @@ async function scan(session: SessionHandle, workflowId: string, workflow_revisio
     if (event.type === "workflow.node.entered" && typeof nodeId === "string") {
       entered.add(nodeId);
       // resumed entered 保留 checkpoint，明确的新任务 started 才使旧任务失效。
-      if (payload["resumed"] !== true) agentDone.delete(nodeId);
+      if (payload["resumed"] !== true) { agentDone.delete(nodeId); agentReused.delete(nodeId); }
     } else if (event.type === "workflow.node.exited" && typeof nodeId === "string") {
       completed.add(nodeId);
     } else if (event.type === "agent.task.started" && typeof nodeId === "string") {
       agentDone.delete(nodeId);
+      agentReused.delete(nodeId);
     } else if (event.type === "agent.task.completed" && typeof nodeId === "string") {
       if (payload["status"] === "ok") agentDone.set(nodeId, event);
       else agentDone.delete(nodeId);
+      agentReused.delete(nodeId);
+    } else if (event.type === "agent.task.reused" && run_id !== undefined && payload["run_id"] === run_id && typeof nodeId === "string") {
+      agentReused.delete(nodeId);
+      const parsed = AgentTaskReusedPayloadSchema.safeParse(payload);
+      if (parsed.success && resolveReusedCompletion(event, events) !== null) agentReused.set(parsed.data.node_id, parsed.data.completion_event_id);
     } else if (
       event.type === "gate.waiting" &&
       typeof nodeId === "string" &&
@@ -411,7 +433,7 @@ async function scan(session: SessionHandle, workflowId: string, workflow_revisio
       waiting.delete(gateKey(nodeId, gateId));
     }
   }
-  return { completed, entered, waiting, agentDone };
+  return { completed, entered, waiting, agentDone, agentReused };
 }
 
 function toWaitingGate(

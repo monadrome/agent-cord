@@ -282,16 +282,20 @@ export const CoordinationTaskSchema = z.strictObject({
   node_id: z.string().min(1).max(500),
   run_id: z.string().regex(ULID_RE).nullable(),
   event_id: z.string().regex(ULID_RE).nullable(),
-  status: z.enum(["missing", "invalid", "started", "ok", "failed", "timeout", "cancelled"]),
+  /** ADR-0049：reused 指向原始真实完成，其他状态为 null。 */
+  completion_event_id: z.string().regex(ULID_RE).nullable().default(null),
+  status: z.enum(["missing", "invalid", "started", "reused", "ok", "failed", "timeout", "cancelled"]),
   attempt: z.number().int().positive().nullable(),
   max_attempts: z.number().int().positive().nullable(),
   failure_stage: z.enum(["snapshot", "configuration", "driver", "artifact"]).nullable(),
   retryable: z.boolean().nullable(),
 }).refine((value) => value.max_attempts === null || value.attempt === null || value.attempt <= value.max_attempts, { message: "重试编号超过上限" })
   .refine((value) => value.status === "missing" ? value.event_id === null : value.run_id !== null && value.event_id !== null, { message: "任务事实必须携带 run/event 身份" })
-  .refine((value) => !["missing", "invalid", "started"].includes(value.status) || (value.failure_stage === null && value.retryable === null), { message: "未确认终态不能携带失败结论" })
-  .refine((value) => !["missing", "invalid"].includes(value.status) || (value.attempt === null && value.max_attempts === null), { message: "缺失/非法任务不能声明重试编号" })
-  .refine((value) => value.status !== "ok" || value.failure_stage === null, { message: "成功任务不能同时声明失败阶段" });
+  .refine((value) => !["missing", "invalid", "started", "reused"].includes(value.status) || (value.failure_stage === null && value.retryable === null), { message: "未确认终态或复用不能携带失败结论" })
+  .refine((value) => !["missing", "invalid", "reused"].includes(value.status) || (value.attempt === null && value.max_attempts === null), { message: "缺失/非法/复用任务不能声明新的重试编号" })
+  .refine((value) => value.status !== "ok" || value.failure_stage === null, { message: "成功任务不能同时声明失败阶段" })
+  .refine((value) => value.status === "reused" ? value.completion_event_id !== null && value.completion_event_id !== value.event_id : value.completion_event_id === null,
+    { message: "只有复用任务可引用不同的原完成事件" });
 export type CoordinationTask = z.infer<typeof CoordinationTaskSchema>;
 export const CoordinationExecutionContextSchema = z.strictObject({
   run: z.strictObject({ run_id: z.string().regex(ULID_RE), status: z.enum(["running", "waiting_human", "completed", "blocked", "failed", "cancelled"]), active: z.boolean() })
@@ -302,6 +306,8 @@ export const CoordinationExecutionContextSchema = z.strictObject({
   .refine((value) => value.tasks.every((task) => task.run_id === (value.run?.run_id ?? null)), { message: "任务观察必须属于当前 run" })
   .refine((value) => value.run !== null || value.tasks.every((task) => task.status === "missing"), { message: "没有当前 run 时不能声明任务事实" });
 export type CoordinationExecutionContext = z.infer<typeof CoordinationExecutionContextSchema>;
+/** 观察 hook 输入允许省略有默认值的新字段，消费端始终归一化。 */
+export type CoordinationExecutionContextInput = z.input<typeof CoordinationExecutionContextSchema>;
 
 /** ADR-0032：协调提议仅引用当前快照/工作流，不能携带任意命令或修改协议。 */
 export const CoordinationEvidenceSchema = z.discriminatedUnion("source", [
@@ -354,6 +360,7 @@ export const EVENT_TYPES = [
   "workflow.run.started",
   "agent.task.started",
   "agent.task.completed",
+  "agent.task.reused",
   "verification.completed",
   "coordinator.round.started",
   "coordinator.round.requested",
@@ -590,6 +597,19 @@ export const AgentTaskCompletedPayloadSchema = z.looseObject({
   snapshot_event_chain_hash: z.string().length(64).optional(),
 });
 
+/** ADR-0049：当前 run 使用已核验的旧 checkpoint，不代表新的模型执行。 */
+export const AgentTaskReusedPayloadSchema = z.looseObject({
+  workflow_id: z.string().min(1),
+  workflow_revision: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  run_id: z.string().regex(ULID_RE),
+  node_id: z.string().min(1),
+  completion_event_id: z.string().regex(ULID_RE),
+  execution_input_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  agent_configuration_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  source_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  artifact_after_hash: z.string().regex(/^[0-9a-f]{64}$/).nullable().optional(),
+});
+
 /** ADR-0045：REST 与事实消费共用结果约束，未知退出码不补造为 0。 */
 export const VerificationResultSchema = z.strictObject({
   verification_id: z.string().min(1).max(200),
@@ -694,6 +714,7 @@ export const EVENT_PAYLOAD_SCHEMAS: Partial<Record<EventType, z.ZodType>> = {
   "workflow.run.started": WorkflowRunStartedPayloadSchema,
   "agent.task.started": AgentTaskStartedPayloadSchema,
   "agent.task.completed": AgentTaskCompletedPayloadSchema,
+  "agent.task.reused": AgentTaskReusedPayloadSchema,
   "verification.completed": VerificationCompletedPayloadSchema,
   "coordinator.round.started": CoordinatorRoundStartedPayloadSchema,
   "coordinator.round.requested": CoordinatorRoundRequestedPayloadSchema,

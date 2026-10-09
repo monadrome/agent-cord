@@ -4,7 +4,7 @@ import { ulid } from "ulid";
 import { canonicalJson, sha256Hex } from "../core/hash.js";
 import type { AgentDriver, ContextSessionAgent, CoordinationInput, CoordinationResult, SessionHandle } from "../core/ports.js";
 import { AgentUsagePayloadSchema, CoordinationProposalSchema, CoordinationVerificationsSchema, CoordinationExecutionContextSchema,
-  type CoordinationExecutionContext, type CoordinationVerification, type CoordinationProposal, type CoordinationStatus, type WorkflowDef } from "../core/schema.js";
+  type CoordinationExecutionContext, type CoordinationExecutionContextInput, type CoordinationVerification, type CoordinationProposal, type CoordinationStatus, type WorkflowDef } from "../core/schema.js";
 import { DEFAULT_TASK_TIMEOUT_MS } from "../driver/headless.js";
 import { topologicalOrder } from "../workflow/executor.js";
 import type { RequirementSnapshot } from "./snapshot.js";
@@ -28,13 +28,13 @@ export interface ContextSessionAgentOptions {
   /** ADR-0044：宿主投影当前流程声明的验证结果与新鲜度，不携带日志。 */
   read_verifications?: (def: WorkflowDef, session: SessionHandle, workflow_revision?: string) => Promise<CoordinationVerification[]>;
   /** ADR-0048：当前 run 与 worker 状态，不携带任务正文或错误日志。 */
-  read_execution_context?: (def: WorkflowDef, session: SessionHandle, workflow_revision?: string) => Promise<CoordinationExecutionContext>;
+  read_execution_context?: (def: WorkflowDef, session: SessionHandle, workflow_revision?: string) => Promise<CoordinationExecutionContextInput>;
 }
 
 /** 轮次自己的事件不会改变输入；文档、账本、进度与人工等待会改变。 */
 export function coordinationInputHash(def: WorkflowDef, snapshot: RequirementSnapshot, configuration_hash: string | null, max_prompt_chars = DEFAULT_MAX_PROMPT_CHARS, source_hash: string | null = null, verifications: readonly CoordinationVerification[] = [], execution_context?: CoordinationExecutionContext): string {
   return sha256Hex(canonicalJson({
-    domain: execution_context === undefined ? "cord.coordination-input.v4" : "cord.coordination-input.v5", context_policy: COORDINATION_CONTEXT_POLICY, workflow: def, configuration_hash, max_prompt_chars,
+    domain: execution_context === undefined ? "cord.coordination-input.v4" : "cord.coordination-input.v6", context_policy: COORDINATION_CONTEXT_POLICY, workflow: def, configuration_hash, max_prompt_chars,
     ...(execution_context === undefined ? {} : { execution_context }),
     ...(source_hash === null ? {} : { source_hash }),
     ...(verifications.length === 0 ? {} : { verifications }),
@@ -91,7 +91,7 @@ export function buildCoordinationPrompt(def: WorkflowDef, snapshot: RequirementS
     ...(snapshot.workflow_revision !== undefined ? [`workflow_revision: ${snapshot.workflow_revision}`] : []),
     ...(source_hash === null ? [] : [`source_hash: ${source_hash}\n源码摘要仅标识当前声明范围，不代表测试通过或内容已被核验。`]),
     ...(verifications.length === 0 ? [] : [`verifications: ${JSON.stringify(verifications)}\n机器观察由宿主核验输入身份。missing、invalid、current=false/null 均不能认作当前通过；当前 failed/timeout/cancelled 也不是通过。验证证据不能代替人工 gate。`]),
-    ...(execution_context === undefined ? [] : [`execution_context: ${JSON.stringify(execution_context)}\nactive 仅标识宿主当前运行槽位，active=true 时不得推进新 run。started 只证明启动已记录，active=false 时不能声称进程仍活着。任务事实不保证对应修改后的输入，ok 也不等于测试或 gate 通过；missing/invalid 不能引用，agent_task 来源只用这里的合法 event_id。`]),
+    ...(execution_context === undefined ? [] : [`execution_context: ${JSON.stringify(execution_context)}\nactive 仅标识宿主当前运行槽位，active=true 时不得推进新 run。started 只证明启动已记录，active=false 时不能声称进程仍活着。reused 表示当前 run 复用原完成事件 completion_event_id，没有新的 worker 调用；来源仍用当前复用 event_id。任务事实不保证对应修改后的输入，ok/reused 也不等于测试或 gate 通过；missing/invalid 不能引用，agent_task 来源只用这里的合法 event_id。`]),
     `progress: ${JSON.stringify(snapshot.workflow)}`,
     `eligible_nodes: ${JSON.stringify(eligibleNodes(def, snapshot, execution_context))}`,
     `ledger: ${JSON.stringify(snapshot.ledger)}`,

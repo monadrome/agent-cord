@@ -36,3 +36,4 @@ export {
 } from "./executor.js";
 export { workflowRevision, matchesWorkflowScope } from "./scope.js";
 export { readVerificationEvents, parseVerificationResult, isVerificationRunCancelled } from "./verification.js";
+export { resolveReusedCompletion } from "./task-evidence.js";

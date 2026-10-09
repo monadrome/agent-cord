@@ -1,5 +1,21 @@
 # 工作进度
 
+## 2026-10-08（阶段 35）
+
+- 上一轮为已验证进展，当前 HEAD=cd9e75a，工作区干净并与远端同步。
+- 现有 runner 可跨 run 复用有效任务，但当前 run 没有完成事实，执行观察会变为 missing。ADR-0049 先行，增加显式复用 provenance，不伪造新执行或放宽 checkpoint/gate。
+- 3 个跨 run/追加失败/server missing 反例已复现，输入变化重跑对照通过；开始显式 reused 事实、原完成引用与恢复去重，绑定执行观察升级 v6。
+- 首轮实现后 45 项相关测试与 build:all 通过，新 run 投影为 reused，冷恢复不重复 worker/复用事实。补充原完成引用、坏最新去重与改需求后重跑的边界回归。
+- 扩展 49 项定向通过；进一步补齐 reused prompt/原完成 ID 拒绝和旧 hook 输入兼容，准备全量及隔离实际协调验收。
+- 首轮全量 789 测试 / 62 文件与 build:all 通过。新增展开复用事件到原完成的导航，保持前端只展示 server 事实，继续真实协调与浏览器两步来源验收。
+- 来源导航后的 789 全量与 build/typecheck 通过，真实两个 run 的 worker 总调用 1 次，Claude 正确区分 ok/reused 并引用当前复用事件及原完成 ID；报告不变，doctor=true，无人工决定/节点退出/采用。最后审查补齐原完成与调用上下文的流程/节点一致性拒绝及回归。
+- 最终 790 测试 / 62 文件和 build:all 通过。浏览器 1440/390/320 两步来源导航全通过，无 pageerror/溢出，tooltip 与容器边界正常；截图已查看无重叠。
+- 原真实 Draft 实时 health=true、审批 1、人工决定 0、done 未退出。预览 `http://127.0.0.1:7312/#/requirements/REQ-REUSED-REPORT/coordination` 保留真实 reused wait Draft，运行数据不入库；协议/架构/ADR 索引与公开验收记录同步。
+- 最终 typecheck/git diff --check 通过，预览确认无在途协调后重启到最终源码。差异审查完成，进入本地提交与 HTTP/2 有界推送，持续目标保持 active。
+- 交接续接核对全部差异和临时实际验收证据；补查发现原完成 attempt 超过 max_attempts 时，直接观察为 invalid，但 checkpoint/复用引用未拒绝。新增原引用、worker 重跑后恢复和 server invalid→reused 三项反例，先验证再修复。
+- 三项新反例全部失败，确认缺口；补齐 checkpoint 与原完成引用的重试上限校验，未改 schema/ports。原引用和原生 worker 的失败→重跑→有效复用、server invalid→reused 将一并回归。
+- 补齐后 46 项定向、完整 793 测试 / 62 文件、build:all/typecheck/git diff --check 通过。7312 预览无在途协调，重启到最新代码（PID 76112）后 started/completed/reused 仍各 1 条，最新 wait current=true、审批 1、人工决定/节点退出 0；7306 原真实 Draft 健康、人工待审、done 未退出。
+
 ## 2026-10-08（阶段 34）
 
 - 上一轮为已验证进展，当前 HEAD=e426eb9，工作区干净且与远端同步。

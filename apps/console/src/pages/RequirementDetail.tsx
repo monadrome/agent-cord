@@ -4,6 +4,7 @@
  * 事件 tab 用 SSE 实时订阅（组件卸载时关闭 EventSource），新事件到达时刷新概览与审批。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowUpRight } from "lucide-react";
 import type { ReactElement } from "react";
 import type {
   ApprovalItem,
@@ -334,7 +335,7 @@ export function RequirementDetail({ reqId, tab, onTab, onBack }: Props): ReactEl
       {tab === "docs" ? <DocsTab reqId={reqId} docs={detail?.docs ?? null} initial_doc={focused_doc} /> : null}
       {tab === "ledger" ? <LedgerTab ledger={ledger} /> : null}
       {tab === "votes" ? <VotesTab votes={votes} /> : null}
-      {tab === "events" ? <EventsTab events={events} focused_event={focused_event} /> : null}
+      {tab === "events" ? <EventsTab events={events} focused_event={focused_event} onFocus={set_focused_event} /> : null}
       {tab === "approvals" ? (
         <ApprovalsTab approvals={approvals} deciding={deciding} onDecide={(item, choice) => void decide(item, choice)} />
       ) : null}
@@ -782,7 +783,7 @@ function VotesTab({ votes }: { votes: VoteSummary[] }): ReactElement {
 // 事件（SSE 实时）
 // ---------------------------------------------------------------------------
 
-function EventsTab({ events, focused_event }: { events: StreamedEvent[]; focused_event: string | null }): ReactElement {
+function EventsTab({ events, focused_event, onFocus }: { events: StreamedEvent[]; focused_event: string | null; onFocus: (event_id: string) => void }): ReactElement {
   const [expanded, setExpanded] = useState<readonly number[]>([]);
   const newestFirst = useMemo(() => [...events].sort((a, b) => b.seq - a.seq), [events]);
   const revealed = useRef<string | null>(null);
@@ -810,6 +811,9 @@ function EventsTab({ events, focused_event }: { events: StreamedEvent[]; focused
         <ul className="event-list">
           {newestFirst.map((event) => {
             const open = expanded.includes(event.seq);
+            const reference = event.type === "agent.task.reused" && typeof event.payload === "object" && event.payload !== null
+              ? (event.payload as Record<string, unknown>)["completion_event_id"] : null;
+            const original = typeof reference === "string" ? events.find((item) => item.event_id === reference && item.type === "agent.task.completed") : undefined;
             return (
               <li key={event.event_id} id={`event-${event.event_id}`} className="event">
                 <button type="button" className="event-row" onClick={() => toggle(event.seq)} aria-expanded={open}>
@@ -821,7 +825,14 @@ function EventsTab({ events, focused_event }: { events: StreamedEvent[]; focused
                   <span className="muted small">{formatTime(event.timestamp)}</span>
                   <span className="event-toggle">{open ? "收起" : "展开"}</span>
                 </button>
-                {open ? <pre className="payload mono">{JSON.stringify(event.payload, null, 2)}</pre> : null}
+                {open ? <>
+                  {original !== undefined ? <div className="event-reference"><span className="muted small">原完成</span>
+                    <button type="button" className="link" onClick={() => onFocus(original.event_id)} title="打开原始完成事件">
+                      <span className="mono">{original.event_id}</span><ArrowUpRight size={14} aria-hidden="true" />
+                    </button>
+                  </div> : null}
+                  <pre className="payload mono">{JSON.stringify(event.payload, null, 2)}</pre>
+                </> : null}
               </li>
             );
           })}

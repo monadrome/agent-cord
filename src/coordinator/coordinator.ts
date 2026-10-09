@@ -17,7 +17,7 @@ import type {
   NodeRunStatus,
   SessionHandle,
 } from "../core/ports.js";
-import type { EventDraft, WorkflowDef } from "../core/schema.js";
+import { AgentTaskCompletedPayloadSchema, type EventDraft, type WorkflowDef } from "../core/schema.js";
 import { isPlaceholderDoc } from "../core/session.js";
 import { sha256Hex } from "../core/hash.js";
 import { SessionEventReadError } from "../core/session-events.js";
@@ -151,8 +151,12 @@ export function createNodeRunner(def: WorkflowDef, options: CoordinatorOptions):
 
   return {
     async isCompletionReusable(node, session, ctx, completion) {
-      const payload = completion.payload as Record<string, unknown> | null;
-      if (payload?.["status"] !== "ok" || typeof payload["execution_input_hash"] !== "string") return false;
+      const parsed = AgentTaskCompletedPayloadSchema.safeParse(completion.payload);
+      if (!parsed.success || completion.type !== "agent.task.completed" || completion.correlation_id !== node.id) return false;
+      const payload = parsed.data;
+      if (ctx.workflow_id !== def.metadata.id || payload.workflow_id !== ctx.workflow_id || payload.node_id !== node.id || ctx.node_id !== node.id) return false;
+      if (payload.status !== "ok" || payload.failure_stage !== undefined || payload.execution_input_hash === undefined) return false;
+      if (payload.attempt !== undefined && payload.max_attempts !== undefined && payload.attempt > payload.max_attempts) return false;
       if (payload["workflow_revision"] !== ctx.workflow_revision) return false;
       const snapshot = await readSnapshot(session, {
         workflow_id: ctx.workflow_id,

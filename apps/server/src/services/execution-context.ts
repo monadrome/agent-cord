@@ -1,5 +1,5 @@
 /** ADR-0048：当前 run 的任务状态投影，不复制 runner 或注入日志。 */
-import { AgentTaskStartedPayloadSchema, AgentTaskCompletedPayloadSchema, CoordinationExecutionContextSchema, matchesWorkflowScope, readSessionEvents,
+import { AgentTaskStartedPayloadSchema, AgentTaskCompletedPayloadSchema, AgentTaskReusedPayloadSchema, CoordinationExecutionContextSchema, matchesWorkflowScope, readSessionEvents, resolveReusedCompletion,
   type CoordinationExecutionContext, type CoordinationTask, type EventEnvelope, type SessionHandle, type WorkflowDef } from "agent-cord";
 import type { RunService } from "./run-service.js";
 
@@ -12,17 +12,24 @@ export async function readCoordinationExecutionContext(def: WorkflowDef, session
   const scope = { workflow_id: def.metadata.id, workflow_revision };
   const latest_tasks = new Map<string, EventEnvelope>();
   if (run !== null) for (const event of events) {
-    if (!["agent.task.started", "agent.task.completed"].includes(event.type) || !matchesWorkflowScope(event.payload, scope) || event.payload["run_id"] !== run.run_id) continue;
+    if (!["agent.task.started", "agent.task.completed", "agent.task.reused"].includes(event.type) || !matchesWorkflowScope(event.payload, scope) || event.payload["run_id"] !== run.run_id) continue;
     const node_id = event.payload["node_id"];
     if (typeof node_id === "string" && nodes.some((node) => node.id === node_id)) latest_tasks.set(node_id, event);
   }
   const tasks: CoordinationTask[] = nodes.map((node) => {
-    const observation: CoordinationTask = { node_id: node.id, run_id: run?.run_id ?? null, event_id: null, status: "missing",
+    const observation: CoordinationTask = { node_id: node.id, run_id: run?.run_id ?? null, event_id: null, completion_event_id: null, status: "missing",
       attempt: null, max_attempts: null, failure_stage: null, retryable: null };
     const event = latest_tasks.get(node.id);
     if (event === undefined) return observation;
     observation.event_id = event.event_id;
     observation.status = "invalid";
+    if (event.type === "agent.task.reused") {
+      const original = resolveReusedCompletion(event, events);
+      if (original === null) return observation;
+      observation.status = "reused";
+      observation.completion_event_id = AgentTaskReusedPayloadSchema.parse(event.payload).completion_event_id;
+      return observation;
+    }
     const parsed = event.type === "agent.task.started" ? AgentTaskStartedPayloadSchema.safeParse(event.payload) : AgentTaskCompletedPayloadSchema.safeParse(event.payload);
     if (!parsed.success || event.correlation_id !== node.id || (parsed.data.attempt !== undefined && parsed.data.max_attempts !== undefined && parsed.data.attempt > parsed.data.max_attempts)) return observation;
     observation.status = event.type === "agent.task.started" ? "started" : AgentTaskCompletedPayloadSchema.parse(event.payload).status;

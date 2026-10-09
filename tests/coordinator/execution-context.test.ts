@@ -11,7 +11,7 @@ import { readSnapshot } from "../../src/coordinator/snapshot.js";
 const run_id = ulid();
 const task_event_id = ulid();
 const execution = { run: { run_id, status: "failed", active: false }, tasks: [{ node_id: "plan", run_id, event_id: task_event_id,
-  status: "failed", attempt: 2, max_attempts: 2, failure_stage: "driver", retryable: true }] };
+  completion_event_id: null, status: "failed", attempt: 2, max_attempts: 2, failure_stage: "driver", retryable: true }] };
 const def: WorkflowDef = { apiVersion: "agent-cord.dev/v1alpha1", kind: "Workflow", metadata: { id: "execution" }, spec: {
   nodes: [{ id: "plan", depends_on: [], gates: [], run: { agent: "worker", readonly: true } }],
 } };
@@ -36,6 +36,26 @@ function observer(worker: AgentDriver, read = async () => execution) {
 const coordinate = (agent: ReturnType<typeof observer>) => agent.coordinate(def, session, { round_id: ulid(), agent: "offline" });
 
 describe("协调执行上下文", () => {
+  it("reused 只引用当前复用事件，原完成 ID 不是当前来源，不冒称新执行", async () => {
+    const completion_event_id = ulid();
+    const reused = { ...execution, tasks: [{ ...execution.tasks[0], status: "reused", completion_event_id, attempt: null, max_attempts: null, failure_stage: null, retryable: null }] };
+    const proposal = { ...wait, next_action: { ...wait.next_action, evidence: [{ source: "agent_task", id: task_event_id }] } };
+    const worker = driver(proposal as any);
+    expect((await coordinate(observer(worker, async () => reused as any))).status).toBe("ok");
+    expect(worker.tasks[0]?.prompt).toContain('"status":"reused"');
+    expect(worker.tasks[0]?.prompt).toContain("没有新的 worker 调用");
+    const wrong = { ...proposal, next_action: { ...proposal.next_action, evidence: [{ source: "agent_task", id: completion_event_id }] } };
+    expect(await coordinate(observer(driver(wrong as any), async () => reused as any))).toMatchObject({ status: "failed", proposal: null });
+  });
+
+  it("旧观察 hook 不提供新来源字段仍可用，消费时归一化为 null", async () => {
+    const legacy = structuredClone(execution);
+    delete (legacy.tasks[0] as any).completion_event_id;
+    const worker = driver();
+    expect((await coordinate(observer(worker, async () => legacy))).status).toBe("ok");
+    expect(worker.tasks[0]?.prompt).toContain('"completion_event_id":null');
+  });
+
   it("失败状态进入 prompt 和摘要，来源可引用当前任务，但没有 workflow 副作用", async () => {
     const proposal = { ...wait, next_action: { ...wait.next_action, evidence: [{ source: "agent_task", id: task_event_id }] } };
     const worker = driver(proposal as any);

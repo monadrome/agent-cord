@@ -28,6 +28,27 @@ beforeEach(async () => { root = await mkdtemp(join(tmpdir(), "cord-worker-observ
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
 describe("worker 执行观察", () => {
+  it("超出重试上限的原完成不能通过复用变为有效来源，合法新完成可恢复", async () => {
+    const invalid = await record("agent.task.completed", { run_id: ulid(), status: "ok", failure_stage: undefined, attempt: 3, max_attempts: 2 });
+    const reuse = await record("agent.task.reused", { completion_event_id: invalid.event_id });
+    expect((await read()).tasks[0]).toMatchObject({ status: "invalid", event_id: reuse.event_id, completion_event_id: null });
+    const repaired = await record("agent.task.completed", { run_id: ulid(), status: "ok", failure_stage: undefined, attempt: 2, max_attempts: 2 });
+    const recovered = await record("agent.task.reused", { completion_event_id: repaired.event_id });
+    expect((await read()).tasks[0]).toMatchObject({ status: "reused", event_id: recovered.event_id, completion_event_id: repaired.event_id });
+  });
+
+  it("当前 run 的复用有自己的来源与原完成引用，坏最新复用不回退旧成功", async () => {
+    const original = await record("agent.task.completed", { run_id: ulid(), status: "ok", failure_stage: undefined, execution_input_hash: "b".repeat(64) });
+    const reuse = () => record("agent.task.reused", { completion_event_id: original.event_id, execution_input_hash: "b".repeat(64) });
+    const valid = await reuse();
+    expect((await read()).tasks[0]).toMatchObject({ status: "reused", event_id: valid.event_id, completion_event_id: original.event_id, attempt: null, retryable: null });
+    expect(JSON.stringify(await read())).not.toContain("PRIVATE_");
+    const invalid = await record("agent.task.reused", { completion_event_id: ulid() });
+    expect((await read()).tasks[0]).toMatchObject({ status: "invalid", event_id: invalid.event_id, completion_event_id: null });
+    await reuse();
+    expect((await read()).tasks[0]?.status).toBe("reused");
+  });
+
   it("缺失/启动/失败/恢复状态可见，仅覆盖声明 worker 且不携带私有字段", async () => {
     expect(await read()).toMatchObject({ run: { run_id, status: "running", active: true }, tasks: [{ node_id: "review", status: "missing" }] });
     const started = await record("agent.task.started", { failure_stage: undefined, retryable: undefined });

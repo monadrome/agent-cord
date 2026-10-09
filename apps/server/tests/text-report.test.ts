@@ -7,6 +7,7 @@ import YAML from "yaml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp, type BuiltServer } from "@agent-cord/server";
 import { ulid } from "ulid";
+import { readCoordinationExecutionContext } from "../src/services/execution-context.js";
 
 const fixture = join(dirname(fileURLToPath(import.meta.url)), "../../../tests/driver/fixtures/fake-cli.mjs");
 let root: string; let server: BuiltServer;
@@ -47,6 +48,34 @@ async function submit_tests(run_id: string) {
 }
 
 describe("只读报告 server 闭环", () => {
+  it("取消后新 run 复用原报告有明确任务来源，重启不重跑或重复复用", async () => {
+    const first_run = await start();
+    await wait_for(async () => (await server.sessions.listApprovals("REQ-REPORT")).length === 1);
+    const prior = (await server.sessions.readEvents("REQ-REPORT")).find((event) => event.type === "agent.task.completed")!;
+    await server.runs.cancel(first_run.run_id);
+    const second_run = await start();
+    await wait_for(async () => (await server.sessions.listApprovals("REQ-REPORT")).length === 1);
+    const binding = await server.sdlcs.get("readonly-report", 1);
+    const session = await server.sessions.open("REQ-REPORT");
+    const observation = await readCoordinationExecutionContext(binding.def, session, binding.workflow_revision, server.runs);
+    expect(observation.tasks[0]).toMatchObject({ status: "reused", run_id: second_run.run_id, completion_event_id: prior.event_id });
+    expect((await server.sessions.readEvents("REQ-REPORT")).filter((event) => event.type === "agent.task.completed")).toHaveLength(1);
+    const approval = (await server.sessions.listApprovals("REQ-REPORT"))[0]!;
+    await server.app.close(); server.index.close(); server = await buildApp({ root });
+    expect((await server.sessions.listApprovals("REQ-REPORT"))[0]?.approval_id).toBe(approval.approval_id);
+    expect((await server.sessions.readEvents("REQ-REPORT")).filter((event) => event.type === "agent.task.reused")).toHaveLength(1);
+    expect((await server.sessions.readEvents("REQ-REPORT")).filter((event) => event.type === "agent.task.completed")).toHaveLength(1);
+    expect((await readCoordinationExecutionContext(binding.def, await server.sessions.open("REQ-REPORT"), binding.workflow_revision, server.runs)).tasks[0]).toMatchObject({ status: "reused", completion_event_id: prior.event_id });
+    expect((await server.sessions.readEvents("REQ-REPORT")).filter((event) => event.type === "human.decision.recorded" || event.type === "workflow.node.exited")).toHaveLength(0);
+    await server.runs.cancel(second_run.run_id);
+    await server.sessions.writeDoc("REQ-REPORT", "prd", "# 新需求\nPRD 已变更，必须重新评审。");
+    const third_run = await start();
+    await wait_for(async () => (await server.sessions.listApprovals("REQ-REPORT")).length === 1);
+    const changed = await server.sessions.readEvents("REQ-REPORT");
+    expect(changed.filter((event) => event.type === "agent.task.completed")).toHaveLength(2);
+    expect(changed.filter((event) => event.type === "agent.task.reused" && event.payload["run_id"] === third_run.run_id)).toHaveLength(0);
+  });
+
   it("关闭 server 会收束旧 runner，保留原等待事实且不记用户取消", async () => {
     await bind_source();
     const run = await start();
