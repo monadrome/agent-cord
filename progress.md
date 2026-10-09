@@ -1,5 +1,17 @@
 # 工作进度
 
+## 2026-10-09（阶段 51）
+
+- 当前 HEAD 89adad4、工作树起点干净且 tracking ahead 4；上一轮 e57118d 验收覆盖已完成，GitHub 同步仍受低速网络影响。
+- 发现 supervisor 输出失败/stale 后没有绑定 blocker 的重试入口，普通协调要求重新选择 agent，重复请求也容易失去自动升级来源。
+- ADR-0065 先行：新增受限 retry-coordination，复用同一 blocker/版本/配置核验，只重跑协调 agent，不启动 worker、不增加 Goal 预算、不消费旧回答。
+- 初版定向 24/26 通过，stale 分支遗漏与同测试重复创建需求的 fixture 已修正；后续审查扩大为 token/父请求/持久重放，原始无 token 临时实现不作为最终协议。
+- ADR-0065 更新：修复 supervisor 配置后可明确读取当前 token，记录三字段完整来源与 human actor；固定 resolver、同需求在途去重、latest 父轮次、派发前重检，Goal 授权/投影共享来源。
+- 57 项初轮相关测试通过；新增完整用例后 32/33 自动升级通过，坏来源冷恢复应隔离需求却阻断服务启动，补 ApiError 来源诊断隔离后继续验证。类型检查与根 build 通过。
+- 138 项协调/授权/console 相关测试通过；新增 expected_input_hash 在模型快照捕获时再次校验原重试输入，记录后/捕获前漂移不调用模型。5 项最新定向通过。文档同步最终 token、human actor、固定配置与父子来源契约，准备全量与隔离 browser 操作验收。
+- 最新全量 1060 项 / 74 文件、typecheck/build:all/diff 通过；隔离 ACP/HTTP 配置修复后旧 token 409、retry round 父子来源、冷恢复和 1440/390/320 重试按钮路径通过。worker 首次 1、supervisor 重试 2、最终 worker 2、Goal 授权 1、gate 决策 0、done 退出 0、doctor=true；证据 `/tmp/cord-stage51-real-result.json` 与 `/tmp/cord-stage51-browser-result.json`，预览 PID 72974。
+- 失败重试新增 expected_input_hash 捕获前检查、request 后输入变化 interrupted、坏来源需求隔离；完整持续目标 active，进入提交与有界同步。
+
 ## 2026-10-09（阶段 50）
 
 - 当前 f59b0d7 工作树干净，ahead 2；阶段 49 为已验证进展。HTTP/2 ls-remote 达到 20 秒上限，报告 GitHub 443 连接失败，未将网络问题当整体功能阻塞。

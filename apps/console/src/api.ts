@@ -302,6 +302,7 @@ export interface ApiClient {
   answerCoordination(reqId: string, roundId: string, input: AnswerCoordinationInput, key?: string): Promise<CoordinationResponse>;
   revokeCoordinationAnswer(reqId: string, roundId: string, input: RevokeCoordinationAnswerInput, key?: string): Promise<CoordinationResponse>;
   retryGoal(reqId: string, roundId: string, input: RetryGoalInput, key?: string): Promise<RunResponse>;
+  retryCoordination(reqId: string, roundId: string, input_hash: string, key?: string): Promise<CoordinationResponse>;
   /** 取消 run（ADR-0025）：幂等，已终态返回现状 */
   cancelRun(runId: string, reason?: string, key?: string): Promise<RunResponse>;
   getGoalRecovery(runId: string): Promise<GoalRecoveryResponse>;
@@ -364,6 +365,7 @@ export function createClient(baseUrl = ""): ApiClient {
     answerCoordination: (reqId, roundId, input, key) => request<CoordinationResponse>(baseUrl, `${reqPath(reqId)}/coordination/${encodeURIComponent(roundId)}/answer`, writeInit("POST", input, key)),
     revokeCoordinationAnswer: (reqId, roundId, input, key) => request<CoordinationResponse>(baseUrl, `${reqPath(reqId)}/coordination/${encodeURIComponent(roundId)}/answer/revoke`, writeInit("POST", input, key)),
     retryGoal: (reqId, roundId, input, key) => request<RunResponse>(baseUrl, `${reqPath(reqId)}/coordination/${encodeURIComponent(roundId)}/retry-goal`, writeInit("POST", input, key)),
+    retryCoordination: (reqId, roundId, input_hash, key) => request<CoordinationResponse>(baseUrl, `${reqPath(reqId)}/coordination/${encodeURIComponent(roundId)}/retry`, writeInit("POST", { input_hash }, key)),
     cancelRun: (runId, reason, key) =>
       request<RunResponse>(
         baseUrl,

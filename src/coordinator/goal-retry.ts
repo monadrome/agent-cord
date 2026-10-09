@@ -4,6 +4,7 @@ import { AgentTaskStartedPayloadSchema, AgentTaskCompletedPayloadSchema, GoalAtt
 import { SessionEventReadError } from "../core/session-events.js";
 import { matchesWorkflowScope } from "../workflow/scope.js";
 import { currentClarificationAnswers } from "./clarifications.js";
+import { readGoalCoordinationRequest } from "./goal-coordination.js";
 
 function payload(event: EventEnvelope): Record<string, unknown> {
   return typeof event.payload === "object" && event.payload !== null && !Array.isArray(event.payload) ? event.payload as Record<string, unknown> : {};
@@ -20,6 +21,7 @@ export function readGoalRetryAuthorization(events: readonly EventEnvelope[], run
   const prefix = events.slice(0, events.findIndex(item => item.event_id === event.event_id));
   const scope = { workflow_id: auth.workflow_id, workflow_revision: auth.workflow_revision };
   const request = prefix.find(item => item.type === "coordinator.round.requested" && payload(item)["round_id"] === auth.round_id);
+  if (request === undefined || readGoalCoordinationRequest(prefix, auth.round_id).event_id !== request.event_id) throw new SessionEventReadError("Goal 协调授权请求来源不可验证");
   const requested = CoordinatorRoundRequestedPayloadSchema.safeParse(request?.payload);
   const blocker = prefix.find(item => item.event_id === auth.goal_event_id);
   const blocked = GoalAttemptCompletedPayloadSchema.safeParse(blocker?.payload);
@@ -29,7 +31,7 @@ export function readGoalRetryAuthorization(events: readonly EventEnvelope[], run
   const answer = currentClarificationAnswers(prefix, scope).find(item => item.event_id === auth.answer_event_id && item.round_id === auth.round_id && item.revoked_at === undefined);
   if (request === undefined || !requested.success || requested.data.trigger !== "goal_blocked" || requested.data.goal_event_id !== auth.goal_event_id
     || requested.data.run_id !== auth.failed_run_id || requested.data.node_id !== auth.node_id || !matchesWorkflowScope(requested.data, scope)
-    || request.actor.kind !== "system" || request.actor.id !== "goal-supervisor" || request.correlation_id !== auth.round_id
+    || request.correlation_id !== auth.round_id
     || blocker === undefined || blocker.type !== "goal.attempt.completed" || blocker.correlation_id !== auth.node_id || blocker.seq >= request.seq
     || blocker.actor.kind !== "system" || blocker.source.adapter !== "goal-runner" || !blocked.success || blocked.data.status !== "blocked"
     || blocked.data.run_id !== auth.failed_run_id || blocked.data.node_id !== auth.node_id || !matchesWorkflowScope(blocked.data, scope)

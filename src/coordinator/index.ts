@@ -21,6 +21,7 @@ export { createNodeRunner, type CoordinatorOptions } from "./coordinator.js";
 export { readApprovalContextHash } from "./checkpoint.js";
 export { readGoalRetryAuthorization, readGoalRetryAgentIdentity } from "./goal-retry.js";
 export { goalRecoveryInputHash, goalRecoveryCheckpoint, readGoalRecoveryRequest } from "./goal-recovery.js";
+export { readGoalCoordinationRequest } from "./goal-coordination.js";
 export { resolveGoalReadiness, type GoalReadinessEvidence } from "./goal-evidence.js";
 export { goalAcceptanceIsComplete } from "./goal-acceptance.js";
 export { createContextSessionAgent, buildCoordinationPrompt, parseCoordinationProposal, coordinationInputHash, type ContextSessionAgentOptions } from "./session-agent.js";

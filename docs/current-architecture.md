@@ -68,6 +68,8 @@ ready 的来源由 coordinator/goal-evidence.ts 共用解析，runner 与 execut
 
 Goal 可选 acceptance 声明条件到 check ID 的映射。宿主完成检查后生成指南矩阵与 ready.acceptance_evidence，goal-acceptance.ts 派生并核验全集；共用 readiness 拒绝遗漏/错引用，协调当前 ready hook 也必须匹配发布条件。模型自报矩阵不被消费为通过事实，默认模板的三条件仅代表工程基线，业务充分性仍需 review（ADR-0064）。
 
+失败 Goal 升级协调可按 server coordination_retry 当前 token 重试；持久 request 三字段保存父轮次/输入/配置来源，初始自动与人工重试 actor 区分。goal-coordination.ts 共用来源解析供投影和 Goal 新预算授权恢复，当前 resolver 固定/派发前重检、单子请求/重放与冷中断不调用模型。原 blocker 和 worker 不变，配置修复后明确新 token 可重新解释最新事实（ADR-0065）。
+
 ## 3. 数据和写入路径
 
 每个需求对应 `cord/<req-id>/`：

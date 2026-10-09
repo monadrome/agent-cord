@@ -204,6 +204,9 @@ export const StartCoordinationInputSchema = z.strictObject({
   timeout_ms: z.number().int().min(1).max(600_000).optional(),
 });
 export type StartCoordinationInput = z.infer<typeof StartCoordinationInputSchema>;
+export const RetryCoordinationInputSchema = z.strictObject({ input_hash: z.string().regex(/^[0-9a-f]{64}$/) });
+export type RetryCoordinationInput = z.infer<typeof RetryCoordinationInputSchema>;
+export interface CoordinationRetryView { available: boolean; reason: string | null; input_hash: string | null; parent_round_id: string; child_round_id: string | null; }
 export const AnswerCoordinationInputSchema = z.strictObject({ choice: z.string().trim().min(1).max(500) });
 export type AnswerCoordinationInput = z.infer<typeof AnswerCoordinationInputSchema>;
 export const RevokeCoordinationAnswerInputSchema = z.strictObject({ answer_event_id: z.string().regex(ULID_RE) });
@@ -220,10 +223,12 @@ export interface GoalRetryView {
 }
 export interface CoordinationRoundView {
   goal_retry?: GoalRetryView;
+  coordination_retry?: CoordinationRetryView | null;
   trigger?: "goal_blocked";
   run_id?: string;
   node_id?: string;
   goal_event_id?: string;
+  retry_of_round_id?: string;
   round_id: string;
   req_id: string;
   sdlc_id: string;

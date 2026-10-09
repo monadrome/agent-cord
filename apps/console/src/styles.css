@@ -171,6 +171,7 @@ p {
   gap: 6px;
   min-height: 38px;
 }
+.coordination-retry { display: inline-flex; align-items: center; gap: 6px; min-height: 38px; }
 
 /* ---- 按钮 ---- */
 .btn {

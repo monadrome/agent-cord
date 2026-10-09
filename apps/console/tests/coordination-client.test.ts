@@ -51,6 +51,16 @@ afterEach(async () => {
 });
 
 describe("console 协调客户端", () => {
+  it("typed retry coordination 绑定失败 Goal 来源，并透传 202/幂等错误", async () => {
+    const asking = { ...proposal, next_action: { kind: "wait", reason: "协调失败后等待重试", evidence: proposal.next_action.evidence } };
+    await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: { local: { kind: "headless", bin: process.execPath,
+      args: [fixture, "--mode", "claude", "--no-tools", "--result-text", JSON.stringify(asking), "{{prompt}}"] } } }));
+    await client.reloadAgents();
+    const first = await client.startCoordination("REQ-UI", { agent: "local" });
+    await wait_for(async () => (await client.getCoordination("REQ-UI", first.round.round_id)).round.status === "ok");
+    // 只有 Goal blocker round 才能调用该入口，普通协调必须 fail-closed。
+    await expect(client.retryCoordination("REQ-UI", first.round.round_id, "a".repeat(64), "retry-normal")).rejects.toMatchObject({ status: 409 });
+  });
   it("typed 答复写入口重放原结果，保存选择并拒绝改选，保持无 run 或 gate 决策", async () => {
     const asking = { ...proposal, next_action: { kind: "ask_human", question: "平台范围？", options: ["移动端", "桌面和移动端"], reason: "范围待确认", evidence: proposal.next_action.evidence } };
     await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: { local: { kind: "headless", bin: process.execPath,

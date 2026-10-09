@@ -33,6 +33,8 @@ export interface ContextSessionAgentOptions {
   workspaceRoot: string;
   maxPromptChars?: number;
   maxOutputChars?: number;
+  /** ADR-0065：重试命令已确认的输入；快照捕获不匹配时不调用模型。 */
+  expected_input_hash?: string;
   /** ADR-0043：宿主读取绑定流程声明的源码范围摘要，null 为无绑定。 */
   read_source_hash?: (def: WorkflowDef) => Promise<string | null>;
   /** ADR-0044：宿主投影当前流程声明的验证结果与新鲜度，不携带日志。 */
@@ -238,6 +240,9 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
       return complete("failed", null, error instanceof Error ? error.message : "协调 driver 解析失败", { failure_stage: "configuration" });
     }
     await append("coordinator.round.started", base);
+    if (options.expected_input_hash !== undefined && base["input_hash"] !== options.expected_input_hash) {
+      return complete("stale", null, "重试派发前协调输入已变化，请刷新后重试", { failure_stage: "freshness" });
+    }
     if (input.signal?.aborted === true) return complete("cancelled", null, "协调轮次已取消");
 
     const controller = new AbortController();

@@ -5,12 +5,12 @@ import {
   CoordinatorRoundCompletedPayloadSchema, createContextSessionAgent,
   CoordinatorRoundAdoptedPayloadSchema, coordinationInputHash, parseCoordinationProposal, readCoordinationSnapshot,
   GoalAttemptCompletedPayloadSchema, GoalBlockerTriggerSchema, type GoalBlockerTrigger, matchesWorkflowScope,
-  GoalRetryAuthorizedPayloadSchema, readGoalRetryAuthorization, canonicalJson, sha256Hex,
+  GoalRetryAuthorizedPayloadSchema, readGoalRetryAuthorization, readGoalCoordinationRequest, canonicalJson, sha256Hex,
   readSessionEvents, SessionEventReadError, CoordinatorRoundAnsweredPayloadSchema, CoordinatorRoundAnswerRevokedPayloadSchema, readClarificationAnswers, currentClarificationAnswers, projectClarifications, MAX_CLARIFICATION_QUESTIONS,
   type AgentDriver, type EventEnvelope, type SessionHandle, type WorkflowDef,
 } from "agent-cord";
-import type { AnswerCoordinationInput, RevokeCoordinationAnswerInput, CoordinationRoundView, RunInfo, StartCoordinationInput, RetryGoalInput, GoalRetryView } from "../contracts.js";
-import { badRequest, conflict, internalError, notFound } from "../errors.js";
+import type { AnswerCoordinationInput, RevokeCoordinationAnswerInput, CoordinationRoundView, RunInfo, StartCoordinationInput, RetryGoalInput, GoalRetryView, CoordinationRetryView } from "../contracts.js";
+import { ApiError, badRequest, conflict, internalError, notFound } from "../errors.js";
 import type { SessionService } from "./session-service.js";
 import { DEFAULT_SDLC_ID, type SdlcService } from "./sdlc-service.js";
 import type { GoalBlockedContext, RunService } from "./run-service.js";
@@ -23,9 +23,18 @@ interface ActiveCoordination {
   controller: AbortController;
   promise: Promise<void>;
 }
+interface CoordinationRetryGuard {
+  parent_round_id: string;
+  input_hash: string;
+  resolver: (name: string) => AgentDriver;
+  validate(request_recorded: boolean): Promise<{ configuration_hash: string; coordination_input_hash: string }>;
+}
 
 function roundGoalBlocker(round: CoordinationRoundView): GoalBlockerTrigger | undefined {
   return round.trigger === undefined ? undefined : GoalBlockerTriggerSchema.parse({ node_id: round.node_id, run_id: round.run_id, goal_event_id: round.goal_event_id });
+}
+function eventPayload(event: EventEnvelope): Record<string, unknown> {
+  return typeof event.payload === "object" && event.payload !== null && !Array.isArray(event.payload) ? event.payload as Record<string, unknown> : {};
 }
 
 async function waitForRound(active: ActiveCoordination, signal: AbortSignal): Promise<void> {
@@ -46,12 +55,8 @@ function projectRounds(events: readonly EventEnvelope[], req_id: string): Coordi
       if (!parsed.success) throw internalError("协调请求事件不符合契约");
       const payload = parsed.data;
       if (payload.trigger === "goal_blocked") {
-        const blocker = events.find(item => item.event_id === payload.goal_event_id);
-        const goal = GoalAttemptCompletedPayloadSchema.safeParse(blocker?.payload);
-        if (event.actor.kind !== "system" || event.actor.id !== "goal-supervisor" || event.correlation_id !== payload.round_id
-          || blocker === undefined || blocker.type !== "goal.attempt.completed" || blocker.seq >= event.seq || blocker.correlation_id !== payload.node_id
-          || !goal.success || goal.data.status !== "blocked" || goal.data.run_id !== payload.run_id || goal.data.node_id !== payload.node_id
-          || !matchesWorkflowScope(goal.data, payload) || blocker.actor.kind !== "system" || blocker.source.adapter !== "goal-runner") throw internalError("自动协调请求的 Goal 来源不可验证");
+        try { readGoalCoordinationRequest(events, payload.round_id); }
+        catch { throw internalError("自动协调请求的 Goal 来源不可验证"); }
       }
       rounds.set(payload.round_id, {
         round_id: payload.round_id, req_id, sdlc_id: payload.sdlc_id, sdlc_version: payload.sdlc_version,
@@ -63,6 +68,7 @@ function projectRounds(events: readonly EventEnvelope[], req_id: string): Coordi
         current: null, adoptable: false, adoption_reason: null, adopted_run_id: null, adopted_at: null,
         answer: null, answerable: false, answer_reason: null, answer_revocable: false,
         ...(payload.trigger === undefined ? {} : { trigger: payload.trigger, run_id: payload.run_id, node_id: payload.node_id, goal_event_id: payload.goal_event_id }),
+        ...(payload.retry_of_round_id === undefined ? {} : { retry_of_round_id: payload.retry_of_round_id }),
       });
     } else if (event.type === "coordinator.round.started" || event.type === "coordinator.round.completed") {
       const parsed = event.type === "coordinator.round.started" ? CoordinatorRoundStartedPayloadSchema.safeParse(event.payload) : CoordinatorRoundCompletedPayloadSchema.safeParse(event.payload);
@@ -115,6 +121,7 @@ export class CoordinationService {
   private readonly answering = new Map<string, { round_id: string; signature: string; promise: Promise<CoordinationRoundView> }>();
   private readonly escalations = new Map<string, Promise<void>>();
   private readonly retrying = new Map<string, { signature: string; promise: Promise<RunInfo> }>();
+  private readonly coordination_retrying = new Map<string, { signature: string; promise: Promise<CoordinationRoundView> }>();
   private readonly closing_controller = new AbortController();
   private closing = false;
 
@@ -122,6 +129,10 @@ export class CoordinationService {
     private readonly options: { workspaceRoot: string; resolver: () => (name: string) => AgentDriver; runs: RunService; onError?: (error: unknown) => void }) {}
 
   start(req_id: string, input: StartCoordinationInput, goal_blocker?: GoalBlockerTrigger): Promise<CoordinationRoundView> {
+    return this.startRound(req_id, input, goal_blocker);
+  }
+
+  private startRound(req_id: string, input: StartCoordinationInput, goal_blocker?: GoalBlockerTrigger, retry?: CoordinationRetryGuard): Promise<CoordinationRoundView> {
     if (this.closing) return Promise.reject(conflict("服务正在关闭"));
     if (this.active.has(req_id)) return Promise.reject(conflict(`需求 ${req_id} 已有在途协调轮次`));
     const active: ActiveCoordination = { round_id: ulid(), controller: new AbortController(), promise: Promise.resolve() };
@@ -130,23 +141,29 @@ export class CoordinationService {
     let reject_ready!: (error: unknown) => void;
     const ready = new Promise<CoordinationRoundView>((resolve, reject) => { resolve_ready = resolve; reject_ready = reject; });
     let requested = false;
+    let dispatched = false;
     active.promise = (async () => {
-      const resolver = this.options.resolver();
+      const resolver = retry?.resolver ?? this.options.resolver();
       const session = await this.sessions.open(req_id);
       await this.readEvents(session);
       const versioned = await this.sdlcs.get(input.sdlc_id ?? DEFAULT_SDLC_ID, input.sdlc_version);
       if (this.sdlcs.isArchived(versioned.sdlc_id, versioned.version)) throw conflict("归档 SDLC 版本不能启动新协调轮次");
-      if (goal_blocker !== undefined) await this.validateGoalBlocker(req_id, input, goal_blocker, versioned.def, versioned.workflow_revision);
+      if (goal_blocker !== undefined) await this.validateGoalBlocker(req_id, input, goal_blocker, versioned.def, versioned.workflow_revision, retry !== undefined);
+      const retry_state = await retry?.validate(false);
       await session.events.append({
         event_id: ulid(), session_id: req_id, type: "coordinator.round.requested", schema_version: "1",
-        actor: goal_blocker === undefined ? { kind: "human", id: "local-human" } : { kind: "system", id: "goal-supervisor" }, correlation_id: active.round_id,
+        actor: goal_blocker === undefined || retry !== undefined ? { kind: "human", id: "local-human" } : { kind: "system", id: "goal-supervisor" }, correlation_id: active.round_id,
         payload: CoordinatorRoundRequestedPayloadSchema.parse({ round_id: active.round_id, workflow_id: versioned.def.metadata.id, workflow_revision: versioned.workflow_revision, driver: input.agent, sdlc_id: versioned.sdlc_id, sdlc_version: versioned.version,
+          ...(retry === undefined ? {} : { retry_of_round_id: retry.parent_round_id, retry_input_hash: retry.input_hash, retry_configuration_hash: retry_state!.configuration_hash }),
           ...(goal_blocker === undefined ? {} : { trigger: "goal_blocked", ...goal_blocker }) }),
         source: { adapter: "console-server" },
       });
       requested = true;
+      await retry?.validate(true);
       resolve_ready(await this.get(req_id, active.round_id));
+      dispatched = true;
       await createContextSessionAgent({ resolveDriver: resolver, workspaceRoot: this.options.workspaceRoot,
+        ...(retry === undefined ? {} : { expected_input_hash: retry_state!.coordination_input_hash }),
         read_source_hash: (def) => this.read_source_hash(def),
         read_verifications: (def, session, revision) => readCoordinationVerifications(def, session, revision, this.options.runs),
         read_execution_context: (def, session, revision) => readCoordinationExecutionContext(def, session, revision, this.options.runs),
@@ -156,8 +173,18 @@ export class CoordinationService {
         ...(goal_blocker === undefined ? {} : { goal_blocker }),
         ...(input.timeout_ms !== undefined ? { timeout_ms: input.timeout_ms } : {}),
       });
-    })().catch((error: unknown) => {
+    })().catch(async (error: unknown) => {
       if (!requested) reject_ready(error);
+      else if (retry !== undefined && !dispatched) {
+        try {
+          const session = await this.sessions.open(req_id);
+          await this.finishInterrupted(session, await this.readRound(req_id, active.round_id), false);
+          reject_ready(error);
+        } catch (failure) {
+          this.storage_errors.set(active.round_id, failure instanceof Error ? failure.message : "协调事实写入失败");
+          reject_ready(failure); this.options.onError?.(failure);
+        }
+      }
       else {
         this.storage_errors.set(active.round_id, error instanceof Error ? error.message : "协调事实写入失败");
         reject_ready(error);
@@ -169,13 +196,13 @@ export class CoordinationService {
 
   async list(req_id: string): Promise<CoordinationRoundView[]> {
     const rounds = await this.readRounds(req_id);
-    return Promise.all(rounds.map(async (round) => ({ ...round, ...await this.inspect(round), ...await this.inspectGoalRetry(round) })));
+    return Promise.all(rounds.map(async (round) => ({ ...round, ...await this.inspect(round), ...await this.inspectGoalRetry(round), ...await this.inspectCoordinationRetry(round) })));
   }
 
   async get(req_id: string, round_id: string): Promise<CoordinationRoundView> {
     if (this.storage_errors.has(round_id)) throw internalError("协调轮次事实写入失败，需要修复存储后恢复", this.storage_errors.get(round_id));
     const round = await this.readRound(req_id, round_id);
-    return { ...round, ...await this.inspect(round), ...await this.inspectGoalRetry(round) };
+    return { ...round, ...await this.inspect(round), ...await this.inspectGoalRetry(round), ...await this.inspectCoordinationRetry(round) };
   }
 
   private async readRound(req_id: string, round_id: string): Promise<CoordinationRoundView> {
@@ -401,6 +428,92 @@ export class CoordinationService {
     return operation;
   }
 
+  retry_coordination(req_id: string, round_id: string, input_hash: string): Promise<CoordinationRoundView> {
+    if (this.closing) return Promise.reject(conflict("服务正在关闭"));
+    const signature = JSON.stringify([round_id, input_hash]);
+    const pending = this.coordination_retrying.get(req_id);
+    if (pending !== undefined) return pending.signature === signature ? pending.promise : Promise.reject(conflict("已有另一项协调重试正在记录"));
+    const operation = this.retry_coordination_once(req_id, round_id, input_hash).finally(() => {
+      if (this.coordination_retrying.get(req_id)?.promise === operation) this.coordination_retrying.delete(req_id);
+    });
+    this.coordination_retrying.set(req_id, { signature, promise: operation });
+    return operation;
+  }
+
+  private async retry_coordination_once(req_id: string, round_id: string, input_hash: string): Promise<CoordinationRoundView> {
+    const resolver = this.options.resolver();
+    const round = await this.readRound(req_id, round_id);
+    const events = await this.readEvents(await this.sessions.open(req_id));
+    const child = events.find(event => event.type === "coordinator.round.requested" && eventPayload(event)["retry_of_round_id"] === round_id);
+    if (child !== undefined) {
+      const request = CoordinatorRoundRequestedPayloadSchema.parse(child.payload);
+      readGoalCoordinationRequest(events, request.round_id);
+      if (request.retry_input_hash !== input_hash) throw conflict("原轮次已使用不同依据重试，请查看新轮次");
+      return this.get(req_id, request.round_id);
+    }
+    const state = await this.readCoordinationRetryState(round, resolver);
+    if (state.input_hash !== input_hash) throw conflict("协调重试依据已变化，请刷新后重试");
+    return this.startRound(req_id, { agent: round.agent, sdlc_id: round.sdlc_id, sdlc_version: round.sdlc_version,
+      ...(state.timeout_ms === undefined ? {} : { timeout_ms: state.timeout_ms }) }, roundGoalBlocker(round), {
+      parent_round_id: round_id, input_hash, resolver,
+      validate: async request_recorded => {
+        const current = await this.readCoordinationRetryState(await this.readRound(req_id, round_id), resolver, request_recorded);
+        if (current.input_hash !== input_hash) throw conflict("协调重试依据在记录期间已变化，请刷新");
+        return current;
+      },
+    });
+  }
+
+  private async inspectCoordinationRetry(round: CoordinationRoundView): Promise<{ coordination_retry?: CoordinationRetryView }> {
+    if (round.trigger !== "goal_blocked") return {};
+    const view: CoordinationRetryView = { available: false, reason: null, input_hash: null, parent_round_id: round.round_id, child_round_id: null };
+    try {
+      const events = await this.readEvents(await this.sessions.open(round.req_id));
+      const child = events.find(event => event.type === "coordinator.round.requested" && eventPayload(event)["retry_of_round_id"] === round.round_id);
+      if (child !== undefined) {
+        const request = CoordinatorRoundRequestedPayloadSchema.parse(child.payload); readGoalCoordinationRequest(events, request.round_id);
+        view.child_round_id = request.round_id; view.reason = "本轮已重试，请查看新轮次";
+      } else {
+        const state = await this.readCoordinationRetryState(round, this.options.resolver());
+        view.input_hash = state.input_hash; view.available = !this.active.has(round.req_id);
+        view.reason = view.available ? null : "已有在途协调，请等待收束";
+      }
+    } catch (error) { view.reason = error instanceof Error ? error.message : "协调重试依据不可验证"; }
+    return { coordination_retry: view };
+  }
+
+  private async readCoordinationRetryState(round: CoordinationRoundView, resolver: (name: string) => AgentDriver, request_recorded = false) {
+    if (round.trigger !== "goal_blocked" || round.run_id === undefined || round.node_id === undefined || round.goal_event_id === undefined) throw conflict("只有 Goal 自动升级轮次可以重试协调");
+    const stale = round.status === "ok" && (await this.inspect(round)).current === false;
+    if (!(stale || ["failed", "timeout", "cancelled", "stale"].includes(round.status))) throw conflict("当前协调轮次未进入可重试终态");
+    if (round.answer !== null || round.goal_retry?.run_id !== null && round.goal_retry?.run_id !== undefined) throw conflict("当前轮次已有人工答复或 Goal 续跑，不重复协调");
+    const configuration_hash = resolver(round.agent).configuration_hash;
+    if (configuration_hash === undefined) throw conflict("协调 Agent 配置身份不可验证");
+    const versioned = await this.sdlcs.get(round.sdlc_id, round.sdlc_version);
+    if (versioned.workflow_revision !== round.workflow_revision || this.sdlcs.isArchived(round.sdlc_id, round.sdlc_version)) throw conflict("绑定流程已变化或归档，不能重试协调");
+    const session = await this.sessions.open(round.req_id); const events = await this.readEvents(session);
+    readGoalCoordinationRequest(events, round.round_id);
+    const trigger = { run_id: round.run_id, node_id: round.node_id, goal_event_id: round.goal_event_id } satisfies GoalBlockerTrigger;
+    await this.validateGoalBlocker(round.req_id, { agent: round.agent }, trigger, versioned.def, versioned.workflow_revision, true);
+    if (this.options.runs.isActive(round.req_id)) throw conflict("原 Goal 执行体仍在收尾，不能重试协调");
+    const lineage = projectRounds(events, round.req_id).filter(item => item.trigger === "goal_blocked" && item.goal_event_id === round.goal_event_id);
+    const latest = lineage[0];
+    if (latest?.round_id !== round.round_id && !(request_recorded && latest?.retry_of_round_id === round.round_id && latest.status === "pending")) throw conflict("该 blocker 已有更新轮次，请查看最新轮次");
+    if (lineage.some(item => item.answer !== null) || events.some(event => event.type === "goal.retry.authorized" && eventPayload(event)["goal_event_id"] === round.goal_event_id)) throw conflict("该 blocker 已有答复或执行授权，不重复协调");
+    const completion = events.filter(event => event.type === "coordinator.round.completed" && eventPayload(event)["round_id"] === round.round_id).at(-1);
+    if (completion === undefined) throw conflict("原协调轮次缺少终态事实");
+    const snapshot = await readCoordinationSnapshot(versioned.def, session, versioned.workflow_revision);
+    const source_hash = await this.read_source_hash(versioned.def);
+    const verifications = await readCoordinationVerifications(versioned.def, session, versioned.workflow_revision, this.options.runs);
+    const execution = await readCoordinationExecutionContext(versioned.def, session, versioned.workflow_revision, this.options.runs);
+    const timeout_ms = versioned.def.spec.nodes.find(node => node.id === round.node_id)?.run?.goal?.supervisor_timeout_ms;
+    const coordination_input_hash = coordinationInputHash(versioned.def, snapshot, configuration_hash, undefined, source_hash, verifications, execution, trigger);
+    const input_hash = sha256Hex(canonicalJson({ domain: "cord.coordination-retry-input.v1", parent_round_id: round.round_id, completion_event_id: completion.event_id,
+      coordination_input_hash, timeout_ms: timeout_ms ?? null }));
+    if (!request_recorded && this.options.resolver()(round.agent).configuration_hash !== configuration_hash) throw conflict("协调配置已变化，请刷新后重试");
+    return { input_hash, configuration_hash, coordination_input_hash, timeout_ms };
+  }
+
   private async retryGoalOnce(req_id: string, round_id: string, input: RetryGoalInput): Promise<RunInfo> {
     const session = await this.sessions.open(req_id); const events = await this.readEvents(session);
     const round = await this.readRound(req_id, round_id);
@@ -468,10 +581,10 @@ export class CoordinationService {
     return operation;
   }
 
-  private async validateGoalBlocker(req_id: string, input: StartCoordinationInput, trigger: GoalBlockerTrigger, def: WorkflowDef, workflow_revision: string): Promise<void> {
+  private async validateGoalBlocker(req_id: string, input: StartCoordinationInput, trigger: GoalBlockerTrigger, def: WorkflowDef, workflow_revision: string, allow_existing_request = false): Promise<void> {
     const source = GoalBlockerTriggerSchema.parse(trigger);
     const events = await this.readEvents(await this.sessions.open(req_id));
-    if (events.some(event => {
+    if (!allow_existing_request && events.some(event => {
       if (event.type !== "coordinator.round.requested") return false;
       const request = CoordinatorRoundRequestedPayloadSchema.parse(event.payload);
       return request.trigger === "goal_blocked" && request.goal_event_id === source.goal_event_id;
@@ -593,7 +706,7 @@ export class CoordinationService {
       let rounds: CoordinationRoundView[];
       try { events = await readSessionEvents(session); rounds = projectRounds(events, req_id); }
       catch (error) {
-        if (!(error instanceof SessionEventReadError)) throw error;
+        if (!(error instanceof SessionEventReadError || error instanceof ApiError)) throw error;
         this.options.onError?.(new SessionEventReadError(`需求 ${req_id} 的协调恢复未执行：${error.message}`));
         continue;
       }
@@ -631,5 +744,6 @@ export class CoordinationService {
     await Promise.allSettled([...this.answering.values()].map((answer) => answer.promise));
     await Promise.allSettled([...this.escalations.values()]);
     await Promise.allSettled([...this.retrying.values()].map(item => item.promise));
+    await Promise.allSettled([...this.coordination_retrying.values()].map(item => item.promise));
   }
 }

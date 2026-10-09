@@ -1,7 +1,7 @@
 /** 独立协调工作台：只消费 server 的轮次、新鲜度与采用投影。 */
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
-import { Bot, Check, ChevronRight, Play, RefreshCw, Square, Undo2 } from "lucide-react";
+import { Bot, Check, ChevronRight, Play, RefreshCw, RotateCcw, Square, Undo2 } from "lucide-react";
 import type { AgentCatalogView, CoordinationRoundView, SdlcSummary } from "@agent-cord/server/contracts";
 import { api } from "../api.js";
 import { describeError, Empty, ErrorBanner, formatTime, NoticeBanner } from "../ui.js";
@@ -40,7 +40,7 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
   const [timeout_seconds, set_timeout_seconds] = useState("120");
   const [selected_round, set_selected_round] = useState<string | null>(null);
   const [loading, set_loading] = useState(true);
-  const [command, set_command] = useState<"start" | "cancel" | "adopt" | "answer" | "revoke" | "retry" | null>(null);
+  const [command, set_command] = useState<"start" | "cancel" | "adopt" | "answer" | "revoke" | "retry" | "retry_coordination" | null>(null);
   const [answer_choice, set_answer_choice] = useState("");
   const [load_error, set_load_error] = useState<string | null>(null);
   const [command_error, set_command_error] = useState<string | null>(null);
@@ -119,7 +119,7 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
   const busy = command !== null;
   const can_start = !loading && !busy && pending === undefined && selected_agent !== "" && selected_sdlc !== "" && Number.isInteger(seconds) && seconds >= 1 && seconds <= 600;
 
-  const perform = async (kind: "start" | "cancel" | "adopt" | "answer" | "revoke" | "retry"): Promise<void> => {
+  const perform = async (kind: "start" | "cancel" | "adopt" | "answer" | "revoke" | "retry" | "retry_coordination"): Promise<void> => {
     if (command_loading.current) return;
     command_loading.current = true;
     set_command(kind);
@@ -144,6 +144,12 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
         } else if (kind === "revoke" && selected.answer != null) {
           await api.revokeCoordinationAnswer(req_id, selected.round_id, { answer_event_id: selected.answer.event_id });
           if (mounted.current && generation.current === epoch) set_notice("答复已撤回");
+        } else if (kind === "retry_coordination") {
+          if (selected.coordination_retry?.available !== true || selected.coordination_retry.input_hash === null) return;
+          const result = await api.retryCoordination(req_id, selected.round_id, selected.coordination_retry.input_hash);
+          if (mounted.current && generation.current === epoch) {
+            set_selected_round(result.round.round_id); set_notice("协调已重试");
+          }
         } else if (kind === "retry") {
           if (selected.answer == null || selected.goal_retry?.available !== true || selected.goal_retry.input_hash == null) return;
           const result = await api.retryGoal(req_id, selected.round_id, { answer_event_id: selected.answer.event_id, input_hash: selected.goal_retry.input_hash });
@@ -192,6 +198,7 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
         {selected === null ? <Empty text={rounds === null ? "加载中..." : "暂无提议"} /> : <>
           <dl className="coordination-context"><div><dt>Agent</dt><dd className="mono">{selected.agent}</dd></div><div><dt>SDLC</dt><dd>{selected.sdlc_id} v{selected.sdlc_version}</dd></div><div><dt>当前依据</dt><dd className={selected.current === false ? "coordination-warn" : selected.current === true ? "ok-text" : "muted"}>{selected.current === true ? "与当前输入一致" : selected.current === false ? "已变化" : "未验证"}</dd></div></dl>
           {selected.trigger === "goal_blocked" && selected.goal_event_id !== undefined ? <div className="coordination-evidence"><h4>Goal 自动升级</h4><button type="button" className="link mono" aria-label="打开 Goal 阻塞事件" title="打开 Goal 阻塞事件" onClick={() => onSource("goal", selected.goal_event_id!)}><span>{selected.node_id}</span><ChevronRight size={14} aria-hidden="true" /></button></div> : null}
+          {selected.retry_of_round_id !== undefined ? <div className="coordination-evidence"><h4>重试来源</h4><button type="button" className="link mono" onClick={() => set_selected_round(selected.retry_of_round_id!)}><span>{selected.retry_of_round_id}</span><ChevronRight size={14} aria-hidden="true" /></button></div> : null}
           {selected.error !== null ? <div className="coordination-failure" role="status"><strong>{FAILURE_TEXT[selected.failure_stage ?? ""] ?? STATUS_TEXT[selected.status]}</strong><p>{selected.error}</p></div> : null}
           {selected.proposal !== null ? <div className="coordination-proposal"><p className="coordination-summary">{selected.proposal.summary}</p>
             <div className="coordination-action-title"><span className="pill">{ACTION_TEXT[selected.proposal.next_action.kind]}</span>{selected.proposal.next_action.kind === "advance" ? <strong className="mono">{selected.proposal.next_action.node_id}</strong> : null}</div>
@@ -219,6 +226,7 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
           </div> : null}
           <details className="coordination-record"><summary>记录信息</summary><dl className="coordination-context"><div><dt>轮次</dt><dd className="mono">{selected.round_id}</dd></div><div><dt>需求基线</dt><dd className="mono">{selected.input_hash ?? "未生成"}</dd></div><div><dt>Agent 版本</dt><dd className="mono">{selected.agent_configuration_hash ?? "未提供"}</dd></div><div><dt>完成时间</dt><dd>{formatTime(selected.finished_at)}</dd></div></dl></details>
           <footer className="coordination-footer">
+            {selected.coordination_retry?.available === true ? <button type="button" className="btn btn-plain coordination-retry" disabled={loading || busy || pending !== undefined} onClick={() => void perform("retry_coordination")}><RotateCcw size={16} aria-hidden="true" />{command === "retry_coordination" ? "重试中..." : "重试协调"}</button> : selected.coordination_retry?.child_round_id != null ? <button type="button" className="link mono" onClick={() => set_selected_round(selected.coordination_retry!.child_round_id!)}><span>查看重试轮次</span><ChevronRight size={14} aria-hidden="true" /></button> : selected.coordination_retry?.reason != null && ["failed", "timeout", "cancelled", "stale"].includes(selected.status) ? <span className="muted small">{selected.coordination_retry.reason}</span> : null}
             {selected.goal_retry?.run_id != null ? <div className="coordination-adopted"><span className="ok-text">Goal 已重新执行</span><button type="button" className="link mono" onClick={onRun}><span>run {selected.goal_retry.run_id}</span><ChevronRight size={14} aria-hidden="true" /></button></div>
               : selected.trigger === "goal_blocked" && selected.answer != null ? <div><div className="coordination-answer-actions">
                 <button type="button" className="btn btn-primary" disabled={loading || busy || run_in_flight || selected.goal_retry?.available !== true} onClick={() => void perform("retry")}><Play size={16} aria-hidden="true" />{command === "retry" ? "启动中..." : "重新执行 Goal"}</button>

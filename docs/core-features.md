@@ -100,6 +100,7 @@ flowchart LR
 | ACP 文件操作范围预授权 | 已实现可写任务 read/edit 的结构化位置核验与 allow_once；未知/越界拒绝，只读不变 |
 | 全部 PRD 语义覆盖判定、跨 driver 权限策略、费用/token 预算与动态额度调整 | 待完善；显式矩阵只证明声明条件到检查事件的关联，ACP 文件策略不覆盖 execute/网络或替代 OS 沙箱 |
 | blocked Goal 自动协调升级 | 原型已实现；显式 supervisor_agent 触发一次 ask_human/wait Draft，重启/并发去重 |
+| Goal 升级协调重试 | 原型已实现；修复配置/事实后按最新 token 重试同 blocker，持久父子来源/单子请求、冷恢复不重放，未答复问题仍可进入独立 Goal 授权（[ADR-0065](./adr/ADR-0065-goal-coordination-retry.md)） |
 | 独立 Context Session Agent | 已实现最新快照提议、人工采用与受限 Goal 观察；声明 supervisor 后自动解释 blocker 并生成人工卡点，完整监督续跑仍待完善 |
 
 真实 agent 开发流程的设计默认是 Goal；“Agent 协作 · Goal”模板与 [goal-sdlc.yaml](../examples/goal-sdlc.yaml) 提供当前原型。零外部依赖的离线 `simple-sdlc` 继续用于验证平台内核，既有发布版本与人工 gate 保留原语义。后续按 [路线图](./10-roadmap.md) 继续完善，跨模块协议先更新 ADR。

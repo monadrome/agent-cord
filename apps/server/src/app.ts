@@ -19,6 +19,7 @@ import {
   StartRunInputSchema,
   RecordVerificationInputSchema,
   StartCoordinationInputSchema,
+  RetryCoordinationInputSchema,
   AdoptCoordinationInputSchema,
   AnswerCoordinationInputSchema,
   RevokeCoordinationAnswerInputSchema,
@@ -328,6 +329,13 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
     const run = await coordination.retry_goal(req_id, round_id, input);
     reply.code(202);
     return { request_id: requestId(req), run };
+  });
+  app.post("/api/v1/requirements/:req_id/coordination/:round_id/retry", { config: { idempotency: true } }, async (req, reply) => {
+    const { req_id, round_id } = req.params as { req_id: string; round_id: string };
+    const input = parseOrThrow(RetryCoordinationInputSchema, req.body);
+    const round = await coordination.retry_coordination(req_id, round_id, input.input_hash);
+    reply.code(202);
+    return { request_id: requestId(req), round };
   });
   app.post("/api/v1/requirements/:req_id/coordination/:round_id/answer", { config: { idempotency: true } }, async (req) => {
     const { req_id, round_id } = req.params as { req_id: string; round_id: string };

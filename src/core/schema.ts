@@ -797,11 +797,16 @@ export const CoordinatorRoundRequestedPayloadSchema = z.looseObject({
   round_id: z.string().regex(ULID_RE), workflow_id: z.string().min(1), driver: z.string().min(1),
   workflow_revision: z.string().length(64).optional(),
   sdlc_id: z.string().min(1), sdlc_version: z.number().int().positive(),
+  retry_of_round_id: z.string().regex(ULID_RE).optional(),
+  retry_input_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  retry_configuration_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   trigger: z.literal("goal_blocked").optional(),
   run_id: z.string().regex(ULID_RE).optional(), node_id: z.string().min(1).optional(), goal_event_id: z.string().regex(ULID_RE).optional(),
 }).refine(value => value.trigger === undefined
   ? value.run_id === undefined && value.node_id === undefined && value.goal_event_id === undefined
-  : value.run_id !== undefined && value.node_id !== undefined && value.goal_event_id !== undefined, "自动协调请求必须携带完整 Goal 来源");
+  : value.run_id !== undefined && value.node_id !== undefined && value.goal_event_id !== undefined, "自动协调请求必须携带完整 Goal 来源")
+  .refine(value => [value.retry_of_round_id, value.retry_input_hash, value.retry_configuration_hash].filter(item => item !== undefined).length % 3 === 0
+    && (value.retry_of_round_id === undefined || (value.trigger === "goal_blocked" && value.retry_of_round_id !== value.round_id)), "协调重试来源必须完整声明且属于另一 Goal 轮次");
 export const CoordinatorRoundCompletedPayloadSchema = z.looseObject({
   ...coordination_round_fields,
   status: CoordinationStatusSchema,

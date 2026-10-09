@@ -11,13 +11,14 @@ const send = value => process.stdout.write(JSON.stringify(value) + "\n");
 
 async function work(prompt) {
   const calls_file = join(cwd, ".goal-supervisor-calls");
-  writeFileSync(calls_file, String((existsSync(calls_file) ? Number(readFileSync(calls_file, "utf8")) : 0) + 1));
+  const calls = (existsSync(calls_file) ? Number(readFileSync(calls_file, "utf8")) : 0) + 1;
+  writeFileSync(calls_file, String(calls));
   appendFileSync(join(cwd, ".goal-supervisor-prompts.jsonl"), JSON.stringify({ prompt }) + "\n");
   await new Promise(resolve => setTimeout(resolve, Number(flag("--sleep") ?? "0")));
   const context = JSON.parse(prompt.split("\n").find(line => line.startsWith("execution_context: ")).slice("execution_context: ".length));
   const goal = context.goals?.find(item => item.status === "blocked");
   if (goal === undefined) throw new Error("missing current goal blocker");
-  if (mode === "invalid") return "非 JSON 升级回复";
+  if (mode === "invalid" || (mode === "invalid-once" && calls === 1)) return "非 JSON 升级回复";
   return JSON.stringify({
     summary: "Goal 已达到自动修复边界，需要人工决定下一步",
     next_action: mode === "advance" ? { kind: "advance", node_id: goal.node_id, reason: "错误地继续", evidence: [{ source: "goal", id: goal.event_id }] } : {

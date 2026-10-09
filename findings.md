@@ -1,5 +1,10 @@
 # 调研发现
 
+## 实现校准（2026-10-09，自动协调重试）
+
+- 自动升级轮次失败/timeout/stale 后，原 round 已保存 Goal 来源，但控制台只有“重新协调”入口；普通 start 可能换 agent/版本，无法表达“重试同一 blocker”。
+- retry 必须只允许终态自动 round，验证最新 failed run 和 blocked event；已有同 blocker 的 pending/running/ok 轮次禁止重复。重试只调用 supervisor，人工答复/Goal retry 仍是独立命令。
+
 ## 实现校准（2026-10-09，Goal 验收覆盖）
 
 - checks 全绿只能证明命令结果；review 三章节非空没有逐项验收条件/证据关联。宿主需生成验收矩阵，不能信 worker 自报全覆盖。
@@ -303,3 +308,9 @@
 - 真实开发 Draft 在独立clone完成48组输入/57个测试，宿主完整615通过；初次worker超时，更新恢复附记后仅重跑未退出实现节点，随后生成readonly文本评审报告并停在人工gate，未提交/合入。
 - 实际 file_change 事件必须是工具语义，不能污染文本fallback；已补ADR-0039与结构化回归。
 - readonly sandbox 不允许 Vitest 的 SSR临时目录写入，独立评审如实报告未完成自身测试；host测试通过不能被模型冒称为自身结果，报告生成ok与验证结论是两个维度。
+
+## 实现校准（2026-10-09，协调重试收尾）
+
+- 最终 round 重试必须有 server 当前 token；父 round、完成事件、配置 hash 和 blocker 是同一输入的一部分，不能只允许 `goal_blocked` 开关绕过来源校验。
+- 首版重试遗漏 `stale` 和父来源，已补齐最新轮次、三字段 token、human actor、fixed resolver、request/dispatch 双重重检、冷中断和单子请求。
+- 最终覆盖 request fsync/后续中断、记录前输入/配置变化、父子伪造、旧 token、并发重放、超时/取消/归档/答复、冷恢复和最终 Goal 授权；坏来源只隔离对应需求。
