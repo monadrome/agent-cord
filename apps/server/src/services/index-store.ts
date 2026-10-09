@@ -35,6 +35,7 @@ export interface RunRow {
   error: string | null;
   /** ADR-0033：采用启动的 run 在恢复前必须核验对应事实；普通 run 为 null。 */
   coordination_round_id?: string | null;
+  goal_retry_round_id?: string | null;
   workflow_revision?: string | null;
 }
 
@@ -79,6 +80,7 @@ export class IndexStore {
     const columns = db.prepare("PRAGMA table_info(runs)").all();
     if (!columns.some((column) => column["name"] === "coordination_round_id")) db.exec("ALTER TABLE runs ADD COLUMN coordination_round_id TEXT");
     if (!columns.some((column) => column["name"] === "workflow_revision")) db.exec("ALTER TABLE runs ADD COLUMN workflow_revision TEXT");
+    if (!columns.some((column) => column["name"] === "goal_retry_round_id")) db.exec("ALTER TABLE runs ADD COLUMN goal_retry_round_id TEXT");
     const idempotency_columns = db.prepare("PRAGMA table_info(idempotency_keys)").all();
     if (!idempotency_columns.some((column) => column["name"] === "input_hash")) db.exec("ALTER TABLE idempotency_keys ADD COLUMN input_hash TEXT");
     if (!idempotency_columns.some((column) => column["name"] === "state")) db.exec("ALTER TABLE idempotency_keys ADD COLUMN state TEXT NOT NULL DEFAULT 'completed'");
@@ -153,9 +155,9 @@ export class IndexStore {
   insertRun(run: RunRow): void {
     this.db
       .prepare(
-        "INSERT INTO runs (run_id, req_id, sdlc_id, sdlc_version, status, started_at, finished_at, error, coordination_round_id, workflow_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO runs (run_id, req_id, sdlc_id, sdlc_version, status, started_at, finished_at, error, coordination_round_id, workflow_revision, goal_retry_round_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
-      .run(run.run_id, run.req_id, run.sdlc_id, run.sdlc_version, run.status, run.started_at, run.finished_at, run.error, run.coordination_round_id ?? null, run.workflow_revision ?? null);
+      .run(run.run_id, run.req_id, run.sdlc_id, run.sdlc_version, run.status, run.started_at, run.finished_at, run.error, run.coordination_round_id ?? null, run.workflow_revision ?? null, run.goal_retry_round_id ?? null);
   }
 
   finishRun(runId: string, status: RunStatus, finishedAt: string, error: string | null): void {
@@ -200,5 +202,6 @@ export function runRowToInfo(row: RunRow): RunInfo {
     finished_at: row.finished_at,
     error: row.error,
     workflow_revision: row.workflow_revision ?? null,
+    ...(row.goal_retry_round_id == null ? {} : { goal_retry_round_id: row.goal_retry_round_id }),
   };
 }

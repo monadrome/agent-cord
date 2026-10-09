@@ -125,6 +125,7 @@ export interface RunInfo {
   finished_at: string | null;
   error: string | null;
   workflow_revision: string | null;
+  goal_retry_round_id?: string | null;
 }
 
 export interface GateState {
@@ -191,7 +192,18 @@ export const AnswerCoordinationInputSchema = z.strictObject({ choice: z.string()
 export type AnswerCoordinationInput = z.infer<typeof AnswerCoordinationInputSchema>;
 export const RevokeCoordinationAnswerInputSchema = z.strictObject({ answer_event_id: z.string().regex(ULID_RE) });
 export type RevokeCoordinationAnswerInput = z.infer<typeof RevokeCoordinationAnswerInputSchema>;
+export const RetryGoalInputSchema = z.strictObject({ answer_event_id: z.string().regex(ULID_RE), input_hash: z.string().regex(/^[0-9a-f]{64}$/) });
+export type RetryGoalInput = z.infer<typeof RetryGoalInputSchema>;
+export interface GoalRetryView {
+  available: boolean;
+  reason: string | null;
+  input_hash: string | null;
+  max_attempts: number | null;
+  timeout_ms: number | null;
+  run_id: string | null;
+}
 export interface CoordinationRoundView {
+  goal_retry?: GoalRetryView;
   trigger?: "goal_blocked";
   run_id?: string;
   node_id?: string;

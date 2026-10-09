@@ -28,6 +28,7 @@ agent-cord 是一个多 agent 共识协作基座：把需求、决策、证据�
 - 用 `run.goal` 在同一未退出节点内自主实现代码、运行宿主检查、修复失败与完成 review 指南；持久化次数/时长预算，连续源码与失败集合无进展时停止。就绪仍需最终人审，源码变化使旧交付和审批失效。
 - 独立 Context Session Agent 读取当前 Goal 的受限状态；预算、权限或无进展阻塞会清空可推进节点，模型只能提出带 Goal 事件证据的人工升级或等待，不会自动扩预算或放行 gate。
 - Goal 可选声明 supervisor agent；真正 blocked 后宿主自动发起一次受限协调，生成带证据的人工问题，仍不自动恢复 run、批准 gate 或增加预算。
+- 在协调页处理 Goal 人工问题后，可独立授权原发布预算并“重新执行 Goal”；新 run 绑定答复、阻塞和当前输入，过期/撤回/重复授权被核验，最终 review 仍由人完成。
 - 用独立盲评投票处理适合自动化的决策点，分歧和高风险情况升级人工。
 - 通过 Fastify server 和 React 控制台查看需求、编辑文档、观察事件、启动 run、处理人工 gate，并管理 SDLC 的草稿、版本、归档与模板库。
 
@@ -170,6 +171,7 @@ GET  /requirements/:req_id/coordination
 GET  /requirements/:req_id/coordination/:round_id
 POST /requirements/:req_id/coordination/:round_id/cancel
 POST /requirements/:req_id/coordination/:round_id/adopt   # 人工采用并启动绑定 SDLC，202
+POST /requirements/:req_id/coordination/:round_id/retry-goal # 人工答复后授权新预算，202
 POST /runs/:run_id/cancel                     # 幂等；已终态返回现状
 GET  /requirements/:req_id/timeline
 GET  /requirements/:req_id/artifacts?path=review.md # 只读当前 SDLC 声明产物

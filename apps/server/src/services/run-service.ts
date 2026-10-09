@@ -21,6 +21,9 @@ import {
   WorkflowRunStartedPayloadSchema,
   VerificationCompletedPayloadSchema,
   matchesWorkflowScope,
+  readGoalRetryAuthorization,
+  GoalRetryAuthorizedPayloadSchema,
+  GoalAttemptCompletedPayloadSchema,
   type AgentDriver,
   type Anchor,
   type EventEnvelope,
@@ -95,7 +98,9 @@ export interface GoalBlockedContext {
 
 /** ADR-0033：运行槽位内校验人工采用依据，事实落盘成功后才启动执行器。 */
 export interface RunStartGuard {
-  coordination_round_id: string;
+  coordination_round_id?: string;
+  goal_retry_round_id?: string;
+  driverResolver?: (name: string) => AgentDriver;
   validate(session: SessionHandle, def: WorkflowDef, workflow_revision: string): Promise<void>;
   record(session: SessionHandle, run_id: string): Promise<void>;
 }
@@ -198,6 +203,7 @@ export class RunService {
   /** 启动（或恢复）某需求的 run；绑定具体 SDLC 版本（ADR-0022 决策 4） */
   async start(reqId: string, sdlcId?: string, sdlcVersion?: number, guard?: RunStartGuard): Promise<RunInfo> {
     if (this.closing) throw conflict("服务正在关闭，不能启动 run");
+    if (guard?.coordination_round_id !== undefined && guard.goal_retry_round_id !== undefined) throw conflict("运行来源不能同时为人工采用与 Goal 续跑");
     if (this.active.has(reqId)) {
       throw conflict(`需求 ${reqId} 已有在途 run（${this.active.get(reqId)?.run_id}），等待其结束或人工处理`);
     }
@@ -226,6 +232,7 @@ export class RunService {
         finished_at: null,
         error: null,
         coordination_round_id: guard?.coordination_round_id ?? null,
+        goal_retry_round_id: guard?.goal_retry_round_id ?? null,
         workflow_revision: versioned.workflow_revision,
       };
       this.index.insertRun(run);
@@ -233,9 +240,10 @@ export class RunService {
       await session.events.append({ event_id: ulid(), session_id: reqId, type: "workflow.run.started", schema_version: "1",
         actor: { kind: "human", id: "local-human" }, correlation_id: reservedRunId,
         payload: { run_id: reservedRunId, workflow_id: versioned.def.metadata.id, workflow_revision: versioned.workflow_revision, sdlc_id: versioned.sdlc_id, sdlc_version: versioned.version,
-          ...(guard !== undefined ? { coordination_round_id: guard.coordination_round_id } : {}) }, source: { adapter: "console-server" } });
+          ...(guard?.coordination_round_id === undefined ? {} : { coordination_round_id: guard.coordination_round_id }),
+          ...(guard?.goal_retry_round_id === undefined ? {} : { goal_retry_round_id: guard.goal_retry_round_id }) }, source: { adapter: "console-server" } });
       await guard?.record(session, reservedRunId);
-      this.launch(session, run, versioned.def, controller);
+      this.launch(session, run, versioned.def, controller, guard?.driverResolver);
       return runRowToInfo(run);
     } catch (error) {
       if (registered) this.safeFinish(reservedRunId, "failed", error instanceof Error ? error.message : String(error));
@@ -426,7 +434,8 @@ export class RunService {
         if (!parsed.success) throw new Error("工作流启动绑定事件不符合契约");
         const payload = parsed.data;
         if (this.index.getRun(payload.run_id) === null) this.index.insertRun({ run_id: payload.run_id, req_id, sdlc_id: payload.sdlc_id, sdlc_version: payload.sdlc_version,
-          status: "running", started_at: event.timestamp, finished_at: null, error: null, workflow_revision: payload.workflow_revision, coordination_round_id: payload.coordination_round_id ?? null });
+          status: "running", started_at: event.timestamp, finished_at: null, error: null, workflow_revision: payload.workflow_revision, coordination_round_id: payload.coordination_round_id ?? null,
+          goal_retry_round_id: payload.goal_retry_round_id ?? null });
       }
     }
     const resumed: string[] = [];
@@ -438,7 +447,8 @@ export class RunService {
       const session = await this.sessions.open(run.req_id);
       const events = await session.events.readOrdered();
       const started = events.filter((event) => event.type === "workflow.run.started").map((event) => WorkflowRunStartedPayloadSchema.safeParse(event.payload)).find((parsed) =>
-        parsed.success && parsed.data.run_id === run.run_id && parsed.data.sdlc_id === run.sdlc_id && parsed.data.sdlc_version === run.sdlc_version && parsed.data.coordination_round_id === (run.coordination_round_id ?? undefined) && parsed.data.workflow_revision === run.workflow_revision);
+        parsed.success && parsed.data.run_id === run.run_id && parsed.data.sdlc_id === run.sdlc_id && parsed.data.sdlc_version === run.sdlc_version
+        && parsed.data.coordination_round_id === (run.coordination_round_id ?? undefined) && parsed.data.goal_retry_round_id === (run.goal_retry_round_id ?? undefined) && parsed.data.workflow_revision === run.workflow_revision);
       if (run.workflow_revision == null) { this.index.finishRun(run.run_id, "failed", new Date().toISOString(), "工作流执行版本缺失，拒绝恢复派发"); continue; }
       if (started?.success !== true) { this.index.finishRun(run.run_id, "failed", new Date().toISOString(), "工作流启动绑定事实缺失，拒绝恢复派发"); continue; }
       const is_current = (await this.latestRun(run.req_id))?.run_id === run.run_id;
@@ -468,6 +478,18 @@ export class RunService {
         });
         if (adoption === undefined || request === undefined) {
           this.index.finishRun(run.run_id, "failed", new Date().toISOString(), "协调采用事实缺失或版本不匹配，未恢复派发");
+          continue;
+        }
+      }
+      if (run.goal_retry_round_id != null) {
+        try {
+          const event = readGoalRetryAuthorization(events, run.run_id);
+          const auth = GoalRetryAuthorizedPayloadSchema.safeParse(event?.payload);
+          const goal = auth.success ? versioned.def.spec.nodes.find(node => node.id === auth.data.node_id)?.run?.goal : undefined;
+          if (!auth.success || auth.data.round_id !== run.goal_retry_round_id || !matchesWorkflowScope(auth.data, scope)
+            || goal === undefined || goal.max_attempts !== auth.data.max_attempts || goal.timeout_ms !== auth.data.timeout_ms) throw new Error("Goal 授权预算不匹配");
+        } catch {
+          this.index.finishRun(run.run_id, "failed", new Date().toISOString(), "Goal 续跑授权缺失或来源/预算不可验证，拒绝恢复派发");
           continue;
         }
       }
@@ -505,6 +527,13 @@ export class RunService {
         }
       }
       if (!is_current) {
+        const latest_goal = events.filter(event => ["goal.attempt.started", "goal.attempt.completed"].includes(event.type)
+          && matchesWorkflowScope(event.payload, scope) && event.payload["run_id"] === run.run_id).at(-1);
+        const goal = GoalAttemptCompletedPayloadSchema.safeParse(latest_goal?.payload);
+        if (latest_goal?.type === "goal.attempt.completed" && goal.success && goal.data.status === "blocked") {
+          this.index.finishRun(run.run_id, "failed", new Date().toISOString(), goal.data.reason);
+          continue;
+        }
         if (finalStatus !== null) this.index.finishRun(run.run_id, finalStatus, new Date().toISOString(), null);
         continue;
       }
@@ -581,11 +610,11 @@ export class RunService {
   }
 
   /** 在后台推进执行器；结束时按事件流投影登记终态并重建账本 */
-  private launch(session: SessionHandle, run: RunRow, def: WorkflowDef, controller: AbortController): void {
+  private launch(session: SessionHandle, run: RunRow, def: WorkflowDef, controller: AbortController, fixed_resolver?: (name: string) => AgentDriver): void {
     if (this.closing) return;
     const humanGate = this.createHumanGate(session, run, def);
     const { workspaceRoot } = this.options;
-    const driverResolver = this.options.driverResolverForRun?.() ?? this.options.driverResolver;
+    const driverResolver = fixed_resolver ?? this.options.driverResolverForRun?.() ?? this.options.driverResolver;
     const executor = createExecutor({
       run_id: run.run_id,
       workflow_revision: run.workflow_revision ?? undefined,

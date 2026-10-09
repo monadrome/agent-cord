@@ -415,6 +415,7 @@ export const EVENT_TYPES = [
   "verification.completed",
   "goal.attempt.started",
   "goal.attempt.completed",
+  "goal.retry.authorized",
   "coordinator.round.started",
   "coordinator.round.requested",
   "coordinator.round.completed",
@@ -719,6 +720,14 @@ export const WorkflowRunStartedPayloadSchema = z.looseObject({
   workflow_id: z.string().min(1), workflow_revision: z.string().length(64), run_id: z.string().regex(ULID_RE),
   sdlc_id: z.string().min(1), sdlc_version: z.number().int().positive(),
   coordination_round_id: z.string().regex(ULID_RE).optional(),
+  goal_retry_round_id: z.string().regex(ULID_RE).optional(),
+}).refine(value => value.coordination_round_id === undefined || value.goal_retry_round_id === undefined, "人工采用与 Goal 续跑来源必须互斥");
+
+export const GoalRetryAuthorizedPayloadSchema = z.strictObject({
+  round_id: z.string().regex(ULID_RE), workflow_id: z.string().min(1), workflow_revision: z.string().regex(/^[0-9a-f]{64}$/),
+  run_id: z.string().regex(ULID_RE), failed_run_id: z.string().regex(ULID_RE), node_id: z.string().min(1),
+  goal_event_id: z.string().regex(ULID_RE), answer_event_id: z.string().regex(ULID_RE), input_hash: z.string().regex(/^[0-9a-f]{64}$/),
+  max_attempts: z.number().int().min(1).max(10), timeout_ms: z.number().int().positive().max(86_400_000),
 });
 
 const coordination_round_fields = {
@@ -808,6 +817,7 @@ export const EVENT_PAYLOAD_SCHEMAS: Partial<Record<EventType, z.ZodType>> = {
   "verification.completed": VerificationCompletedPayloadSchema,
   "goal.attempt.started": GoalAttemptStartedPayloadSchema,
   "goal.attempt.completed": GoalAttemptCompletedPayloadSchema,
+  "goal.retry.authorized": GoalRetryAuthorizedPayloadSchema,
   "coordinator.round.started": CoordinatorRoundStartedPayloadSchema,
   "coordinator.round.requested": CoordinatorRoundRequestedPayloadSchema,
   "coordinator.round.completed": CoordinatorRoundCompletedPayloadSchema,

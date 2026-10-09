@@ -22,6 +22,7 @@ import {
   AdoptCoordinationInputSchema,
   AnswerCoordinationInputSchema,
   RevokeCoordinationAnswerInputSchema,
+  RetryGoalInputSchema,
   UpdateDocInputSchema,
   ReadArtifactInputSchema,
   ValidateSdlcInputSchema,
@@ -315,6 +316,13 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
     const { req_id, round_id } = req.params as { req_id: string; round_id: string };
     parseOrThrow(AdoptCoordinationInputSchema, req.body ?? {});
     const run = await coordination.adopt(req_id, round_id);
+    reply.code(202);
+    return { request_id: requestId(req), run };
+  });
+  app.post("/api/v1/requirements/:req_id/coordination/:round_id/retry-goal", { config: { idempotency: true } }, async (req, reply) => {
+    const { req_id, round_id } = req.params as { req_id: string; round_id: string };
+    const input = parseOrThrow(RetryGoalInputSchema, req.body);
+    const run = await coordination.retry_goal(req_id, round_id, input);
     reply.code(202);
     return { request_id: requestId(req), run };
   });

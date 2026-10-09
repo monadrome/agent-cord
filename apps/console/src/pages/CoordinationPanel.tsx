@@ -40,7 +40,7 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
   const [timeout_seconds, set_timeout_seconds] = useState("120");
   const [selected_round, set_selected_round] = useState<string | null>(null);
   const [loading, set_loading] = useState(true);
-  const [command, set_command] = useState<"start" | "cancel" | "adopt" | "answer" | "revoke" | null>(null);
+  const [command, set_command] = useState<"start" | "cancel" | "adopt" | "answer" | "revoke" | "retry" | null>(null);
   const [answer_choice, set_answer_choice] = useState("");
   const [load_error, set_load_error] = useState<string | null>(null);
   const [command_error, set_command_error] = useState<string | null>(null);
@@ -119,7 +119,7 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
   const busy = command !== null;
   const can_start = !loading && !busy && pending === undefined && selected_agent !== "" && selected_sdlc !== "" && Number.isInteger(seconds) && seconds >= 1 && seconds <= 600;
 
-  const perform = async (kind: "start" | "cancel" | "adopt" | "answer" | "revoke"): Promise<void> => {
+  const perform = async (kind: "start" | "cancel" | "adopt" | "answer" | "revoke" | "retry"): Promise<void> => {
     if (command_loading.current) return;
     command_loading.current = true;
     set_command(kind);
@@ -144,6 +144,10 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
         } else if (kind === "revoke" && selected.answer != null) {
           await api.revokeCoordinationAnswer(req_id, selected.round_id, { answer_event_id: selected.answer.event_id });
           if (mounted.current && generation.current === epoch) set_notice("答复已撤回");
+        } else if (kind === "retry") {
+          if (selected.answer == null || selected.goal_retry?.available !== true || selected.goal_retry.input_hash == null) return;
+          const result = await api.retryGoal(req_id, selected.round_id, { answer_event_id: selected.answer.event_id, input_hash: selected.goal_retry.input_hash });
+          if (mounted.current && generation.current === epoch) set_notice(`Goal 已重新执行，run ${result.run.run_id}`);
         } else {
           const result = await api.adoptCoordination(req_id, selected.round_id);
           if (mounted.current && generation.current === epoch) set_notice(`已采用提议，SDLC run ${result.run.run_id} 已启动`);
@@ -215,6 +219,12 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
           </div> : null}
           <details className="coordination-record"><summary>记录信息</summary><dl className="coordination-context"><div><dt>轮次</dt><dd className="mono">{selected.round_id}</dd></div><div><dt>需求基线</dt><dd className="mono">{selected.input_hash ?? "未生成"}</dd></div><div><dt>Agent 版本</dt><dd className="mono">{selected.agent_configuration_hash ?? "未提供"}</dd></div><div><dt>完成时间</dt><dd>{formatTime(selected.finished_at)}</dd></div></dl></details>
           <footer className="coordination-footer">
+            {selected.goal_retry?.run_id != null ? <div className="coordination-adopted"><span className="ok-text">Goal 已重新执行</span><button type="button" className="link mono" onClick={onRun}><span>run {selected.goal_retry.run_id}</span><ChevronRight size={14} aria-hidden="true" /></button></div>
+              : selected.trigger === "goal_blocked" && selected.answer != null ? <div><div className="coordination-answer-actions">
+                <button type="button" className="btn btn-primary" disabled={loading || busy || run_in_flight || selected.goal_retry?.available !== true} onClick={() => void perform("retry")}><Play size={16} aria-hidden="true" />{command === "retry" ? "启动中..." : "重新执行 Goal"}</button>
+                {selected.goal_retry?.max_attempts != null && selected.goal_retry.timeout_ms != null ? <span className="muted small">新预算：{selected.goal_retry.max_attempts} 次 / {selected.goal_retry.timeout_ms % 60000 === 0 ? `${selected.goal_retry.timeout_ms / 60000} 分钟` : `${selected.goal_retry.timeout_ms / 1000} 秒`}</span> : null}
+                {selected.goal_retry?.available !== true ? <span className="muted small">{selected.goal_retry?.reason ?? "当前无法重新执行"}</span> : null}
+              </div></div> : null}
             {selected.status === "pending" || selected.status === "running" ? <ToolButton label="取消协调" disabled={busy} onClick={() => void perform("cancel")}><Square size={16} aria-hidden="true" /></ToolButton> : null}
             {selected.adopted_run_id !== null ? <div className="coordination-adopted"><span className="ok-text">已采用 · {formatTime(selected.adopted_at)}</span><button type="button" className="link mono" onClick={onRun}><span>run {selected.adopted_run_id}</span><ChevronRight size={14} aria-hidden="true" /></button></div> : selected.proposal?.next_action.kind === "advance" ? <>
               <button type="button" className="btn btn-primary coordination-adopt" disabled={busy || run_in_flight || !selected.adoptable} onClick={() => void perform("adopt")}><Play size={16} aria-hidden="true" />{command === "adopt" ? "采用中..." : "采用并启动 SDLC"}</button>

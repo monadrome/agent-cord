@@ -16,6 +16,8 @@
 
 Goal 可选声明 `supervisor_agent` 与 `supervisor_timeout_ms`。达到 blocked 后，宿主自动创建一次绑定 blocker 的协调轮次，控制台显示“Goal 自动升级”，生成 ask_human/wait Draft。示例使用已注册的 context-coordinator，模板也须按本机配置调整；未声明 supervisor 时不会增加模型调用。已有协调先收束再核验，重启不重放已经请求的 supervisor；答复仅补充澄清，不恢复 run、扩预算或放行 gate。详见 [ADR-0058](../docs/adr/ADR-0058-automatic-goal-blocker-escalation.md)。
 
+处理问题并记录答复后，协调页显示“重新执行 Goal”及原发布流程的新预算。该按钮单独授权一个新 run；REST 读取 round.goal_retry.input_hash 后调用 POST .../:round_id/retry-goal，携带 answer_event_id/input_hash 和 Idempotency-Key。更新事实或代码后刷新页面再授权，旧 token 返回 409。撤回或过期答复不能启动，重复授权只返回原 run。最终 review/gate 不因答复或续跑被放行；调整预算上限需另行发布流程。详见 [ADR-0059](../docs/adr/ADR-0059-human-goal-retry.md)。
+
 `development-sdlc.yaml` 扩展为五节点：需求检查 → 只读计划 → 可写实现 Draft → 只读评审报告 → 人工终审。必须运行在独立检出/隔离工作区；示例本身不会创建 OS 隔离。实现 worker 可修改工作区，禁止提交、推送和合入；评审 worker 使用新会话，只读核验代码和测试，报告由协调层写入 findings.md。默认 Codex 角色别名仍可能使用同模型，这不等价于异构盲评；需要异构时替换评审 driver，并实际核验模型与权限。
 
 评审报告完成后，`host-tests` gate 等待宿主提交 `offline-tests` 事实；最终 `human-review` 再检查同一验证结果，避免机器 gate 通过后代码变化仍可批准。宿主按当前上下文执行命令并提交结果，人工终审保持独立。

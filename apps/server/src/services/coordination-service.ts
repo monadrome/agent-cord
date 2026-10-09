@@ -5,10 +5,11 @@ import {
   CoordinatorRoundCompletedPayloadSchema, createContextSessionAgent,
   CoordinatorRoundAdoptedPayloadSchema, coordinationInputHash, parseCoordinationProposal, readCoordinationSnapshot,
   GoalAttemptCompletedPayloadSchema, GoalBlockerTriggerSchema, type GoalBlockerTrigger, matchesWorkflowScope,
+  GoalRetryAuthorizedPayloadSchema, readGoalRetryAuthorization, canonicalJson, sha256Hex,
   readSessionEvents, SessionEventReadError, CoordinatorRoundAnsweredPayloadSchema, CoordinatorRoundAnswerRevokedPayloadSchema, readClarificationAnswers, currentClarificationAnswers, projectClarifications, MAX_CLARIFICATION_QUESTIONS,
   type AgentDriver, type EventEnvelope, type SessionHandle, type WorkflowDef,
 } from "agent-cord";
-import type { AnswerCoordinationInput, RevokeCoordinationAnswerInput, CoordinationRoundView, RunInfo, StartCoordinationInput } from "../contracts.js";
+import type { AnswerCoordinationInput, RevokeCoordinationAnswerInput, CoordinationRoundView, RunInfo, StartCoordinationInput, RetryGoalInput, GoalRetryView } from "../contracts.js";
 import { badRequest, conflict, internalError, notFound } from "../errors.js";
 import type { SessionService } from "./session-service.js";
 import { DEFAULT_SDLC_ID, type SdlcService } from "./sdlc-service.js";
@@ -113,6 +114,7 @@ export class CoordinationService {
   private readonly adoption = new Map<string, Promise<RunInfo>>();
   private readonly answering = new Map<string, { round_id: string; signature: string; promise: Promise<CoordinationRoundView> }>();
   private readonly escalations = new Map<string, Promise<void>>();
+  private readonly retrying = new Map<string, { signature: string; promise: Promise<RunInfo> }>();
   private readonly closing_controller = new AbortController();
   private closing = false;
 
@@ -167,13 +169,13 @@ export class CoordinationService {
 
   async list(req_id: string): Promise<CoordinationRoundView[]> {
     const rounds = await this.readRounds(req_id);
-    return Promise.all(rounds.map(async (round) => ({ ...round, ...await this.inspect(round) })));
+    return Promise.all(rounds.map(async (round) => ({ ...round, ...await this.inspect(round), ...await this.inspectGoalRetry(round) })));
   }
 
   async get(req_id: string, round_id: string): Promise<CoordinationRoundView> {
     if (this.storage_errors.has(round_id)) throw internalError("协调轮次事实写入失败，需要修复存储后恢复", this.storage_errors.get(round_id));
     const round = await this.readRound(req_id, round_id);
-    return { ...round, ...await this.inspect(round) };
+    return { ...round, ...await this.inspect(round), ...await this.inspectGoalRetry(round) };
   }
 
   private async readRound(req_id: string, round_id: string): Promise<CoordinationRoundView> {
@@ -247,6 +249,7 @@ export class CoordinationService {
 
   private mutate_answer(req_id: string, round_id: string, signature: string, write: () => Promise<CoordinationRoundView>): Promise<CoordinationRoundView> {
     if (this.closing) return Promise.reject(conflict("服务正在关闭"));
+    if (this.retrying.has(req_id)) return Promise.reject(conflict("Goal 续跑授权正在记录，不能并发修改答复"));
     const pending = this.answering.get(req_id);
     if (pending !== undefined) return pending.round_id === round_id && pending.signature === signature ? pending.promise : Promise.reject(conflict("已有在途澄清操作，不能同时记录另一选择或撤回"));
     const operation = write().finally(() => { if (this.answering.get(req_id)?.promise === operation) this.answering.delete(req_id); });
@@ -306,6 +309,124 @@ export class CoordinationService {
   private async read_source_hash(def: WorkflowDef): Promise<string | null> {
     const inputs = [...new Set(def.spec.nodes.flatMap(verificationSourceInputs))].sort();
     return (await readVerificationSource(this.options.workspaceRoot, inputs)).source_hash;
+  }
+
+  private async inspectGoalRetry(round: CoordinationRoundView): Promise<{ goal_retry?: GoalRetryView }> {
+    if (round.trigger !== "goal_blocked") return {};
+    const view: GoalRetryView = { available: false, reason: null, input_hash: null, max_attempts: null, timeout_ms: null, run_id: null };
+    try {
+      const events = await this.readEvents(await this.sessions.open(round.req_id));
+      const accepted = this.findGoalRetry(events, round.round_id);
+      if (accepted !== null) {
+        await this.assertGoalRetryBudget(round, accepted);
+        Object.assign(view, { run_id: accepted.run_id, input_hash: accepted.input_hash, max_attempts: accepted.max_attempts, timeout_ms: accepted.timeout_ms, reason: "本轮 Goal 已重新执行" });
+      } else {
+        const state = await this.readGoalRetryState(round);
+        Object.assign(view, { available: !this.options.runs.isActive(round.req_id), reason: this.options.runs.isActive(round.req_id) ? "原 run 正在收尾，请稍后刷新" : null,
+          input_hash: state.input_hash, max_attempts: state.goal.max_attempts, timeout_ms: state.goal.timeout_ms });
+      }
+    } catch (error) { view.reason = error instanceof Error ? error.message : "无法核验 Goal 续跑依据"; }
+    return { goal_retry: view };
+  }
+
+  private findGoalRetry(events: readonly EventEnvelope[], round_id: string) {
+    const matches = events.filter(event => event.type === "goal.retry.authorized" && typeof event.payload === "object"
+      && event.payload !== null && (event.payload as Record<string, unknown>)["round_id"] === round_id);
+    if (matches.length === 0) return null;
+    if (matches.length !== 1) throw conflict("本轮 Goal 存在重复授权，拒绝继续");
+    const auth = GoalRetryAuthorizedPayloadSchema.parse(matches[0]!.payload);
+    if (readGoalRetryAuthorization(events, auth.run_id)?.event_id !== matches[0]!.event_id) throw conflict("Goal 续跑授权不可验证");
+    return auth;
+  }
+
+  private async assertGoalRetryBudget(round: CoordinationRoundView, auth: ReturnType<typeof GoalRetryAuthorizedPayloadSchema.parse>): Promise<void> {
+    const versioned = await this.sdlcs.get(round.sdlc_id, round.sdlc_version);
+    const goal = versioned.def.spec.nodes.find(node => node.id === auth.node_id)?.run?.goal;
+    if (round.workflow_revision !== versioned.workflow_revision || !matchesWorkflowScope(auth, { workflow_id: round.workflow_id, workflow_revision: versioned.workflow_revision })
+      || goal === undefined || goal.max_attempts !== auth.max_attempts || goal.timeout_ms !== auth.timeout_ms) throw conflict("Goal 续跑授权预算与发布版本不匹配");
+  }
+
+  private async readGoalRetryState(round: CoordinationRoundView, pending_run_id?: string) {
+    if (round.trigger !== "goal_blocked" || round.status !== "ok" || round.proposal?.next_action.kind !== "ask_human"
+      || round.workflow_revision === null || round.answer_reason != null) throw conflict("当前轮次不是有效的 Goal 人工问题");
+    const trigger = roundGoalBlocker(round)!;
+    const versioned = await this.sdlcs.get(round.sdlc_id, round.sdlc_version);
+    if (versioned.workflow_revision !== round.workflow_revision || this.sdlcs.isArchived(round.sdlc_id, round.sdlc_version)) throw conflict("绑定的 SDLC 已变化或归档，不能续跑");
+    const session = await this.sessions.open(round.req_id); const events = await this.readEvents(session);
+    const latest_run = await this.options.runs.latestRun(round.req_id, events);
+    const expected_run = pending_run_id ?? trigger.run_id;
+    const unlaunched_retry = pending_run_id === undefined && latest_run?.status === "failed" && latest_run.goal_retry_round_id === round.round_id
+      && !events.some(event => ["goal.retry.authorized", "agent.task.started", "goal.attempt.started"].includes(event.type)
+        && typeof event.payload === "object" && event.payload !== null && (event.payload as Record<string, unknown>)["run_id"] === latest_run.run_id);
+    if ((!unlaunched_retry && latest_run?.run_id !== expected_run) || (pending_run_id === undefined ? latest_run?.status !== "failed" : latest_run?.status !== "running"
+      || latest_run.goal_retry_round_id !== round.round_id)) throw conflict("原 Goal 运行已变化，不能授权旧卡点");
+    const old_run = await this.options.runs.getRun(trigger.run_id);
+    if (old_run.status !== "failed" || old_run.workflow_revision !== round.workflow_revision) throw conflict("原 Goal 不再是绑定版本的 failed run");
+    const node = versioned.def.spec.nodes.find(item => item.id === trigger.node_id);
+    const goal = node?.run?.goal;
+    if (node === undefined || goal === undefined || goal.supervisor_agent !== round.agent) throw conflict("Goal 或 supervisor 定义已变化");
+    const blocker = events.filter(event => ["goal.attempt.started", "goal.attempt.completed"].includes(event.type)
+      && matchesWorkflowScope(event.payload, { workflow_id: versioned.def.metadata.id, workflow_revision: round.workflow_revision! })
+      && event.payload["run_id"] === trigger.run_id && event.payload["node_id"] === trigger.node_id).at(-1);
+    const blocked = GoalAttemptCompletedPayloadSchema.safeParse(blocker?.payload);
+    if (blocker?.event_id !== trigger.goal_event_id || blocker.type !== "goal.attempt.completed" || blocker.correlation_id !== trigger.node_id
+      || !blocked.success || blocked.data.status !== "blocked") throw conflict("Goal 阻塞事实已变化，不能续跑旧卡点");
+    const answers = currentClarificationAnswers(events, { workflow_id: versioned.def.metadata.id, workflow_revision: round.workflow_revision });
+    const answer = answers.find(item => item.round_id === round.round_id && item.revoked_at === undefined);
+    if (answer === undefined || round.answer?.event_id !== answer.event_id) throw conflict("Goal 续跑需要当前未撤回的人工答复");
+    const resolver = this.options.resolver();
+    const supervisor_hash = resolver(round.agent).configuration_hash;
+    const worker_hash = resolver(node.run!.agent).configuration_hash;
+    if (supervisor_hash === undefined || supervisor_hash !== round.agent_configuration_hash || worker_hash === undefined) throw conflict("无法核验本轮 supervisor 或 worker 配置，请重新协调");
+    const input = await this.options.runs.readNodeInput(versioned.def, node, session, worker_hash, round.workflow_revision);
+    const input_hash = sha256Hex(canonicalJson({ domain: "cord.goal-retry-input.v1", req_id: round.req_id, round_id: round.round_id,
+      blocker: trigger, blocked: blocked.data, answer_event_id: answer.event_id, completion_event_id: answer.completion_event_id,
+      node_input_hash: input.input_hash, worker_hash, supervisor_hash, max_attempts: goal.max_attempts, timeout_ms: goal.timeout_ms }));
+    return { input_hash, answer, goal };
+  }
+
+  retry_goal(req_id: string, round_id: string, input: RetryGoalInput): Promise<RunInfo> {
+    if (this.closing) return Promise.reject(conflict("服务正在关闭"));
+    if (this.answering.has(req_id)) return Promise.reject(conflict("已有在途答复修改，不能同时授权续跑"));
+    const signature = JSON.stringify({ round_id, ...input });
+    const pending = this.retrying.get(req_id);
+    if (pending !== undefined) return pending.signature === signature ? pending.promise : Promise.reject(conflict("已有另一项 Goal 续跑授权正在处理"));
+    const operation = this.retryGoalOnce(req_id, round_id, input).finally(() => { if (this.retrying.get(req_id)?.promise === operation) this.retrying.delete(req_id); });
+    this.retrying.set(req_id, { signature, promise: operation });
+    return operation;
+  }
+
+  private async retryGoalOnce(req_id: string, round_id: string, input: RetryGoalInput): Promise<RunInfo> {
+    const session = await this.sessions.open(req_id); const events = await this.readEvents(session);
+    const round = await this.readRound(req_id, round_id);
+    const previous = this.findGoalRetry(events, round_id);
+    if (previous !== null) {
+      await this.assertGoalRetryBudget(round, previous);
+      if (previous.answer_event_id !== input.answer_event_id || previous.input_hash !== input.input_hash) throw conflict("本轮已使用不同依据授权续跑，请查看已启动 run");
+      return this.options.runs.getRun(previous.run_id);
+    }
+    const check = async (pending_run_id?: string) => {
+      const current = await this.readRound(req_id, round_id);
+      const state = await this.readGoalRetryState(current, pending_run_id);
+      if (state.answer.event_id !== input.answer_event_id || state.input_hash !== input.input_hash) throw conflict("Goal 续跑依据已变化，请刷新后重新授权");
+      return state;
+    };
+    await check();
+    const driverResolver = this.options.resolver();
+    return this.options.runs.start(req_id, round.sdlc_id, round.sdlc_version, {
+      goal_retry_round_id: round_id,
+      driverResolver,
+      validate: async () => { await check(); },
+      record: async (current_session, run_id) => {
+        const state = await check(run_id);
+        const trigger = roundGoalBlocker(round)!;
+        const payload = GoalRetryAuthorizedPayloadSchema.parse({ round_id, workflow_id: round.workflow_id, workflow_revision: round.workflow_revision,
+          run_id, failed_run_id: trigger.run_id, node_id: trigger.node_id, goal_event_id: trigger.goal_event_id, answer_event_id: input.answer_event_id,
+          input_hash: input.input_hash, max_attempts: state.goal.max_attempts, timeout_ms: state.goal.timeout_ms });
+        await current_session.events.append({ event_id: ulid(), session_id: req_id, type: "goal.retry.authorized", schema_version: "1",
+          actor: { kind: "human", id: "local-human" }, correlation_id: round_id, payload, source: { adapter: "console-server" } });
+      },
+    });
   }
 
   /** 以持久化 request 去重；已有轮次结束后再核验 blocker，避免丢失升级。 */
@@ -503,5 +624,6 @@ export class CoordinationService {
     await Promise.all(active.map((round) => round.promise));
     await Promise.allSettled([...this.answering.values()].map((answer) => answer.promise));
     await Promise.allSettled([...this.escalations.values()]);
+    await Promise.allSettled([...this.retrying.values()].map(item => item.promise));
   }
 }

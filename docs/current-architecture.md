@@ -56,6 +56,8 @@ ACP/headless 保持任务调用。coordinator/goal.ts 在 NodeRunner 内承载 r
 
 Goal 声明 `supervisor_agent` 时，RunService 在 blocked 事实和 failed run 落盘后调用 CoordinationService 自动发起 `goal_blocked` 轮次。请求事实绑定 blocker event、run、node 和 workflow revision，服务重启补缺失请求且不重放已开始的 supervisor；在途人工协调先等待。协调失败不改变 run failed，输入变化使轮次 stale，人工回答仍走既有澄清接口。没有声明 supervisor 的流程保持旧行为。
 
+自动问题的人工答复可由独立 retry-goal 命令继续：view 展示当前输入 token 与发布预算，RunService 槽位内/记录前重检，started.goal_retry_round_id 与 goal.retry.authorized 绑定新执行及来源，worker 固定配置后派发。答复本身不启动模型；新 run 重新验证未退出 Goal，保留上游退出与原失败。SQLite 新列可从启动事实重建；恢复必须证明人工授权先于派发，预算与发布版本一致，旧 failed Goal 不继承新 run 的等待状态。用户处理卡点时可更新事实/代码，旧输入 409，刷新后再授权；最终人审继续绑定新产物（ADR-0059）。
+
 “Agent 协作 · Goal”模板默认使用该原型，旧发布流程保持原执行语义。缺宿主能力或 NodeRunner 的 Goal 拒绝跳过；正常闭环在未退出节点内完成，最终 post gate 保留人工。未退出 Goal 的同 run 冷恢复校验最新 ready、worker 完成引用、当前源码/指南与宿主验证事件，输入变化先重做；新 run 不复用旧 ready。独立监督、结构化人工卡点续跑和权限策略统一仍待后续实现，完整输出日志未持久化。
 
 ## 3. 数据和写入路径

@@ -29,6 +29,7 @@
 | `agent.task.*` | 节点执行体的 agent 任务（started / completed；中间流式输出不入流） |
 | `verification.completed` | 宿主/CI 机器验证结果（带输入与输出摘要 hash） |
 | `goal.attempt.started` / `goal.attempt.completed` | 节点内 Goal 尝试与交付状态（ready / retrying / blocked / cancelled） |
+| `goal.retry.authorized` | 人工答复后授权新 run，绑定原 blocker/答复/当前输入与发布预算 |
 | `coordinator.round.*` | 独立协调轮次（requested / started / completed / cancel_requested）与人工采用（adopted） |
 | `human.*` | 人工选择记录 |
 
@@ -136,6 +137,10 @@ Goal 复用只接受同 run 最新 ready、原完成引用、当前输入/指南
 协调执行观察同时投影每个 `run.goal` 节点的 `goals`：`missing/started/retrying/ready/blocked/cancelled/invalid`、尝试/预算、failure_kind、截断 reason、输入/产物 hash 和验证事件 ID。原始 worker 正文、日志和命令输出不进入协调上下文。`goal` evidence 只能引用当前 Goal 事件；当前 blocked/invalid/cancelled 会使 `eligible_nodes=[]`，任何 advance 由宿主拒绝，Context Session Agent 只能提出 ask_human 或 wait。人工选择仍进入既有澄清事实，不等于增加预算、授权或放行 gate（ADR-0057）。
 
 Goal 可选声明 `supervisor_agent` 与 `supervisor_timeout_ms`。同一 run/node 的 `goal.attempt.completed{status:blocked}` 落盘并使 run failed 后，宿主自动追加 `coordinator.round.requested{trigger:goal_blocked,run_id,node_id,goal_event_id}`，使用当前 resolver 发起受限协调。自动轮次只接受引用 blocker 的 `ask_human`/`wait`，advance、complete、缺证据或输入变化均 fail-closed。已有人工协调轮次先收束再检查，完全相同 blocker 只请求一次；重启只补缺少 request 事实的 blocker，已启动调用不重放。请求 actor 为 `goal-supervisor`，失败不覆盖原 run.error。
+
+Goal 问题记录当前有效人工答复后，view.goal_retry 提供 available/reason、当前 input_hash 与已发布 max_attempts/timeout_ms；不复用答复前协调 hash。`POST .../:round_id/retry-goal` 要求幂等键、answer_event_id 和该输入 token，是独立执行授权。宿主运行槽位内与授权落盘前再次核验，先写 workflow.run.started.goal_retry_round_id，再写人工 goal.retry.authorized，最后派发。授权记录 round、新/旧 run、node、blocker、答复、input_hash 和预算；新 run 使用原发布额度，旧 Goal 失败与已退出节点保留。worker 使用固定 resolver；代码/事实/配置变化时旧 token 409，刷新后可授权当前版本。
+
+同 round 的同依据重复命令返回已有 run，不再授予预算；不同依据 409。没有答复、已撤回/被新同题选择替代、版本归档、来源/输入不可读均不可授权。新预算只绑定已发布上限，不支持请求携带任意预算字段。授权写失败不派发，只有当前同轮次 failed 且无授权/worker started 事实的半成品启动可通过新命令重试；5xx 未确认仍需新幂等键。冷恢复用 readGoalRetryAuthorization 校验授权前的因果链、预算与派发顺序，缺失/坏授权 fail-closed。授权后的答复撤回不自动取消已启动 run，取消使用原接口（ADR-0059）。
 
 需求 detail 的 artifacts 列出当前绑定 SDLC 声明的路径与可读状态。`GET /requirements/:req_id/artifacts?path=...` 只读声明产物：未声明/缺失 404，普通文件边界冲突 409，IO 失败 500；不提供写入口。控制台文档页复用 Markdown 原文/预览视图，只读查看自定义指南；固定四份快照仍可编辑。Goal blocked 在需求投影显示 blocked，具体原因见 run.error 与尝试事件。
 

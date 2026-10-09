@@ -1,5 +1,17 @@
 # 工作进度
 
+## 2026-10-09（阶段 45）
+
+- HEAD 4795f6c、工作树干净且与 origin 同步，自动升级功能为已验证进展；继续实现答复后的显式 Goal 续跑。
+- ADR-0059 先行：记录澄清不授权预算；单独命令绑定当前答复/输入/原 blocker，启动新 run 并记录发布预算与因果来源，保留最终 gate。
+- 新增 goal.retry.authorized、started/索引 goal_retry_round_id 与因果校验；授权前使用当前输入 token 重检，派发采用固定 resolver。控制台在有效答复后展示发布预算与独立“重新执行 Goal”命令。
+- 首轮测试误把 warm run 的派生 running 登记视为最终等待状态；改用需求/审批事件投影证明人审等待。索引删除反例发现旧 failed Goal 继承新 run 等待，已按自己的 blocked 事实恢复旧失败；26 项相关测试通过。
+- 首次完整 930 测试 / 71 文件通过，build:all/typecheck/diff 通过。新 API、DTO、typed client、控制台预算与独立命令、授权来源/预算核验及旧失败恢复已同步文档。
+- 真实 Codex worker 2 次/supervisor 1 次：隔离加法任务因外部事实未就绪阻塞，浏览器脚本模拟答复与事实更新，旧 token 409，没有派发；刷新后授权一次原预算，Codex 续跑与宿主四用例通过，最终 gate 未决。intake 退出 1、deliver/done 未退出、gate 决定 0。
+- 1440/390/320 授权前预算、成功后的 run/按钮移除/最终审批无溢出/pageerror，桌面与 320 截图已查看；首次同 hash 页面未刷新导致旧 token 被正确拒绝，核验事实后继续原场景，未重启模型。冷恢复同审批、旧 failed run 保留、worker/supervisor 无重复、doctor=true。
+- 证据 `/tmp/cord-stage45-real-result.json` 与 browser-result，最新预览 PID 6525/58537。所有临时数据不提交，原真实待审 Draft 不操作，完整持续目标 active。
+- 提交前 git diff --check、10 份文档的 150 个本地链接、ADR-0059 七节/55 行通过；原真实 Draft 7306 实时审批 1、gate 决定 0、done 未退出。进入小步功能提交与有界推送。
+
 ## 2026-10-09（阶段 44）
 
 - 工作树干净、HEAD af7f259 同步；上一轮 Goal 状态感知已验证。本轮连接 blocked Goal 与 supervisor 自动升级，保持 Draft-only 与最终人工 gate。

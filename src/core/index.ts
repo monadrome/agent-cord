@@ -13,6 +13,7 @@ export {
   GoalCommandSchema,
   GoalAttemptStartedPayloadSchema,
   GoalAttemptCompletedPayloadSchema,
+  GoalRetryAuthorizedPayloadSchema,
   AnchorSchema,
   CliMessageReceivedPayloadSchema,
   ConfidenceSourceSchema,
