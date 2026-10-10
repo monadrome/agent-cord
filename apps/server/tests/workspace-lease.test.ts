@@ -198,7 +198,7 @@ describe("workspace agent lease", () => {
     expect((await (await server.sessions.open("REQ-B")).events.readOrdered()).some(event => event.type === "agent.task.started")).toBe(false);
     await inject("POST", `/runs/${first.body.run.run_id}/cancel`, { reason: "lease release" });
     await waitFor(async () => (await inject("GET", "/requirements/REQ-B/approvals")).body.approvals.length === 1);
-    expect(await server.runs.getRun(original)).toMatchObject({ status: "running", run_id: original });
+    expect(await server.runs.getRun(original)).toMatchObject({ status: "waiting_human", run_id: original });
     expect((await inject("GET", "/requirements/REQ-B")).body.requirement.status).toBe("waiting_human");
     const facts = await (await server.sessions.open("REQ-B")).events.readOrdered();
     expect(facts.filter(event => event.type === "workflow.run.started")).toHaveLength(1);

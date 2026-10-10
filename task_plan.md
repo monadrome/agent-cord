@@ -819,6 +819,15 @@
 - [x] 最终全量1221项/82文件、typecheck/build:all/diff、110本地链接通过；实际HTTP worker2/协调2/审批1/人工决定0/节点退出0/doctor=true
 - [x] 功能提交0a0ffef，HTTP/1.1推送成功，独立ls-remote核验0a0ffef25a710cd07362a43a87c2b582d3364942；原真实Draft未操作，完整持续优化目标保持active
 
+## 阶段 62：活动 run 人工等待投影（已实现并验证，提交同步中）
+
+- [x] 核验 d106c69 干净、上一轮为实际进展；读取 run/审批/恢复与查询来源，ADR-0076 先行
+- [x] 纯活动等待投影、单run/列表/dashboard/latest与协调共批事实；保留同步操作登记与workspace占用
+- [x] 23项纯投影+6项真实HTTP人工选择/继续worker/失效/取消/恢复/故障/版本隔离回归
+- [x] 实际Goal HTTP worker2/协调1/审批1/人工决定0/节点退出0/doctor=true；1440/390/320截图无横向溢出或pageerror，研究与human review指南同步
+- [x] 全量1250项/84文件、typecheck/build:all/diff、113本地链接通过
+- [ ] 小步提交与远端同步；持续完整目标active，原7306真实Draft未操作
+
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
 - [x] 核验当前分支与阶段 10；上一轮实现和远端同步属于已验证进展

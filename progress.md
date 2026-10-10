@@ -1,5 +1,15 @@
 # 工作进度
 
+## 2026-10-10（阶段62）
+
+- d106c69工作树干净、tracking同步，上一轮ACP状态验证为实际进展。延续planning-with-files与agent-optimizer现有上下文。
+- 根因核验：人工挂起不会执行safeFinish，查询仅runRowToInfo；gate事实与需求/协调任务读取已存在。ADR-0076先行，准备纯只读活动等待投影，保留操作登记和现有人工/预算/恢复规则。
+- project_active_run_wait核验唯一启动绑定与当前waiting/有效human选择，latest/get/readRuns按严格同批事件查询；状态不改索引/结束时间/事件，不解除active/lease，历史/终态保留。
+- 新29项回归覆盖ask前落盘窗口、合法/错误决定、多个等待、失效到新审批、继续worker、取消读取窗口、坏事件/读取恢复、索引重建与版本隔离。首次typecheck修正unknown payload窄化；全量复现workspace lease旧“审批后running”断言，按新展示语义改waiting_human，lease本身不变。
+- 最终npm test1250项/84文件，typecheck/build:all/diff、113本地文档链接通过；/tmp/cord-stage62-final-tests.json。
+- 临时真实验收脚本多余括号在进程终态确认后修正，重新用隔离root完成TCP HTTP：worker2/协调1/审批1/人工决定0/节点退出0/doctor=true，run/列表/需求/协调prompt都waiting_human，SQLite仍running、active=true；没有付费模型调用，原7306Draft未操作。
+- 浏览器1440/390/320三张截图已查看，运行实例“等待人工”、无pageerror/页面横向溢出。证据/tmp/cord-stage62-real-result.json、/tmp/cord-stage62-browser-result.json；PID40502/http://127.0.0.1:61992/#/requirements/REQ-WAIT-STATUS隔离预览健康，截图/运行数据不入仓库。准备小步提交与同步，完整目标active。
+
 ## 2026-10-10（阶段 61）
 
 - d75489b 工作树干净/本地tracking同步，上一轮能力工作台与1193项验证为实际进展。

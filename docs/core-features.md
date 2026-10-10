@@ -133,4 +133,6 @@ flowchart LR
 
 ACP 启动选择持续一致性已接通：`option_ids.mode` 支持仅提供新 configOptions 的 agent，按 mode 后的实际候选选择模型；当前 session 明确选择被更新、移除或改变类型时，以不可重试配置错误取消，不形成 Goal ready 或协调提议。旧 set_mode 兼容空成功回执，同值/未显式选项/外部 session 更新不误冻结（[ADR-0075](./adr/ADR-0075-acp-launch-state-consistency.md)）。
 
+等待最终人审期间，活动run查询/控制台与协调Agent都从当前gate事实显示waiting_human，避免SQLite操作登记running掩盖等待。有效输入后仍需gate重检；active槽位和workspace占用不因等待状态释放（[ADR-0076](./adr/ADR-0076-active-run-wait-projection.md)）。
+
 待扩展维度包括 provider 路由、MCP/工具集、网络与沙箱、隔离 worktree、CLI 精确版本探测、原生 fork/turn checkpoint；应按厂商真实能力逐项映射。任意历史 workflow rewind、跨 agent 的原生 session 迁移不在当前保证内，不能通过清除已退出节点事实实现。

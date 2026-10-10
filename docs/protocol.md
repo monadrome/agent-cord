@@ -251,6 +251,8 @@ coordinationInputHash 自 v4 起加入 context_policy=balanced-head-tail.v1，�
 
 ADR-0048 的 read_execution_context(def, session, revision) 提供严格 CoordinationExecutionContext：当前发布绑定 run 的 run_id/status/active，以及最多 128 项、完整覆盖 node.run 声明的任务元信息。宿主从同批严格事件定位 run 和最新任务；旧 run/版本、无 run_id 的旧任务不进入当前来源，坏的最新 payload/correlation/重试编号为 invalid，不回退历史成功。missing 表示无当前任务，started 只表示启动事实，active=false 时不能推断进程仍活着；active 来自匹配且未终态的本机运行槽位。任务 ok 不等于机器测试或 gate 通过，也不证明仍对应修改后的输入。
 
+ADR-0076：当前活动run的running/waiting_human由同批gate事实补充投影，核验workflow.run.started绑定、同workflow/revision当前等待和human决定的等待ID/评估hash/选项/actor/顺序。等待已落盘但ask未进入也可显示waiting_human；有效决定后只表示输入已给出，gate仍重检。REST run/列表/需求active_run及协调共用projection，读取故障拒绝而不回退索引。同步listRuns为操作登记，公开readRuns按活动需求共用严格读取；不写事件/终态或解除lease，历史/终态不借用当前等待。已有协调输入hash包含run.status，状态变化自然使旧提议新鲜度变化，无新增事件/契约字段。
+
 server 执行观察进入 prompt、输入身份与完成/查询/采用重检，任务终态或 event_id 替换、run 变更、active 变化都使旧轮次失效。轮次/REST view 只新增 execution_context_hash，不注入 error/text/prompt_excerpt/raw。该阶段使用 v5，后续复用与工具扩展分别升级至 v6/v7。当前合法任务可作为 agent_task 来源，控制台打开并展开对应事件；活动绑定 run 时 eligible_nodes=[]，模型只能提出 wait/ask_human。failed/cancelled 且 inactive 可提出重试方向，仍由人工采用和现有 runner 核验。采用写失败后产生的新 run 事实也改变执行观察，需重新协调，不能继续采用旧提议。
 
 复用任务投影为 reused，event_id 是当前复用事实，completion_event_id 是更早的原始 ok 完成；缺省非复用字段归一化为 null，hook 输入类型 CoordinationExecutionContextInput 允许旧实现省略此字段。严格校验原完成的同 session/流程版本/节点、类型/状态/correlation、重试编号不超过上限、摘要一致及中间没有覆盖它的 started/completed。缺失、未来、自引用、另一复用或坏最新引用为 invalid，不回退旧成功。reused 不声明新的重试编号，不等于新执行、当前输入永远有效或 gate 通过。该阶段 server 使用 v6 域，无 hook 为 v4；后续策略升级仍要求旧轮次重新协调。提议来源用当前 reused event_id，事件视图可继续跳到已加载的原完成，前端只导航、不复制复用判定。

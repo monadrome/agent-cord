@@ -73,6 +73,7 @@ describe("Goal server 交付闭环", () => {
     await waitFor(async () => (await server.sessions.listApprovals("REQ-GOAL")).length === 1);
     expect(await calls()).toBe(2);
     expect((await api("GET", "/requirements/REQ-GOAL")).body.requirement.status).toBe("waiting_human");
+    expect((await server.runs.getRun(repaired.body.run.run_id)).status).toBe("waiting_human");
     expect(await readFile(join(root, "cord", "REQ-GOAL", "review.md"), "utf8")).toContain("宿主验证证据");
     expect((await events()).filter(event => event.type === "human.decision.recorded" || event.type === "workflow.node.exited")).toHaveLength(0);
     await server.app.close(); server.index.close(); server = await buildApp({ root });

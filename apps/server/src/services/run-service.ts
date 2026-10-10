@@ -34,6 +34,7 @@ import {
   accumulateGoalUsage,
   usageBudgetExceeded,
   readSessionDocument,
+  readSessionEvents,
   type AgentDriver,
   type Anchor,
   type EventEnvelope,
@@ -50,6 +51,7 @@ import { decodeApprovalId, scanPendingApprovals, type SessionService } from "./s
 import { DEFAULT_SDLC_ID, type SdlcService } from "./sdlc-service.js";
 import { readVerificationSource, verificationSourceInputs, VerificationInputError } from "./verification-inputs.js";
 import { WorkspaceLease, WorkspaceLeaseBusy } from "./workspace-lease.js";
+import { project_active_run_wait } from "./run-status.js";
 
 interface PendingAsk {
   req_id: string;
@@ -212,14 +214,15 @@ export class RunService {
 
   /** 当前绑定按启动事实的因果顺序确定；没有新协议事实时只读旧操作登记。 */
   async latestRun(req_id: string, events?: readonly EventEnvelope[]): Promise<RunRow | null> {
-    for (const event of [...(events ?? await this.sessions.readEvents(req_id))].reverse()) {
+    const facts = events ?? await readSessionEvents(await this.sessions.open(req_id));
+    for (const event of [...facts].reverse()) {
       if (event.type !== "workflow.run.started") continue;
       const parsed = WorkflowRunStartedPayloadSchema.safeParse(event.payload);
       if (!parsed.success) throw new Error("工作流启动绑定事件不符合契约");
       const payload = parsed.data;
       const row = this.index.getRun(payload.run_id);
       if (row === null || row.req_id !== req_id || row.sdlc_id !== payload.sdlc_id || row.sdlc_version !== payload.sdlc_version || row.workflow_revision !== payload.workflow_revision) throw new Error("运行登记与启动绑定事实不一致");
-      return row;
+      return project_active_run_wait(row, facts, this.activeRunId(req_id));
     }
     return this.index.latestRun(req_id);
   }
@@ -861,7 +864,24 @@ export class RunService {
   async getRun(runId: string): Promise<RunInfo> {
     const row = this.index.getRun(runId);
     if (row === null) throw notFound(`run 不存在：${runId}`);
-    return runRowToInfo(row);
+    return runRowToInfo(await this.readRunProjection(row));
+  }
+
+  private async readRunProjection(row: RunRow, events?: readonly EventEnvelope[]): Promise<RunRow> {
+    if (this.activeRunId(row.req_id) !== row.run_id || !["running", "waiting_human"].includes(row.status)) return row;
+    const facts = events ?? await readSessionEvents(await this.sessions.open(row.req_id));
+    const current = this.index.getRun(row.run_id) ?? row;
+    return project_active_run_wait(current, facts, this.activeRunId(row.req_id));
+  }
+
+  /** REST 查询使用事实投影；同需求的多条登记共用一次读取，不重复扫文件。 */
+  async readRuns(req_id?: string): Promise<RunInfo[]> {
+    const rows = this.index.listRuns(req_id);
+    const facts = new Map<string, Promise<EventEnvelope[]>>();
+    for (const row of rows) if (this.activeRunId(row.req_id) === row.run_id && ["running", "waiting_human"].includes(row.status)) {
+      if (!facts.has(row.req_id)) facts.set(row.req_id, this.sessions.open(row.req_id).then(readSessionEvents));
+    }
+    return Promise.all(rows.map(async row => runRowToInfo(await this.readRunProjection(row, await facts.get(row.req_id)))));
   }
 
   /** 读取原授权 Goal 的恢复依据；不创建新 run，也不改变事件事实。 */
@@ -992,6 +1012,7 @@ export class RunService {
     }
   }
 
+  /** 同步操作登记供恢复/维护；公开查询使用 readRuns。 */
   listRuns(reqId?: string): RunInfo[] {
     return this.index.listRuns(reqId).map(runRowToInfo);
   }

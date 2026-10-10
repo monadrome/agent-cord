@@ -165,6 +165,8 @@ intake → align → plan → implement → verify → review → done
 
 当前 server 的协调输入还绑定执行观察：worker started/completed 带 run_id，宿主按当前发布/run 投影最新任务状态、失败阶段和重试编号，原始任务日志不注入模型。活动 run 阻止新的 advance/complete；started 事实不冒称进程当前存活，任务 ok 不冒称测试/gate 通过。完成/查询/采用共用重检，冷启动 active=false；任务来源链接定位事件（ADR-0048）。
 
+活动run的人工等待由同批严格事件派生：`getRun/readRuns/latestRun`核验启动绑定和当前等待/有效选择，REST单run、列表、需求active_run及协调run.status保持一致。SQLite的running登记不代表没有待人审；有效选择后显示running只是正在重检，不等于gate通过。只读投影不写结束时间/事件、不释放lease，历史/终态登记保留；读取失败不回退旧状态，取消期间异步查询保留最新终态。同步`listRuns`保留操作登记用途（[ADR-0076](./adr/ADR-0076-active-run-wait-projection.md)）。
+
 跨 run checkpoint 复用经原输入/源码/产物校验后落 agent.task.reused，链接原始 completed 并按当前 run 去重。协调者得到 reused 与原完成 ID，使用当前复用事件作来源；坏引用不回退历史成功，复用不伪造当前新调用。执行观察自 input v6 起绑定此解释策略。事件视图支持“复用→原完成”的两步导航，前端不复制状态机（ADR-0049）。
 
 独立协调消费到任何 tool_use（含只读工具或延迟工具结果）立即 abort 并关闭迭代器，固定记录 failed/driver、丢弃提议和工具负载；清理错误不覆盖已确认的失败。ACP 清理等待单次、有界的 session/cancel 发送序列再回收进程。tool_policy=none.v1 纳入当前输入：server 使用 v7，无执行观察 hook 的库调用使用 v5，旧策略提议需要重新协调。这是报告工具事件后的拒绝，不回滚既有副作用或认证外部 CLI 完整性（ADR-0050）。

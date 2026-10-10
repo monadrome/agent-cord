@@ -225,7 +225,7 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
       byStatus[summary.status] += 1;
       if (binding !== null) approvals.push(...(await sessions.listApprovals(reqId, { workflow_id: binding.def.metadata.id, workflow_revision: binding.workflow_revision })));
     }
-    const failedRuns = runs.listRuns().filter((run) => run.status === "failed").slice(0, 20);
+    const failedRuns = (await runs.readRuns()).filter((run) => run.status === "failed").slice(0, 20);
     return {
       request_id: requestId(req),
       requirements: { total: ids.length, by_status: byStatus },
@@ -300,7 +300,7 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
 
   app.get("/api/v1/requirements/:req_id/runs", async (req) => {
     const { req_id: reqId } = req.params as { req_id: string };
-    return { request_id: requestId(req), runs: runs.listRuns(reqId) };
+    return { request_id: requestId(req), runs: await runs.readRuns(reqId) };
   });
 
   // ---- 独立 Context Session Agent 协调轮次（ADR-0032） ----------------------

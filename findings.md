@@ -1,5 +1,13 @@
 # 调研发现
 
+## 阶段62（2026-10-10）：活动等待查询一致性
+
+- 人工gate promise未返回时run登记仍running，需求事件投影已waiting_human；getRun/列表/协调读取索引而漏掉事实。
+- 等待事实早于ask回调可读，单纯ask时更新索引存在窗口。活动查询需同批事件派生等待，而不写终态/finished_at或放开lease。
+- 人工决定落盘只意味着输入已给出，仍须gate重检；状态可恢复running，但不能据此推断审批通过或节点退出。历史/终态不能因当前同版本等待改变。
+- 异步状态读取期间取消需要重读操作登记，避免以读取前running副本返回；多个waiting逐项验证，不能因some提前返回而掩盖另一个坏结构。
+- 同步listRuns继续给恢复/维护；REST与dashboard用异步readRuns，共享每需求严格事件读取。此项修正不重构inactive历史或完整run终态算法。
+
 ## 阶段 61（2026-10-10）：ACP 启动状态漂移
 
 - set_config_option 要返回完整配置，config_option_update 可动态修改选项；现有驱动只验证设置响应，忽略更新，所以后续模型/effort/mode 漂移仍可成功。
