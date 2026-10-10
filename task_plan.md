@@ -828,7 +828,7 @@
 - [x] 全量1250项/84文件、typecheck/build:all/diff、113本地链接通过
 - [x] 功能提交dbb49ef，HTTP/1.1推送成功，独立ls-remote核验dbb49efc368af5d8e8e6b58fc3321534e2d10ab8；持续完整目标active，原7306真实Draft未操作
 
-## 阶段63：Headless CLI能力查询（已实现并验证，本地已提交，远端未确认）
+## 阶段63：Headless CLI能力查询（已实现并验证，功能已同步）
 
 - [x] 核验7f659db干净、上一轮实际进展；OpenAI Docs/本机CLI帮助核对，ADR-0077先行
 - [x] 明确probe profile/有界版本帮助执行、保守能力证据与成功/失败/超时进程树收束
@@ -836,9 +836,9 @@
 - [x] 16项probe与3项新增HTTP/重载回归；真实本机Claude2.1.220/Codex0.160.0/Kimi2.1.1无prompt查询、1440/390/320七截图无溢出/pageerror
 - [x] 最终全量1269项/85文件、typecheck/build:all/diff、120本地链接通过；研究/human review指南同步
 - [x] 功能提交78842a3，验证与全部证据保留，工作树收尾后干净；持续完整目标active，原真实Draft未操作
-- [ ] 远端同步：HTTP/1.1 push达30秒上限，HTTP/2达25秒上限；两种协议独立ls-remote各达15秒上限，exit124，不能确认已同步
+- [x] 远端同步：此前HTTP/1.1/HTTP2超时；阶段64最后HTTP/1.1推送成功，独立ls-remote核验0706c29815d7cf8a68fd3356dea38ad7a0fd79c0，积压提交一并同步
 
-## 阶段64：协调流程Agent身份与能力（已实现并验证，本地已提交，远端未确认）
+## 阶段64：协调流程Agent身份与能力（已实现并验证，功能已同步）
 
 - [x] 核验5f84234干净/ahead2，上一轮实际进展；远端查询15秒超时，ADR-0078先行
 - [x] 有界完整流程Agent上下文、prompt/hash/摘要与不可推进配置约束；库无hook域兼容
@@ -846,7 +846,7 @@
 - [x] 8项声明+4项hook+9项真实server回归；实际HTTP协调2/worker1/审批1/人工决定0/节点退出0/doctor=true，最终代码冷预览不重发
 - [x] 最终全量1290项/87文件、typecheck/build:all/diff、123本地链接，1440/390/320浏览器无溢出/pageerror；研究与human review指南同步
 - [x] 功能提交39aa980，完整实现和验收保留，本地小步完成；完整持续目标active，原真实Draft未操作
-- [ ] 远端同步：HTTP/1.1 push30秒/ls-remote15秒，HTTP/2 push20秒/ls-remote10秒均达上限exit124，实际远端hash未确认
+- [x] 远端同步：先前两种协议push/ls-remote超时，最后HTTP/1.1推送成功（7f659db→0706c29），独立ls-remote核验0706c29815d7cf8a68fd3356dea38ad7a0fd79c0；阶段63积压一并同步
 
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
