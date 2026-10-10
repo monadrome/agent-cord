@@ -662,4 +662,4 @@
 - 定向 21 项 launch、实际 fixture 子进程、TCP HTTP 查询与幂等、固定节点/预算/人工 gate 通过。全量首先复现旧忽略旋钮/隐式 resume/清单精确结构断言，按新契约修正；最终 npm test 1181 项 / 81 文件通过，typecheck/build:all/diff、100 项本地文档链接通过。
 - 核心 feature、README、架构、协议、示例、研究与 human review 指南同步。未调用付费模型，未操作 7306 上的真实 Draft。
 - 隔离预览 PID 81269，http://127.0.0.1:56982；/api/v1/health、/agents、/agents/capability-demo/inspect 均 200，模型/effort 候选来自 fixture 协商，同键重放一致。定位 /tmp/cord-stage59-preview-result.json；终态测试 JSON 为 /tmp/cord-stage59-final-tests.json。
-- 功能将小步提交，随后有界推送与远端独立核验；完整持续优化目标保持 active。
+- 功能提交 cb88417，上一小步 Goal 摘要为 db5c9b4。HTTP/2 push 25 秒上限停止，独立远端查询仍为 78322ec；随后 HTTP/1.1 push 成功（78322ec → cb88417），独立 ls-remote 核验 cb8841767af6a7ac4045c47c0a3c3c21e456e1fc。此前阶段 57/58 积压提交一并同步；完整持续优化目标保持 active。
