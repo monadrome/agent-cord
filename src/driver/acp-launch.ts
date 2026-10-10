@@ -29,7 +29,7 @@ export class AcpLaunchState {
     this.legacy_mode = launch.option_ids?.mode === undefined ? launch.mode : undefined;
     if (launch.mode !== undefined && launch.option_ids?.mode !== undefined) this.selections.set(launch.option_ids.mode, launch.mode);
     for (const [id, value] of Object.entries(launch.config_options ?? {}).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) this.selections.set(id, value);
-    for (const key of ["model", "effort"] as const) {
+    for (const key of ["provider", "model", "effort"] as const) {
       const value = launch[key];
       if (value !== undefined) this.selections.set(launch.option_ids![key]!, value);
     }

@@ -31,6 +31,7 @@ agents:
 # ACP worker 可显式声明 permission_policy: {read: [src, tests], edit: [src]}。
 # 仅匹配 absolute locations 的 read/edit 请求可一次授权；只读任务仍拒绝。
 # 可用 launch: {model: ..., effort: high} 统一配置；Claude 另支持 bare/auto 与角色/预算。
+# ACP 可用 launch: {provider: anthropic, model: ..., effort: high, option_ids: {provider: provider, model: llm, effort: thinking}}；ID和值必须来自实际握手。
 # ACP model/effort 需要 option_ids，先通过 /agents/:name/inspect 查询当前配置 ID。
 # 新 ACP mode 可用 launch: {mode: code, option_ids: {mode: workflow}}，ID/值必须来自实际协议。
 # 自定义 wrapper 的 args 可绑定 {{prompt}}/{{model}}/{{effort}}/{{readonly}}。
@@ -43,8 +44,8 @@ agents:
 # custom:
 #   kind: headless
 #   bin: your-wrapper
-#   args: [run, --model, '{{model}}', --effort, '{{effort}}', '{{prompt}}']
-#   readonly_args: [review, --model, '{{model}}', --effort, '{{effort}}', '{{prompt}}']
-#   resume_args: [resume, '{{resume_session_id}}', --model, '{{model}}', --effort, '{{effort}}', '{{prompt}}']
-#   readonly_resume_args: [review-resume, '{{resume_session_id}}', --model, '{{model}}', --effort, '{{effort}}', '{{prompt}}']
-#   launch: {model: your-model-id, effort: high}
+#   args: [run, --provider, '{{provider}}', --model, '{{model}}', --effort, '{{effort}}', '{{prompt}}']
+#   readonly_args: [review, --provider, '{{provider}}', --model, '{{model}}', --effort, '{{effort}}', '{{prompt}}']
+#   resume_args: [resume, '{{resume_session_id}}', --provider, '{{provider}}', --model, '{{model}}', --effort, '{{effort}}', '{{prompt}}']
+#   readonly_resume_args: [review-resume, '{{resume_session_id}}', --provider, '{{provider}}', --model, '{{model}}', --effort, '{{effort}}', '{{prompt}}']
+#   launch: {provider: your-provider-id, model: your-model-id, effort: high}

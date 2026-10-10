@@ -181,7 +181,7 @@ export class AcpDriver implements AgentDriver {
   readonly name: string;
   readonly configuration_hash: string;
   readonly capabilities: AgentCapabilities = Object.freeze({ transport: "acp", evidence: "adapter", installation: "unchecked", inspection: "acp_handshake",
-    launch_options: Object.freeze(["model", "effort", "mode", "option_ids", "config_options"]), native_resume: "negotiated", goal: "host", workflow_resume: "authorized_unexited_goal" });
+    launch_options: Object.freeze(["provider", "model", "effort", "mode", "option_ids", "config_options"]), native_resume: "negotiated", goal: "host", workflow_resume: "authorized_unexited_goal" });
   private readonly launch: AgentLaunch;
   /** agent 二进制（doctor / registry 观测用） */
   readonly bin: string;
@@ -199,7 +199,7 @@ export class AcpDriver implements AgentDriver {
     this.args = [...(options.args ?? ["acp"])];
     this.name = options.name ?? `acp:${options.bin}`;
     this.launch = validate_agent_launch(options.launch, this.capabilities.launch_options);
-    for (const key of ["model", "effort"] as const) {
+    for (const key of ["provider", "model", "effort"] as const) {
       if (this.launch[key] !== undefined && this.launch.option_ids?.[key] === undefined) throw new Error(`ACP ${key} 必须声明 option_ids.${key}`);
     }
     const ids = Object.values(this.launch.option_ids ?? {});
@@ -427,7 +427,7 @@ export class AcpDriver implements AgentDriver {
           const modes = (state.modes?.availableModes ?? []).filter(mode => mode.id.length <= 200).map(mode => mode.id).slice(0, 128);
           const options = configured.filter(option => option.id.length <= 200).slice(0, 128).map(option => {
             const category = option.category == null ? null : option.category.slice(0, 200);
-            const public_values = option.type === "select" && (["model", "thought_level", "mode"].includes(category ?? "") || Object.values(this.launch.option_ids ?? {}).includes(option.id));
+            const public_values = option.type === "select" && (["provider", "model", "thought_level", "mode"].includes(category ?? "") || Object.values(this.launch.option_ids ?? {}).includes(option.id));
             if (!public_values || option.type !== "select") return { id: option.id, type: option.type, category };
             const all = option.options.flatMap(entry => "group" in entry ? entry.options.map(item => item.value) : [entry.value]);
             const values = all.filter(value => value.length <= 200).slice(0, 128);

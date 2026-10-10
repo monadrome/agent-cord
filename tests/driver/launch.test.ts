@@ -50,6 +50,18 @@ describe("严格 agent 启动与能力识别", () => {
     expect(argv).toContain("session-fixed"); expect(argv).toContain("{{prompt}}"); expect(argv).toContain("{{model}} $(literal)");
   });
 
+  it("provider与model/effort一样必须在自定义完整分支显式映射", async () => {
+    const template = custom_headless_template("custom", process.execPath,
+      [cli, "--provider", "{{provider}}", "--model", "{{model}}", "--effort", "{{effort}}", "-p", "{{prompt}}"],
+      [cli, "--session", "{{resume_session_id}}", "--provider", "{{provider}}", "--model", "{{model}}", "--effort", "{{effort}}", "-p", "{{prompt}}"]);
+    const worker = new HeadlessDriver({ cli: "custom", template, launch: { provider: "anthropic", model: "large", effort: "high" } });
+    const events = await collect(worker.run({ prompt: "provider-test", cwd }));
+    const argv = events.map(event => (event.data as any).raw?.argv).find(value => Array.isArray(value)) as string[];
+    expect(argv[argv.indexOf("--provider") + 1]).toBe("anthropic");
+    expect(worker.capabilities.launch_options).toContain("provider");
+    expect(() => new HeadlessDriver({ cli: "claude", launch: { provider: "anthropic" } })).toThrow(/不支持/);
+  });
+
   it("未知占位、缺失启动值、非完整 resume 映射均阻断", async () => {
     expect(() => custom_headless_template("x", "x", ["{{unknown}}"])).toThrow(/未知/);
     expect(() => custom_headless_template("x", "x", ["{{resume_session_id}}"])).toThrow(/resume_args/);
@@ -67,11 +79,12 @@ describe("严格 agent 启动与能力识别", () => {
     expect(driver(launch).configuration_hash).not.toBe(driver({ ...launch, effort: "low" }).configuration_hash);
   });
 
-  it("ACP 精确 ID 选择 grouped model、effort、mode 和 boolean，再发送 prompt", async () => {
-    const events = await collect(driver({ ...launch, mode: "code", config_options: { extended: true } }).run({ prompt: "work", cwd }));
+  it("ACP 精确 ID 选择 provider、grouped model、effort、mode 和 boolean，再发送 prompt", async () => {
+    const provider_launch = { ...launch, provider: "anthropic", option_ids: { ...launch.option_ids, provider: "provider" }, mode: "code", config_options: { extended: true } };
+    const events = await collect(driver(provider_launch, ["--provider-option"]).run({ prompt: "work", cwd }));
     expect(events.some(event => event.type === "error")).toBe(false);
     const facts = await messages(); const settings = facts.filter(fact => fact.event === "session/set_config_option");
-    expect(settings.map(fact => [fact.configId, fact.value])).toEqual([["extended", true], ["llm", "large"], ["thinking", "high"]]);
+    expect(settings.map(fact => [fact.configId, fact.value])).toEqual([["extended", true], ["provider", "anthropic"], ["llm", "large"], ["thinking", "high"]]);
     expect(settings[0].type).toBe("boolean");
     expect(facts[0].clientCapabilities).toMatchObject({ session: { configOptions: { boolean: {} } } });
     expect(facts.findIndex(fact => fact.event === "session/set_mode")).toBeLessThan(facts.findIndex(fact => fact.event === "prompt"));
@@ -98,6 +111,15 @@ describe("严格 agent 启动与能力识别", () => {
       expect((await collect(driver(profile).run({ prompt: "review", cwd, readonly: true }))).some(event => event.type === "error")).toBe(true);
     }
     expect((await messages()).some(fact => fact.event === "prompt")).toBe(false);
+  });
+
+  it("ACP provider必须有option_id且后续回执漂移会取消，不发送成功结果", async () => {
+    expect(() => driver({ provider: "anthropic" })).toThrow(/option_ids/);
+    const profile = { provider: "anthropic", option_ids: { provider: "provider" } } satisfies AgentLaunch;
+    const events = await collect(driver(profile, ["--provider-option", "--mode", "drift-provider"]).run({ prompt: "work", cwd }));
+    expect(events.some(event => event.type === "error")).toBe(true);
+    expect(events.some(event => event.type === "result" && (event.data as { text?: string }).text !== null)).toBe(false);
+    expect((await messages()).some(fact => fact.event === "prompt")).toBe(true);
   });
 
   it("配置状态核验策略改变显式 launch 身份，未声明 launch 的默认配置兼容", () => {

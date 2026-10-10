@@ -3,6 +3,8 @@ import { z } from "zod";
 
 const identifier = z.string().min(1).max(200).refine(value => !/[\x00-\x1f]/.test(value), "启动标识不能含控制字符");
 export const AgentLaunchSchema = z.strictObject({
+  /** LLM provider/路由，必须由适配器显式映射；不从model推断。 */
+  provider: identifier.optional(),
   model: identifier.optional(),
   effort: identifier.optional(),
   max_turns: z.number().int().positive().optional(),
@@ -13,7 +15,7 @@ export const AgentLaunchSchema = z.strictObject({
   bare: z.boolean().optional(),
   auto: z.boolean().optional(),
   mode: identifier.optional(),
-  option_ids: z.strictObject({ model: identifier.optional(), effort: identifier.optional(), mode: identifier.optional() }).optional(),
+  option_ids: z.strictObject({ provider: identifier.optional(), model: identifier.optional(), effort: identifier.optional(), mode: identifier.optional() }).optional(),
   config_options: z.record(identifier, z.union([identifier, z.boolean()])).optional(),
 });
 export type AgentLaunch = z.infer<typeof AgentLaunchSchema>;

@@ -6,6 +6,12 @@
 - 增加可选run.require_readonly_mapping并共用准入谓词，可在协调、派发和checkpoint复用拒绝缺映射。缺省不增字段，避免旧发布/identity整体变更；不能从参数声明推断OS隔离。
 - 直接库调用没有read_agents时也不能放行显式约束；ACP没有CLI映射声明，不把协议权限转换成此能力。
 
+## 阶段68（2026-10-10）：Provider 必须是独立启动维度
+
+- 当前model/effort有严格映射，provider尚未进入AgentLaunch；如果让用户把provider塞入model或环境变量，配置身份和协调快照无法区分路由变化。
+- ACP已有任意config_options与option_ids机制，适合增加明确provider ID并复用完整回执/漂移核验；内置headless没有统一provider旗标，必须保持不支持而拒绝，custom args显式`{{provider}}`才映射。
+- provider加入AcpLaunchState的选择顺序与sealed核验后，异步config_option_update会复用现有漂移取消路径；能力查询会仅公开显式provider option候选，不把category或model名当作路由证明。
+
 ## 阶段66（2026-10-10）：自定义wrapper忽略readonly
 
 - custom_headless_template仅替换prompt/model/effort/session，未消费task.readonly；同wrapper实现与评审只能用相同启动参数，配置意图没有传到CLI。

@@ -21,7 +21,7 @@ import {
 import { getKnownAgent, listKnownAgents, resolveDriver } from "./registry.js";
 
 const AGENT_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
-const KNOB_KEYS = ["model", "effort", "max_turns", "budget_usd", "system_prompt", "agent", "agents_json"] as const;
+const KNOB_KEYS = ["provider", "model", "effort", "max_turns", "budget_usd", "system_prompt", "agent", "agents_json"] as const;
 
 const AgentEntrySchema = z.discriminatedUnion("kind", [
   z.strictObject({
@@ -44,6 +44,7 @@ const AgentEntrySchema = z.discriminatedUnion("kind", [
     readonly_resume_args: z.array(z.string()).optional(),
     env: z.record(z.string(), z.string()).optional(),
     context_revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+    provider: z.string().min(1).optional(),
     model: z.string().min(1).optional(),
     effort: z.string().min(1).optional(),
     max_turns: z.number().int().positive().optional(),

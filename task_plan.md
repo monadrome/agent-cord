@@ -879,6 +879,15 @@
 - [x] 最终全量1342项/92文件、typecheck/build:all/diff与103个本地链接通过；证据/tmp/cord-stage67-tests.json
 - [ ] 小步提交/有界推送/独立远端核验；完整目标active
 
+## 阶段68：Provider 启动选择（已实现并验证，待提交同步）
+
+- [x] 核验701b70f/ahead7，阶段67能力准入已验证；ADR-0082先行
+- [x] AgentLaunch/ACP option_ids/provider、headless显式占位与严格能力声明
+- [x] provider候选/回执漂移、四分支参数、配置身份与协调快照回归
+- [x] 核心feature/协议/架构/示例与human review指南、完整验证
+- [x] 最终全量1344项/92文件、typecheck/build:all/diff与104个本地链接通过；证据/tmp/cord-stage68-tests.json
+- [ ] 小步提交/有界推送/独立远端核验；完整目标active
+
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
 - [x] 核验当前分支与阶段 10；上一轮实现和远端同步属于已验证进展

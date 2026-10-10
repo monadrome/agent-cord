@@ -9,6 +9,12 @@
 - ADR-0081先行后修改schema。新增16项定向测试，修正测试中不可用Agent必须同时缺失capabilities的严格契约，以及冷恢复等待状态测试的错误预期；最终npm test1342项/92文件通过，typecheck/build:all/diff通过，文档链接103项，证据/tmp/cord-stage67-tests.json。
 - HTTP隔离验收：未映射任务无worker pid/approval且无自动重试；配置修复并更新PRD后实际只读argv完成报告，run停在waiting_human；协调未映射只能wait，映射变化使旧提议不可采用。使用确定性fixture，无付费模型，完整目标active。
 
+## 2026-10-10（阶段68）
+
+- 阶段67提交701b70f，本地ahead7；推送HTTP/1.1低速超时，独立查询未确认，残留进程核验为空。开始实现provider显式路由，ADR-0082先行，不调用付费模型。
+- `AgentLaunchSchema.provider`/`option_ids.provider`已接入；ACP能力清单声明provider并在session回执/异步漂移中核验，自定义headless允许`{{provider}}`且四种完整argv一致，内置CLI未声明时拒绝。provider进入配置hash与现有协调/任务身份链路，旧未声明配置兼容。
+- 新增provider成功、缺option_id、回执漂移与custom argv测试；provider fixture不调用真实模型。最终npm test1344项/92文件、typecheck/build:all/diff通过，文档链接104项，证据/tmp/cord-stage68-tests.json；human review指南为docs/research/2026-10-10-provider-launch.md。
+
 ## 2026-10-10（阶段66）
 
 - b69b051工作树干净/ahead4；阶段65真实TCP/进程验收属于进展，独立ls-remote成功但远端仍b01ea64。积压本地提交保留，结束时再有界同步。

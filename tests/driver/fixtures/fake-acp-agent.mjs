@@ -35,6 +35,7 @@ const notify = (method, params) => send({ jsonrpc: "2.0", method, params });
 const sessionId = "acp-session-1";
 let updateSessionId = sessionId;
 const configOptions = [
+  ...(argv.includes("--provider-option") ? [{ id: "provider", name: "Provider", category: "provider", type: "select", currentValue: "openai", options: [{ value: "openai", name: "OpenAI" }, { value: "anthropic", name: "Anthropic" }] }] : []),
   { id: "llm", name: "LLM", category: "model", type: "select", currentValue: "small", options: [{ group: "models", name: "Models", options: [{ value: "small", name: "Small" }, { value: "large", name: "Large" }] }] },
   { id: "thinking", name: "Effort", category: "thought_level", type: "select", currentValue: "low", options: [{ value: "low", name: "Low" }, { value: "high", name: "High" }] },
   { id: "extended", name: "Extension", type: "boolean", currentValue: false },
@@ -69,10 +70,10 @@ function handlePrompt(params) {
     update({ sessionUpdate: "config_option_update", configOptions: changed });
     return;
   }
-  if (["drift-model", "drift-effort", "drift-config-mode", "drift-restored", "drift-permission", "same-update", "foreign-update", "remove-option", "change-type", "invalid-default", "unselected-update"].includes(mode)) {
+  if (["drift-provider", "drift-model", "drift-effort", "drift-config-mode", "drift-restored", "drift-permission", "same-update", "foreign-update", "remove-option", "change-type", "invalid-default", "unselected-update"].includes(mode)) {
     const options = structuredClone(configOptions);
-    const option = options.find(value => value.id === (mode === "drift-effort" ? "thinking" : mode === "drift-config-mode" ? "workflow" : mode === "unselected-update" ? "extended" : "llm"));
-    if (mode !== "same-update") option.currentValue = mode === "invalid-default" ? "invalid" : mode === "unselected-update" ? true : mode === "drift-effort" ? "low" : mode === "drift-config-mode" ? "plan" : "small";
+    const option = options.find(value => value.id === (mode === "drift-provider" ? "provider" : mode === "drift-effort" ? "thinking" : mode === "drift-config-mode" ? "workflow" : mode === "unselected-update" ? "extended" : "llm"));
+    if (mode !== "same-update") option.currentValue = mode === "invalid-default" ? "invalid" : mode === "unselected-update" ? true : mode === "drift-provider" ? "openai" : mode === "drift-effort" ? "low" : mode === "drift-config-mode" ? "plan" : "small";
     if (mode === "remove-option") options.splice(options.findIndex(value => value.id === "llm"), 1);
     if (mode === "change-type") Object.assign(option, { type: "boolean", currentValue: false });
     notify("session/update", { sessionId: mode === "foreign-update" ? "foreign-session" : params.sessionId,

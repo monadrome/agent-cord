@@ -123,7 +123,7 @@ flowchart LR
 | 自主权限 | Claude `launch.auto` 使用厂商 auto 审批；ACP 使用协商 mode/文件范围预授权；readonly 优先，最终 gate 仍人工 |
 | 只读任务映射 | headless 能力分别声明 `readonly_launch/readonly_resume`；自定义 wrapper 用完整参数分支或 `{{readonly}}` 显式消费任务模式，缺只读恢复映射时启动前拒绝 |
 | 节点能力准入 | `run.require_readonly_mapping: true` 要求 `readonly=true` 且当前 headless 能力声明 `readonly_launch=mapped`；协调、派发和 checkpoint 复用共同 fail-closed |
-| LLM 与 effort | `launch.model/effort`；headless 编译 CLI 实参，ACP 映射明确配置 ID 并核验允许值及最终回执 |
+| LLM 路由 | `launch.provider/model/effort` 是独立维度；headless 仅使用显式 argv 映射，ACP 使用 `option_ids` 和完整配置回执；内置 CLI 未声明 provider 时拒绝 |
 | 角色与资源 | Claude 支持 `launch.agent/agents_json/system_prompt/max_turns/budget_usd`；Goal 有宿主时长、尝试、无进展和可靠 usage 预算 |
 | 原生会话恢复 | 必须显式 session ID；内置 headless 模板、ACP 协商 loadSession、自定义 `resume_args` 分别负责 |
 | 固定流程节点恢复 | 原授权 Goal recovery 加 `node_id`，限定原 token 绑定的未退出节点；保持 checkpoint、输入/配置身份、原预算和人工 gate |
@@ -142,6 +142,8 @@ Headless运行时能力查询已接通，CLI版本、任务/恢复帮助、已�
 能力查询受单服务实例生命周期控制：相同快照和timeout的并发查询共享一次探测，不同查询冲突返回稍后重试；完成结果不缓存。server关闭前取消在途ACP/CLI查询并等待进程收束，关闭后新查询返回service_closing，不占用worker执行槽位（[ADR-0079](./adr/ADR-0079-agent-inspection-lifecycle.md)）。
 
 自定义 headless 现已明确选择可写/只读与新会话/原生恢复四种完整 argv；模型/effort 映射须一致，恢复分支须绑定指定 session，替换一次且不经 shell。控制台与协调输入共用能力声明。旧新任务 argv 保留，旧无只读恢复映射的显式 resume 改为拒绝，配置身份可能变化；映射不证明 wrapper 已实施权限或工具执行前拦截，宿主只读审计继续生效（[ADR-0080](./adr/ADR-0080-custom-readonly-launch.md)、[配置与人审指南](./research/2026-10-10-custom-readonly-launch.md)）。
+
+Provider 是独立的 LLM 路由选择：ACP 必须通过 `option_ids.provider` 绑定真实 session 配置项并核验候选/回执；自定义 headless 在所有 argv 分支使用 `{{provider}}`；内置 CLI 没有统一 provider 旗标，配置会直接拒绝。它不从 model、环境变量或 prompt 推断，也不证明模型权限、额度或输出质量（[ADR-0082](./adr/ADR-0082-provider-launch-selection.md)）。
 
 流程节点可以显式要求 `require_readonly_mapping`。这不是把所有 readonly 节点强行升级，而是给安全敏感流程一个可验证的准入条件：未解析、无稳定配置身份、ACP 通道或未映射 headless agent 只能生成 wait/ask_human，不能 advance；实际派发前和完成复用时仍会重检，修复配置后以最新快照重新协调。该字段只验证启动参数映射，不提供 OS 沙箱或模型权限证明（[ADR-0081](./adr/ADR-0081-node-readonly-mapping-requirement.md)）。
 

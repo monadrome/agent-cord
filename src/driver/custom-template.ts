@@ -14,7 +14,7 @@ export function custom_headless_template(name: string, bin: string, args: readon
   const branches = [checked, ...[resume, readonly_args, readonly_resume_args].filter((value): value is string[] => value !== undefined)];
   for (const list of branches) {
     for (const arg of list) for (const match of arg.matchAll(placeholders)) {
-      if (!["prompt", "model", "effort", "resume_session_id", "readonly"].includes(match[1]!)) throw new Error("自定义 argv 含未知占位符");
+      if (!["prompt", "provider", "model", "effort", "resume_session_id", "readonly"].includes(match[1]!)) throw new Error("自定义 argv 含未知占位符");
     }
   }
   const uses = (branch: readonly string[], key: string) => branch.some(arg => arg.includes(`{{${key}}}`));
@@ -24,9 +24,9 @@ export function custom_headless_template(name: string, bin: string, args: readon
   for (const branch of [resume, readonly_resume_args]) {
     if (branch !== undefined && !uses(branch, "resume_session_id")) throw new Error("resume_args/readonly_resume_args必须显式绑定resume_session_id");
   }
-  const knobs = (["model", "effort"] as const).filter(key => uses(checked, key));
+  const knobs = (["provider", "model", "effort"] as const).filter(key => uses(checked, key));
   for (const branch of branches.slice(1)) {
-    if ((["model", "effort"] as const).some(key => uses(branch, key) !== knobs.includes(key))) throw new Error("自定义完整分支的模型/effort映射必须与args一致");
+    if ((["provider", "model", "effort"] as const).some(key => uses(branch, key) !== knobs.includes(key))) throw new Error("自定义完整分支的provider/model/effort映射必须与args一致");
     if (uses(checked, "prompt") && !uses(branch, "prompt")) throw new Error("自定义完整分支缺少prompt映射");
   }
   const supports_readonly_resume = resume !== undefined && (readonly_args === undefined ? uses(resume, "readonly") : readonly_resume_args !== undefined);
@@ -36,7 +36,7 @@ export function custom_headless_template(name: string, bin: string, args: readon
         : input.readonly ? readonly_resume_args ?? (supports_readonly_resume ? resume : undefined) : resume;
       if (branch === undefined) throw new Error("自定义wrapper缺少当前模式的原生恢复映射");
       return branch.map(arg => arg.replace(placeholders, (_match, key: string) => {
-        const value = key === "readonly" ? String(input.readonly) : key === "prompt" ? input.prompt : key === "resume_session_id" ? input.resume_session_id : key === "model" ? input.model : input.effort;
+        const value = key === "readonly" ? String(input.readonly) : key === "prompt" ? input.prompt : key === "resume_session_id" ? input.resume_session_id : key === "provider" ? input.provider : key === "model" ? input.model : input.effort;
         if (value === undefined) throw new Error(`自定义 argv 缺少启动值：${key}`);
         return value;
       }));

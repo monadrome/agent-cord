@@ -415,6 +415,8 @@ export function parseHeadlessLine(line: string): AgentEvent[] {
 export interface HeadlessArgInput {
   prompt: string;
   readonly: boolean;
+  /** provider由自定义模板显式映射；内置CLI未声明时不接受。 */
+  provider?: string | undefined;
   resume_session_id?: string | undefined;
   /** 模型选择（claude --model / codex -m / kimi -m） */
   model?: string | undefined;
@@ -436,6 +438,7 @@ export interface HeadlessArgInput {
 
 /** 显式旋钮必须被模板声明，否则拒绝启动。 */
 export type AgentKnob =
+  | "provider"
   | "model"
   | "effort"
   | "max_turns"
@@ -614,7 +617,7 @@ export interface HeadlessDriverOptions {
 export type HeadlessKnobs = Partial<
   Pick<
     HeadlessArgInput,
-    "model" | "effort" | "max_turns" | "budget_usd" | "system_prompt" | "agent" | "agents_json" | "bare" | "auto"
+    "provider" | "model" | "effort" | "max_turns" | "budget_usd" | "system_prompt" | "agent" | "agents_json" | "bare" | "auto"
   >
 >;
 
