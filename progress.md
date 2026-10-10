@@ -14,6 +14,7 @@
 - 阶段67提交701b70f，本地ahead7；推送HTTP/1.1低速超时，独立查询未确认，残留进程核验为空。开始实现provider显式路由，ADR-0082先行，不调用付费模型。
 - `AgentLaunchSchema.provider`/`option_ids.provider`已接入；ACP能力清单声明provider并在session回执/异步漂移中核验，自定义headless允许`{{provider}}`且四种完整argv一致，内置CLI未声明时拒绝。provider进入配置hash与现有协调/任务身份链路，旧未声明配置兼容。
 - 新增provider成功、缺option_id、回执漂移与custom argv测试；provider fixture不调用真实模型。最终npm test1344项/92文件、typecheck/build:all/diff通过，文档链接104项，证据/tmp/cord-stage68-tests.json；human review指南为docs/research/2026-10-10-provider-launch.md。
+- 功能提交5e3e01b（feat: add provider launch selection）。HTTP/1.1 push达到30秒总时长上限，清理detached Git时wrapper再次遇到EPERM并退出1；独立核验尚未确认远端hash，随后ps核验无残留Git进程。本地分支ahead8、工作树干净，完整目标active。
 
 ## 2026-10-10（阶段66）
 
