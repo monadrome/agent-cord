@@ -129,4 +129,6 @@ flowchart LR
 
 `GET /agents` 给出适配器声明的能力表，安装状态为 unchecked。`POST /agents/:name/inspect` 可核验 ACP initialize/session/new 和启动配置，不发送 prompt；返回有界 mode、配置 ID、模型/effort 候选及省略数，绑定查询使用的 revision/configuration_hash。headless 查询只返回适配器声明，没有伪造运行时证明。
 
+控制台 Agent 页提供能力筛选、逐 Agent 声明与显式 ACP 查询。协议观察与静态声明分别呈现；查询后的最新清单核对、失败/重试、过期及移除后的历史材料已接通，不将注册状态表示成验证通过。查询返回时和消费时都核对配置身份，协议协商仍不证明模型访问或额度可用（[ADR-0074](./adr/ADR-0074-agent-capability-console.md)）。
+
 待扩展维度包括 provider 路由、MCP/工具集、网络与沙箱、隔离 worktree、CLI 精确版本探测、原生 fork/turn checkpoint；应按厂商真实能力逐项映射。任意历史 workflow rewind、跨 agent 的原生 session 迁移不在当前保证内，不能通过清除已退出节点事实实现。

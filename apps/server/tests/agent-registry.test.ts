@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp, type BuiltServer } from "@agent-cord/server";
+import { AcpDriver, type AcpCapabilityObservation } from "agent-cord";
 import { createClient } from "../../console/src/api.js";
 
 const fixture = join(dirname(fileURLToPath(import.meta.url)), "../../../tests/driver/fixtures/fake-cli.mjs");
@@ -119,6 +120,33 @@ async function approve(server: BuiltServer, req_id: string): Promise<void> {
 }
 
 describe("工作区 agent registry", () => {
+  it.each(["changed", "unchanged", "removed", "invalid_reload"])("查询期间 %s 保留原快照身份并核验 current", async mode => {
+    const { root, server } = await workspace("seed");
+    const config = { agents: { worker: { kind: "acp", bin: "probe-agent" } } };
+    await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify(config));
+    const before = await server.agents.reload();
+    const driver = server.agents.resolver()("worker") as AcpDriver;
+    const observation: AcpCapabilityObservation = { evidence: "acp_handshake", protocol_version: 1, native_resume: true,
+      modes: ["plan"], omitted_modes: 0, config_options: [], omitted_options: 0 };
+    let entered!: () => void; let release!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; }); const held = new Promise<void>(resolve => { release = resolve; });
+    const spy = vi.spyOn(driver, "inspect").mockImplementation(async () => { entered(); await held; return observation; });
+    const pending = request(server, "POST", "/api/v1/agents/worker/inspect", {}, "snapshot-inspect");
+    await started;
+    try {
+      if (mode === "changed") config.agents.worker.bin = "changed-agent";
+      await writeFile(join(root, "cord", "agents.yaml"), mode === "removed" ? "agents: {}" : mode === "invalid_reload" ? "agents: []" : YAML.stringify(config));
+      if (mode === "invalid_reload") await expect(server.agents.reload()).rejects.toThrow(); else await server.agents.reload();
+    } finally { release(); }
+    const result = await pending;
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({ revision: before.revision, configuration_hash: driver.configuration_hash,
+      current: mode === "invalid_reload", observation });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(await request(server, "POST", "/api/v1/agents/worker/inspect", {}, "snapshot-inspect")).toEqual(result);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
   it("真实 HTTP 能力查询固定配置身份、ACP 协商且无 prompt，幂等重放不再启动", async () => {
     const { root, server } = await workspace("seed");
     const record = join(root, "inspection.jsonl");
@@ -132,7 +160,7 @@ describe("工作区 agent registry", () => {
     expect(catalog.agents.find(agent => agent.name === "negotiator")?.capabilities).toMatchObject({ native_resume: "negotiated", evidence: "adapter", installation: "unchecked" });
     expect((await request(server, "POST", "/api/v1/agents/negotiator/inspect", {})).status).toBe(400);
     const first = await client.inspectAgent("negotiator", "inspect-once");
-    expect(first).toMatchObject({ configuration_hash: expect.stringMatching(/^[0-9a-f]{64}$/), observation: { evidence: "acp_handshake", native_resume: true } });
+    expect(first).toMatchObject({ current: true, configuration_hash: expect.stringMatching(/^[0-9a-f]{64}$/), observation: { evidence: "acp_handshake", native_resume: true } });
     expect(await client.inspectAgent("negotiator", "inspect-once")).toEqual(first);
     const recorded = (await readFile(record, "utf8")).trim().split("\n").map(line => JSON.parse(line));
     expect(recorded.filter(entry => entry.event === "session/new")).toHaveLength(1);

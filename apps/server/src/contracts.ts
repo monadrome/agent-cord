@@ -42,6 +42,8 @@ export const InspectAgentInputSchema = z.strictObject({ timeout_ms: z.number().i
 export interface AgentInspectionView {
   revision: number;
   configuration_hash: string | null;
+  /** 返回时的配置快照新鲜度；幂等重放后消费方仍须核对最新清单。 */
+  current: boolean;
   capabilities: AgentCapabilities | null;
   observation: AcpCapabilityObservation | null;
 }

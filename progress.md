@@ -1,5 +1,15 @@
 # 工作进度
 
+## 2026-10-10（阶段 60）
+
+- 起点 9251ed0 工作树干净且本地 tracking 同步；上一轮实现与1181项验证属于实际进展。
+- 检查发现能力原子契约尚未接入 Agent 工作台，注册勾选误导、查询期间配置变化未标 current。ADR-0074 先行；沿用现有布局与 server 投影，显式查询无需模型 prompt。
+- AgentInspectionView.current 在返回时核对固定 revision/非空 hash/alias；重载/移除 false，失败重载保留旧快照 true。console 查询后读最新 catalog，缺 current/hash/alias、清单失败都不能标当前；历史结果和后续错误分开，移除所选 agent 保留历史且禁查。
+- 23 项身份/registry 定向通过；最终 npm test 1193 项 / 82 文件、typecheck/build:all/diff、105 本地链接通过。实际 TCP HTTP 与 fixture 子进程沿用现有测试；没有付费模型调用。
+- 浏览器最初引用旧 1208 缺失 Chromium，改用本机已存在 1243；第二轮复用静态 reload 幂等键正确重放旧结果导致等待超时，验收脚本改每轮独立 UUID 后通过。成功/失败重试/显式重载/503 清单恢复/配置过期/切换迟到结果/移除/大列表/长名字均已核验。
+- 桌面 1440、手机390/320截图确认无页面横向溢出，9张截图与8次显式协议查询、pageerror=[]。窄屏配置行纵向布局，模式与候选局部滚动、省略数独立显示。证据 /tmp/cord-stage60-browser-result.json；最终测试 /tmp/cord-stage60-final-tests.json。
+- 隔离预览 PID 80238，http://127.0.0.1:57468/#/agents，健康200；/tmp/cord-stage60-preview-result.json定位临时root。原7306真实Draft未操作，临时脚本/截图不入仓库。准备小步功能提交与有界推送，完整目标仍 active。
+
 ## 2026-10-10（阶段 58）
 
 - 起点 `34832cb` 工作树干净、ahead 3；上一轮源码变更交付为已验证进展。协调者只看 source_hash，尚未消费宿主已核验的变更范围。

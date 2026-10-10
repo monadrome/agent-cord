@@ -37,7 +37,11 @@ export class AgentService {
       try { observation = await driver.inspect(dirname(this.cord_root), timeout_ms); }
       catch { throw badRequest("ACP 能力协商或启动配置核验失败"); }
     }
-    return { revision, configuration_hash: driver.configuration_hash ?? null, capabilities: driver.capabilities ?? null, observation };
+    const current_entry = this.registry.list().find(entry => entry.name === name);
+    const current_hash = current_entry === undefined ? null : this.registry.resolve(name).configuration_hash ?? null;
+    const configuration_hash = driver.configuration_hash ?? null;
+    const current = revision === this.revision && configuration_hash !== null && current_hash === configuration_hash;
+    return { revision, configuration_hash, current, capabilities: driver.capabilities ?? null, observation };
   }
 
   reload(): Promise<AgentCatalogView> {

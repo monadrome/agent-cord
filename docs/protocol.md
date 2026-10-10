@@ -227,6 +227,8 @@ ADR-0073 增 `AgentDriver.capabilities` 可选静态描述，清单同步公开 
 
 `POST /api/v1/agents/:name/inspect` 需要 Idempotency-Key，可选 timeout_ms 100-10000。只接受当前清单名称，ACP initialize/new/配置核验后返回受限 observation，不发送 prompt；headless observation=null，不能视为安装已验证。响应绑定固定 revision/configuration_hash；动态模式/选项/候选上限 128、标识上限 200，省略数量明确，扩展选项不公开当前值。失败为 400，未知名称 404，配置/环境/argv 不进入响应。
 
+ADR-0074 为 inspect 响应增加 `current`：server 返回时，捕获的 revision 与非空 configuration_hash 必须仍匹配同名当前 alias；查询期间成功重载/移除会为 false，失败重载保持旧配置时可为 true。幂等缓存重放原响应，不重新计算 current。console 查询后读取最新 catalog，同时检查 current/revision/hash/alias，刷新失败显示未核验；不能用历史清单或静态声明代替当前协议观察。后续查询失败保留旧结果并标“上次查询”，移除 agent 可查看旧结果但禁止再查询。
+
 Goal recovery POST 增可选 node_id，只能等于原授权未退出节点；首次恢复和已处理请求重放都验证该约束，错误节点 409 且不写新恢复事实。不改变原 token、事件协议、截止时间或预算，不提供 workflow rewind。
 
 ## 7. Context Session Agent

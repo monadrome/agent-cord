@@ -194,6 +194,8 @@ server 默认监听 `127.0.0.1:7250`，工作区由 `CORD_ROOT` 指定。核心�
 
 ## 6. Console
 
+Agent 工作台显示适配器启动选项、原生恢复和宿主 Goal/受限节点恢复能力，可按选项筛选。展开 ACP 后显式协议查询，候选值/省略数来自 server 有界观察；查询完成后读取最新清单，配置 revision/hash 漂移、清单不可读与旧查询失败分别呈现。移除 alias 保留所选历史结果，查询禁用；没有绿色注册通过标记。移动端配置选项纵向排列，长列表内部滚动（[ADR-0074](./adr/ADR-0074-agent-capability-console.md)）。
+
 console 使用 hash 路由，页面包括工作台、需求列表、需求详情、SDLC 管理和 Agent 工作台。它通过 `apps/server/src/contracts.ts` 共享 DTO，只消费 server 投影；事件流、账本和 workflow 状态不在浏览器重复计算。
 
 需求详情页启动 run 时可选 SDLC 与版本（默认 = 内置 SDLC 最新版）；SDLC 页支持模板载入、草稿保存/恢复、克隆已发布版本到编辑器、版本归档。
