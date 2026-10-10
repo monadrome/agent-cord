@@ -15,6 +15,7 @@
 - 公开调研确认 Claude Agent SDK 的 `PreToolUse` 和 OpenAI Agents SDK guardrails 都把工具/结果策略放在宿主控制面；ACP/headless 没有共同的执行前 hook，当前只读 worker 仅依赖 CLI 参数会留下自定义 wrapper 缺口。
 - 新增 `readonly-tool-policy`：明确读工具与受限无副作用命令通过，写工具、`file_change`、未知工具、危险 git 参数、shell 控制语法或缺少命令输入 fail-closed；coordinator 记录 driver failure、`retryable=false`，不保存工具参数，当前迭代立即收束。
 - 真实 headless 与 ACP fixture 回归覆盖 `Read`、ACP `read file`、Codex `command_execution` 安全命令及越权路径；该审计明确不替代 ACP permission、CLI/OS sandbox 或副作用回滚。
+- 最终全量 1104 项 / 77 文件、typecheck/build:all/diff 通过；提交 `ec18ad5`（`fix: audit readonly worker tools`）已 HTTP/2 推送，等待独立 `ls-remote` 核验。
 
 ## 2026-10-09（阶段 52）
 
