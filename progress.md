@@ -8,6 +8,7 @@
 - 最终全量1367项/94文件、typecheck/build:all/diff通过，证据/tmp/cord-stage70-tests.json。隔离实际HTTP PID26896/http://127.0.0.1:55355，worker2/anthropic均保持、宿主failed/passed、审批1/人工决定0/节点退出0/doctor=true。更新PRD后ready明确stale_input，新协调current=true/wait；无付费模型、原7306Draft未操作。
 - 首次浏览器脚本切换到已保留选择的页面时再次点击折叠，导致标签等待超时；检查aria-expanded后才展开并重跑。同阶段路由文件定位首次使用不存在的AgentsPage.tsx，rg核验实际为Agents.tsx，无生产行为改动。
 - 最终Playwright1440/390/320三截图/provider候选/中文路由标签通过，pageerror=[]/无横向溢出，桌面与最窄截图已查看。证据/tmp/cord-stage70-browser-result.json；12份文档首124个本地链接通过，ADR增加指南后125个；截图/脚本/运行数据不入仓库，完整目标active。
+- 功能提交ceea352（fix: select acp provider before dependent options）。HTTP/2 push30秒上限exit124，独立HTTP/1.1查询成功但仍为b01ea64；随后HTTP/1.1 push成功（b01ea64→ceea352）。推送后独立HTTP/1.1查询15秒上限exit124，改HTTP/2独立ls-remote核验ceea352f833ac4c833085f60b01217c4b2828d6a；阶段65至70积压提交一并同步。curl直连GitHub8秒连接超时只证明该次连接不可用，不能推翻Git实际成功；有界脚本本次无EPERM，未留下Git进程。
 
 ## 2026-10-10（阶段69）
 

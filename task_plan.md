@@ -848,7 +848,7 @@
 - [x] 功能提交39aa980，完整实现和验收保留，本地小步完成；完整持续目标active，原真实Draft未操作
 - [x] 远端同步：先前两种协议push/ls-remote超时，最后HTTP/1.1推送成功（7f659db→0706c29），独立ls-remote核验0706c29815d7cf8a68fd3356dea38ad7a0fd79c0；阶段63积压一并同步
 
-## 阶段65：能力查询去重与关闭生命周期（已实现并验证，本地提交，远端未确认）
+## 阶段65：能力查询去重与关闭生命周期（已实现并验证，功能已同步）
 
 - [x] 核验 b01ea64 干净、上一轮实际进展；ADR-0079先行
 - [x] 单实例在途 slot/同配置共享/冲突与失败释放，固定快照不缓存完成结果
@@ -858,9 +858,9 @@
 - [x] 最终1306项/88文件、typecheck/build:all/diff通过；隔离TCP验收CLI/ACP关闭503/PID退出、共享一次probe/冲突409，不调用模型
 - [x] 补充实际生命周期测试与修正记录提交4b9c2a4；原真实Draft未操作，完整目标active
 - [x] 功能提交f56ad07，工作树收尾后干净；完整目标active，原真实Draft未操作
-- [ ] 远端同步：核心推送HTTP/1.1 30秒、HTTP/2 25秒、ls-remote15秒均exit124；补充提交HTTP/1.1 push25秒、独立ls-remote12秒仍exit124，实际远端hash未确认
+- [x] 远端同步：此前两种协议推送/查询超时保留；阶段70 HTTP/1.1推送成功，独立HTTP/2 ls-remote核验ceea352f833ac4c833085f60b01217c4b2828d6a，积压提交一并同步
 
-## 阶段66：自定义headless只读启动与恢复（已实现并验证，本地提交，远端未确认）
+## 阶段66：自定义headless只读启动与恢复（已实现并验证，功能已同步）
 
 - [x] 核验b69b051干净/ahead4、阶段65实际进展；远端ls-remote核验仍b01ea64，ADR-0080先行
 - [x] readonly_args/readonly_resume_args/readonly占位、能力声明与严格分支编译；外部模板只读恢复必须显式声明
@@ -868,18 +868,18 @@
 - [x] 实际HTTP SDLC实现+评审、最新PRD独立协调，1440/390/320五截图无溢出/pageerror；核心feature/协议/示例/人审指南同步
 - [x] 最终全量1326项/90文件、typecheck/build:all/diff与101个本地链接通过
 - [x] 功能小步提交bde74cb，完整实现/证据/指南保留；原真实Draft未操作，完整目标active
-- [ ] 远端同步：HTTP/1.1 push35秒上限exit124，HTTP/2低速超时exit128，独立两种协议ls-remote分别15/12秒上限exit124，未确认实际远端hash
+- [x] 远端同步：此前HTTP/1.1总时长与HTTP/2低速超时记录保留；阶段70推送成功、独立核验ceea352f833ac4c833085f60b01217c4b2828d6a，功能/指南提交一并同步
 
-## 阶段67：节点只读启动映射要求（已实现并验证，待提交同步）
+## 阶段67：节点只读启动映射要求（已实现并验证，功能已同步）
 
 - [x] 核验5c772c7干净/ahead6，阶段66实现/验证属于实际进展；定位能力声明未被节点准入消费，ADR-0081先行
 - [x] 可选require_readonly_mapping schema、共用谓词、派发/复用/协调fail-closed
 - [x] 发布/实际argv/无进程拒绝、修复、最新快照、固定resolver与冷恢复回归
 - [x] 推荐示例/核心feature/协议/架构与human review指南、实际HTTP验收
 - [x] 最终全量1342项/92文件、typecheck/build:all/diff与103个本地链接通过；证据/tmp/cord-stage67-tests.json
-- [ ] 小步提交/有界推送/独立远端核验；完整目标active
+- [x] 功能提交701b70f已随阶段70同步，独立远端核验ceea352f833ac4c833085f60b01217c4b2828d6a；完整目标active
 
-## 阶段68：Provider 启动选择（已实现并验证，本地提交，远端未确认）
+## 阶段68：Provider 启动选择（已实现并验证，功能已同步）
 
 - [x] 核验701b70f/ahead7，阶段67能力准入已验证；ADR-0082先行
 - [x] AgentLaunch/ACP option_ids/provider、headless显式占位与严格能力声明
@@ -887,24 +887,24 @@
 - [x] 核心feature/协议/架构/示例与human review指南、完整验证
 - [x] 最终全量1344项/92文件、typecheck/build:all/diff与104个本地链接通过；证据/tmp/cord-stage68-tests.json
 - [x] 小步提交5e3e01b，完整实现/测试/指南保留；完整目标active
-- [ ] 远端同步：HTTP/1.1 push达到30秒上限并在清理时出现EPERM，独立远端hash未确认；核验无残留Git进程
+- [x] 远端同步：此前30秒上限/清理EPERM记录保留；阶段70已修复脚本并成功推送，独立核验ceea352f833ac4c833085f60b01217c4b2828d6a，provider/指南提交一并同步
 
-## 阶段69：严格只读节点执行器缺失拒绝（已实现并验证，本地提交，待远端同步）
+## 阶段69：严格只读节点执行器缺失拒绝（已实现并验证，功能已同步）
 
 - [x] 核验3ecd4df干净/ahead10，阶段67/68属于实际progress；定位未注入NodeRunner会跳过严格节点
 - [x] 两个失败反例复现无执行器/历史checkpoint绕过；修复拒绝、恢复与旧默认/false兼容
 - [x] 40项定向回归，全量1348项/92文件、typecheck/build/diff与111个本地文档链接通过
 - [x] 小步提交d4ae3ff；完整目标active
-- [ ] 有界同步/独立远端核验，随阶段70收尾进行
+- [x] 随阶段70推送成功，独立HTTP/2 ls-remote核验ceea352f833ac4c833085f60b01217c4b2828d6a
 
-## 阶段70：Provider依赖顺序与交付验收（已实现并验证，待提交同步）
+## 阶段70：Provider依赖顺序与交付验收（已实现并验证，功能已同步）
 
 - [x] 核验d4ae3ff与阶段69进展；定位ACP扩展先于provider会拒绝新路由解锁的选项，ADR-0083先行
 - [x] 新任务/恢复两失败反例；provider先于扩展/模型，声明provider绑定新顺序身份、旧无provider保持hash
 - [x] 17项provider真实子进程/四分支回归与2项TCP Goal最新快照协调/冷恢复，原run剩余预算/人审保留
 - [x] provider控制台投影、1440/390/320三截图/无pageerror/无横向溢出，桌面/320截图已查看；指南与协议同步
 - [x] 最终全量1367项/94文件、typecheck/build:all/diff与125个本地文档链接通过
-- [ ] 小步提交/有界同步/独立远端核验；完整目标active
+- [x] 功能提交ceea352；HTTP/2首次push30秒超时，HTTP/1.1推送成功（b01ea64→ceea352）；推送后HTTP/1.1查询15秒超时，独立HTTP/2查询核验ceea352f833ac4c833085f60b01217c4b2828d6a，完整目标active
 
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
