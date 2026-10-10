@@ -1,6 +1,6 @@
 /** ADR-0071：纯源码摘要/变更计算与 ready 重算，不读取文件或 Git。 */
 import { canonicalJson, sha256Hex } from "../core/hash.js";
-import { GoalChangeEvidenceSchema, SourceManifestSchema, type GoalChangeEvidence, type SourceManifest } from "../core/schema.js";
+import { GoalChangeEvidenceSchema, GoalChangeSummarySchema, SourceManifestSchema, type GoalChangeEvidence, type GoalChangeSummary, type SourceManifest } from "../core/schema.js";
 
 export function source_manifest_hash(manifest: SourceManifest): string {
   return sha256Hex(canonicalJson({ domain: "cord.verification-source.v1", entries: SourceManifestSchema.parse(manifest) }));
@@ -31,6 +31,21 @@ export function goal_changes_are_complete(evidence: GoalChangeEvidence, baseline
     const current = [...entries.values()].sort((first, second) => first.path < second.path ? -1 : first.path > second.path ? 1 : 0);
     return source_manifest_hash(current) === target_hash;
   } catch { return false; }
+}
+
+/** 调用方先核验完整 ready；纯摘要不承担来源或当前新鲜度认证。 */
+export function goal_change_summary(evidence: GoalChangeEvidence, source_hash: string): GoalChangeSummary {
+  const checked = GoalChangeEvidenceSchema.parse(evidence);
+  return GoalChangeSummarySchema.parse({
+    baseline_event_id: checked.baseline_event_id, baseline_source_hash: checked.baseline_source_hash, source_hash,
+    evidence_hash: sha256Hex(canonicalJson({ domain: "cord.goal-change-summary.v1", evidence: checked, source_hash })),
+    total_changes: checked.changes.length,
+    added: checked.changes.filter(change => change.status === "added").length,
+    modified: checked.changes.filter(change => change.status === "modified").length,
+    deleted: checked.changes.filter(change => change.status === "deleted").length,
+    sample: checked.changes.slice(0, 16).map(({ path, status }) => ({ path, status })),
+    omitted_changes: Math.max(0, checked.changes.length - 16),
+  });
 }
 
 export function render_goal_changes(evidence: GoalChangeEvidence, source_hash: string): string {

@@ -1,7 +1,7 @@
 /** ADR-0048：当前 run 的任务状态投影，不复制 runner 或注入日志。 */
 import { AgentTaskStartedPayloadSchema, AgentTaskCompletedPayloadSchema, AgentTaskReusedPayloadSchema, CoordinationExecutionContextSchema,
   GoalAttemptStartedPayloadSchema, GoalAttemptCompletedPayloadSchema, matchesWorkflowScope, readSessionEvents, resolveReusedCompletion,
-  resolveGoalReadiness, readSessionDocument, sha256Hex, isVerificationRunCancelled, accumulateGoalUsage, usageBudgetExceeded, goalUsageTotalsMatch, canonicalJson,
+  resolveGoalReadiness, goal_change_summary, readSessionDocument, sha256Hex, isVerificationRunCancelled, accumulateGoalUsage, usageBudgetExceeded, goalUsageTotalsMatch, canonicalJson,
   type CoordinationExecutionContext, type CoordinationGoal, type CoordinationTask, type EventEnvelope, type SessionHandle, type WorkflowDef } from "agent-cord";
 import type { RunService } from "./run-service.js";
 import type { GoalUsageView } from "../contracts.js";
@@ -108,6 +108,7 @@ export async function readCoordinationExecutionContext(def: WorkflowDef, session
       const proof = resolveGoalReadiness(event, events, node, { ...scope, run_id: run.run_id });
       if (proof === null) return { ...observation, status: "invalid", current: false, freshness_reason: "invalid_evidence" };
       if (parsed.data.acceptance_evidence !== undefined) observation.acceptance_evidence = parsed.data.acceptance_evidence;
+      if (proof.change_evidence !== undefined) observation.change_summary = goal_change_summary(proof.change_evidence, proof.source_hash);
       try {
         const config = runs.configurationHashFor(session.req_id, node.run!.agent);
         const before = await runs.readNodeInput(def, node, session, config, workflow_revision);

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { ulid } from "ulid";
 import { sha256Hex } from "../../src/core/hash.js";
-import { SourceManifestSchema, type SourceManifest } from "../../src/core/schema.js";
-import { goal_change_evidence, goal_changes_are_complete, render_goal_changes, source_manifest_hash } from "../../src/coordinator/goal-changes.js";
+import { GoalChangeSummarySchema, SourceManifestSchema, type SourceManifest } from "../../src/core/schema.js";
+import { goal_change_evidence, goal_change_summary, goal_changes_are_complete, render_goal_changes, source_manifest_hash } from "../../src/coordinator/goal-changes.js";
 
 const event_id = ulid();
 const baseline: SourceManifest = [
@@ -17,6 +17,26 @@ const current: SourceManifest = [
 ];
 
 describe("Goal 宿主源码变更证据", () => {
+  it("协调摘要保留完整计数、来源和有界样本，样本外变化仍改变身份", () => {
+    const next: SourceManifest = [...baseline, ...Array.from({ length: 20 }, (_, index) => ({ path: `z${String(index).padStart(2, "0")}`, kind: "file" as const, mode: 0o644, content_hash: sha256Hex("first") }))];
+    const evidence = goal_change_evidence(event_id, baseline, next);
+    const summary = goal_change_summary(evidence, source_manifest_hash(next));
+    expect(summary).toMatchObject({ baseline_event_id: event_id, total_changes: 20, added: 20, modified: 0, deleted: 0, omitted_changes: 4 });
+    expect(summary.sample).toHaveLength(16);
+    next.at(-1)!.content_hash = sha256Hex("second");
+    const changed = goal_change_summary(goal_change_evidence(event_id, baseline, next), source_manifest_hash(next));
+    expect(changed.sample).toEqual(summary.sample); expect(changed.evidence_hash).not.toBe(summary.evidence_hash);
+    const empty = goal_change_summary(goal_change_evidence(event_id, baseline, baseline), source_manifest_hash(baseline));
+    expect(empty).toMatchObject({ total_changes: 0, omitted_changes: 0, sample: [] });
+  });
+
+  it("协调摘要拒绝错误计数、省略数、重复路径和样本状态", () => {
+    const summary = goal_change_summary(goal_change_evidence(event_id, baseline, current), source_manifest_hash(current));
+    for (const patch of [{ total_changes: 4 }, { omitted_changes: 1 }, { added: 0, modified: 2 }, { sample: [summary.sample[0], summary.sample[0], summary.sample[2]] }]) {
+      expect(GoalChangeSummarySchema.safeParse({ ...summary, ...patch }).success).toBe(false);
+    }
+  });
+
   it("按真实路径排序列出新增/修改/删除并重算被测身份", () => {
     const evidence = goal_change_evidence(event_id, baseline, current);
     expect(evidence.changes.map(change => [change.path, change.status])).toEqual([["src/a.ts", "modified"], ["src/deleted.ts", "deleted"], ["src/new.ts", "added"]]);

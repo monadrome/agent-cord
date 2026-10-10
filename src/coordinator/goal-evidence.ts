@@ -1,6 +1,6 @@
 /** ADR-0061：runner 与协调共用 Goal ready 来源，不回退已被替换的成功。 */
 import { AgentTaskCompletedPayloadSchema, GoalAttemptStartedPayloadSchema, GoalAttemptCompletedPayloadSchema, VerificationCompletedPayloadSchema,
-  type EventEnvelope, type WorkflowDef, type WorkflowScope } from "../core/schema.js";
+  type EventEnvelope, type GoalChangeEvidence, type WorkflowDef, type WorkflowScope } from "../core/schema.js";
 import { matchesWorkflowScope } from "../workflow/scope.js";
 import { isVerificationRunCancelled } from "../workflow/verification.js";
 import { goalCommandHash } from "../workflow/host-verification.js";
@@ -14,6 +14,7 @@ export interface GoalReadinessEvidence {
   input_hash: string;
   source_hash: string;
   artifact_hash: string;
+  change_evidence?: GoalChangeEvidence;
 }
 
 function payload(event: EventEnvelope): Record<string, unknown> {
@@ -82,5 +83,6 @@ export function resolveGoalReadiness(candidate: EventEnvelope, events: readonly 
       || !value.success || value.data.status !== "passed" || value.data.exit_code !== 0 || value.data.input_hash !== ready.input_hash
       || value.data.source_hash !== ready.source_hash || value.data.command_hash !== goalCommandHash(command)) return null;
   }
-  return { completion, input_hash: ready.input_hash, source_hash: ready.source_hash, artifact_hash: ready.artifact_hash };
+  return { completion, input_hash: ready.input_hash, source_hash: ready.source_hash, artifact_hash: ready.artifact_hash,
+    ...(ready.change_evidence === undefined ? {} : { change_evidence: ready.change_evidence }) };
 }

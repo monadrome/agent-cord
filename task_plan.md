@@ -784,6 +784,22 @@
 - [x] 测试稳定化 `0874746`、功能提交 `0aefbcc`，完整实现与验收保留
 - [ ] 远端同步：HTTP/2 push/ls-remote GitHub 443 约 75 秒连接超时；HTTP/1.1 push 30 秒总时长上限，保留本地提交待网络恢复
 
+## 阶段 58：协调 session 的 Goal 源码变更观察（已实现并验证）
+
+- [x] 核验 `34832cb` 干净、ahead 3；阶段 57 为已验证实现进展，确定完整清单不可直接注入模型，ADR-0072 先行
+- [x] 有界 change_summary 契约/纯派生与完整证据 hash，server 共用 ready 核验后投影
+- [x] hook/发布条件/prompt/hash 完整性，历史摘要与当前有效性分离
+- [x] 当前/过期/取消、ACP/headless fixture 子进程与冷恢复回归；共享来源/范围核验沿用，不重新调用付费模型
+- [x] 全量 1158 项 / 80 文件、typecheck/build:all/diff 通过，小步提交；与阶段 59 一并尝试有界推送
+
+## 阶段 59：Agent 原子能力与启动控制（实现中）
+
+- [x] 核对现有 driver/YAML/恢复契约和本地 CLI help；ADR-0073 先行
+- [ ] 能力描述、严格 launch 配置、headless/custom 实参编译与 ACP session 协商
+- [ ] 清单 API 与固定未退出 Goal 节点恢复约束
+- [ ] 离线实际子进程/HTTP 回归，研究与 human review 指南
+- [ ] 全量验证、小步提交、有界推送与远端核验
+
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
 - [x] 核验当前分支与阶段 10；上一轮实现和远端同步属于已验证进展

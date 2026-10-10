@@ -260,6 +260,21 @@ export const GoalChangeEvidenceSchema = z.strictObject({
     .max(10_000).refine(values => values.every((entry, index) => index === 0 || values[index - 1]!.path < entry.path), "变更清单必须按路径唯一排序"),
 }).refine(value => JSON.stringify(value).length <= 1_000_000, "变更证据超过 1,000,000 字符预算");
 export type GoalChangeEvidence = z.infer<typeof GoalChangeEvidenceSchema>;
+/** ADR-0072：协调只看完整计数与有界路径样本，不注入完整 delta。 */
+export const GoalChangeSummarySchema = z.strictObject({
+  baseline_event_id: z.string().regex(ULID_RE), baseline_source_hash: z.string().regex(/^[0-9a-f]{64}$/),
+  source_hash: z.string().regex(/^[0-9a-f]{64}$/), evidence_hash: z.string().regex(/^[0-9a-f]{64}$/),
+  total_changes: z.number().int().min(0).max(10_000),
+  added: z.number().int().min(0).max(10_000), modified: z.number().int().min(0).max(10_000), deleted: z.number().int().min(0).max(10_000),
+  sample: z.array(z.strictObject({ path: SourcePathSchema, status: z.enum(["added", "modified", "deleted"]) })).max(16)
+    .refine(values => values.every((entry, index) => index === 0 || values[index - 1]!.path < entry.path), "变更样本必须按路径唯一排序"),
+  omitted_changes: z.number().int().min(0).max(10_000),
+}).refine(value => value.total_changes === value.added + value.modified + value.deleted
+  && value.sample.length === Math.min(value.total_changes, 16) && value.omitted_changes === value.total_changes - value.sample.length,
+  "变更摘要计数/样本/省略数不一致")
+  .refine(value => (["added", "modified", "deleted"] as const).every(status => value.sample.filter(entry => entry.status === status).length <= value[status]),
+    "变更样本状态超过完整计数");
+export type GoalChangeSummary = z.infer<typeof GoalChangeSummarySchema>;
 export const GoalConfigSchema = z.strictObject({
   inputs: z.array(z.string().min(1).max(500)).min(1).max(64),
   checks: z.array(GoalCommandSchema).min(1).max(16).refine(values => new Set(values.map(value => value.id)).size === values.length, "Goal 检查 id 必须唯一"),
@@ -400,7 +415,10 @@ export const CoordinationGoalSchema = z.strictObject({
   acceptance_evidence: GoalAcceptanceEvidenceSchema.optional(),
   usage_budget: GoalUsageBudgetSchema.optional(),
   usage_totals: GoalUsageTotalsSchema.optional(),
+  change_summary: GoalChangeSummarySchema.optional(),
 }).refine(value => value.acceptance_evidence === undefined || value.status === "ready", "仅 ready Goal 可声明验收通过证据")
+  .refine(value => value.change_summary === undefined || (value.status === "ready" && value.change_summary.source_hash === value.source_hash),
+    "只有源码身份匹配的 ready Goal 可携带变更摘要")
   .refine(value => value.status === "missing" || (value.run_id !== null && value.event_id !== null), { message: "当前 Goal 观察必须绑定 run/event" })
   .refine(value => value.max_attempts === null || value.attempt === null || value.attempt <= value.max_attempts, { message: "Goal 尝试编号超过上限" })
   .refine(value => value.current !== true || (value.status === "ready" && value.freshness_reason === "current" && value.input_hash !== null

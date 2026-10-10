@@ -26,7 +26,7 @@ export { resolveGoalReadiness, type GoalReadinessEvidence } from "./goal-evidenc
 export { goalAcceptanceIsComplete } from "./goal-acceptance.js";
 export { accumulateGoalUsage, goalUsageTotalsMatch, usageBudgetExceeded, type GoalUsageScope } from "./goal-usage.js";
 export { readonlyToolViolation } from "./readonly-tool-policy.js";
-export { source_manifest_hash, goal_change_evidence, goal_changes_are_complete, render_goal_changes } from "./goal-changes.js";
+export { source_manifest_hash, goal_change_evidence, goal_changes_are_complete, goal_change_summary, render_goal_changes } from "./goal-changes.js";
 export { createContextSessionAgent, buildCoordinationPrompt, parseCoordinationProposal, coordinationInputHash, type ContextSessionAgentOptions } from "./session-agent.js";
 export { readCoordinationSnapshot } from "./coordination-context.js";
 export { readClarificationAnswers, currentClarificationAnswers, projectClarifications, MAX_CLARIFICATION_QUESTIONS, type SnapshotClarification, type ClarificationAnswer } from "./clarifications.js";

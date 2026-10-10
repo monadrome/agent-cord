@@ -21,6 +21,8 @@ function assertGoalAcceptance(def: WorkflowDef, execution_context?: Coordination
     if (observation.usage_budget !== undefined && canonicalJson(observation.usage_budget) !== canonicalJson(goal?.usage_budget)) throw new Error("协调资源预算与发布条件不一致");
     if (goal?.usage_budget !== undefined && observation.current === true && (observation.usage_budget === undefined || observation.usage_totals === undefined
       || observation.usage_totals.observed_tasks === 0 || usageBudgetExceeded(goal.usage_budget, observation.usage_totals) !== null)) throw new Error("协调当前 ready 缺少可核验的资源计量");
+    if (observation.change_summary !== undefined && goal?.review_changes !== true) throw new Error("协调变更摘要与发布交付条件不一致");
+    if (goal?.review_changes === true && observation.current === true && observation.change_summary === undefined) throw new Error("协调当前 ready 缺少宿主源码变更摘要");
   }
 }
 
@@ -51,8 +53,10 @@ export interface ContextSessionAgentOptions {
 /** 轮次自己的事件不会改变输入；文档、账本、进度与人工等待会改变。 */
 export function coordinationInputHash(def: WorkflowDef, snapshot: RequirementSnapshot, configuration_hash: string | null, max_prompt_chars = DEFAULT_MAX_PROMPT_CHARS, source_hash: string | null = null, verifications: readonly CoordinationVerification[] = [], execution_context?: CoordinationExecutionContext, goal_blocker?: GoalBlockerTrigger): string {
   const clarifications = snapshot.clarifications ?? [];
+  const has_changes = execution_context?.goals?.some(goal => goal.change_summary !== undefined) === true;
   return sha256Hex(canonicalJson({
-    domain: execution_context === undefined ? (clarifications.length === 0 ? "cord.coordination-input.v5" : "cord.coordination-input.v6") : (clarifications.length === 0 ? "cord.coordination-input.v7" : "cord.coordination-input.v8"), context_policy: COORDINATION_CONTEXT_POLICY,
+    domain: has_changes ? (clarifications.length === 0 ? "cord.coordination-input.v9" : "cord.coordination-input.v10")
+      : execution_context === undefined ? (clarifications.length === 0 ? "cord.coordination-input.v5" : "cord.coordination-input.v6") : (clarifications.length === 0 ? "cord.coordination-input.v7" : "cord.coordination-input.v8"), context_policy: COORDINATION_CONTEXT_POLICY,
     ...(clarifications.length === 0 ? {} : { clarifications }),
     tool_policy: COORDINATION_TOOL_POLICY, workflow: def, configuration_hash, max_prompt_chars,
     ...(execution_context === undefined ? {} : { execution_context }),
@@ -133,6 +137,7 @@ export function buildCoordinationPrompt(def: WorkflowDef, snapshot: RequirementS
     ...(execution_context === undefined ? [] : [`execution_context: ${JSON.stringify(!execution_context.goals?.length ? { run: execution_context.run, tasks: execution_context.tasks } : execution_context)}\nactive 仅标识宿主当前运行槽位，active=true 时不得推进新 run。started 只证明启动已记录，active=false 时不能声称进程仍活着。reused 表示当前 run 复用原完成事件 completion_event_id，没有新的 worker 调用；来源仍用当前复用 event_id。任务事实不保证对应修改后的输入，ok/reused 也不等于测试或 gate 通过；missing/invalid 不能引用，agent_task 来源只用这里的合法 event_id。Goal ready 只有 current=true 才是当前有效交付，current=false/null 表示过期或不可读取，不能作为 ready 来源；历史状态保留，freshness_reason 说明当前核验结果。Goal status=blocked/invalid/cancelled 时不能 advance，应使用当前 goal event 作为证据提出 ask_human 或 wait。`]),
     `progress: ${JSON.stringify(snapshot.workflow)}`,
     `eligible_nodes: ${JSON.stringify(eligibleNodes(def, snapshot, execution_context))}`,
+    ...(execution_context?.goals?.some(goal => goal.change_summary !== undefined) !== true ? [] : ["Goal change_summary 是宿主核验完整基线和 delta 后投影的源码变化：计数覆盖声明范围，sample 最多 16 条按路径排序，omitted_changes 表示未展示数量；evidence_hash 绑定完整证据。样本不是全部清单，没有源码正文，不推断作者归属或范围外改动，不证明业务正确或测试充分。current=false/null 时只是历史摘要，不能引用为当前就绪；未展示的路径/内容不能声称已逐项查看或核验。完整材料在基线/ready 事件与 review 指南，最终 review/gate 仍人工控制。"]),
     `ledger: ${JSON.stringify(snapshot.ledger)}`,
     ...((snapshot.clarifications?.length ?? 0) === 0 ? [] : [`clarifications: ${JSON.stringify(snapshot.clarifications)}\n人工澄清只说明原问题的选择，不是测试、gate 或执行授权；status=revoked/choice=null 表示未确定，不能沿用已撤回选项。与最新材料矛盾时需重新询问，来源使用当前答复或撤回 event_id。`]),
     `documents: ${JSON.stringify(snapshot.docs.map(({ file, exists, content_hash, content_length }) => ({ file, exists, content_hash, content_length })))}`,

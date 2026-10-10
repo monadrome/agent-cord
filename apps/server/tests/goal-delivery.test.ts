@@ -84,6 +84,11 @@ describe("Goal server 交付闭环", () => {
     expect(guide).toContain("## 宿主源码变更"); expect(guide).toContain(baseline.event_id);
     const context = await api("GET", `/requirements/REQ-GOAL/runs/${run_id}/nodes/deliver/verification-context`);
     expect(context.status).toBe(200); expect(JSON.stringify(context.body)).not.toContain("source_manifest");
+    const binding = await server.sdlcs.get("goal-http", 1);
+    const observe = () => readCoordinationExecutionContext(binding.def, session, binding.workflow_revision, server.runs);
+    const summary = (await observe()).goals[0]!.change_summary;
+    expect(summary).toMatchObject({ baseline_event_id: baseline.event_id, total_changes: 3, added: 1, modified: 1, deleted: 1, omitted_changes: 0 });
+    expect(summary!.sample).toEqual([{ path: "src/added.ts", status: "added" }, { path: "src/deleted.ts", status: "deleted" }, { path: "value.txt", status: "modified" }]);
     const approval = (await server.sessions.listApprovals("REQ-GOAL"))[0]!;
     const read = session.events.readOrdered.bind(session.events);
     const forged = vi.spyOn(session.events, "readOrdered").mockImplementation(async () => (await read()).map(event => event.event_id === ready.event_id
@@ -94,6 +99,7 @@ describe("Goal server 交付闭环", () => {
     expect(await calls()).toBe(2);
     expect((await server.sessions.listApprovals("REQ-GOAL"))[0]!.approval_id).toBe(approval.approval_id);
     const after = await events();
+    expect((await observe()).goals[0]).toMatchObject({ current: true, change_summary: summary });
     expect(after.find(event => event.type === "goal.attempt.started")!.event_id).toBe(baseline.event_id);
     expect(after.filter(event => event.type === "human.decision.recorded" || event.type === "workflow.node.exited")).toHaveLength(0);
   });
@@ -170,8 +176,11 @@ describe("Goal server 交付闭环", () => {
     const binding = await server.sdlcs.get("goal-http", 1); const session = await server.sessions.open("REQ-GOAL");
     const read = () => readCoordinationExecutionContext(binding.def, session, binding.workflow_revision, server.runs);
     expect((await read()).goals[0]).toMatchObject({ status: "ready", current: true, freshness_reason: "current" });
+    const summary = (await read()).goals[0]!.change_summary;
+    expect(summary).toBeDefined();
     await writeFile(join(root, "value.txt"), "code-after-ready");
     expect((await read()).goals[0]).toMatchObject({ status: "ready", current: false, freshness_reason: "stale_input" });
+    expect((await read()).goals[0]!.change_summary).toEqual(summary);
     await writeFile(join(root, "value.txt"), "fixed");
     expect((await read()).goals[0]).toMatchObject({ current: true });
     const guide = join(session.dir, "review.md"); const original = await readFile(guide, "utf8");
@@ -180,10 +189,12 @@ describe("Goal server 交付闭环", () => {
     await writeFile(guide, original); expect((await read()).goals[0]).toMatchObject({ current: true });
     await rm(join(root, "value.txt")); await symlink(guide, join(root, "value.txt"));
     expect((await read()).goals[0]).toMatchObject({ status: "ready", current: null, freshness_reason: "unavailable" });
+    expect((await read()).goals[0]!.change_summary).toEqual(summary);
     await rm(join(root, "value.txt")); await writeFile(join(root, "value.txt"), "fixed");
     expect((await read()).goals[0]).toMatchObject({ current: true });
     await server.runs.cancel(run_id);
     expect((await read()).goals[0]).toMatchObject({ status: "ready", current: false, freshness_reason: "run_cancelled" });
+    expect((await read()).goals[0]!.change_summary).toBeUndefined();
   });
   it.each(["headless", "acp"] as const)("%s 真实子进程自主修复、当前验证、人审挂起和冷恢复", async protocol => {
     const run_id = await prepare(protocol);

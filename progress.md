@@ -1,5 +1,10 @@
 # 工作进度
 
+## 2026-10-10（阶段 58）
+
+- 起点 `34832cb` 工作树干净、ahead 3；上一轮源码变更交付为已验证进展。协调者只看 source_hash，尚未消费宿主已核验的变更范围。
+- ADR-0072 先行：先核验完整 ready，再生成计数/最多 16 路径/省略数/完整 evidence hash；不注入完整清单和正文，历史摘要不冒称当前有效。
+
 ## 2026-10-09（阶段 57）
 
 - 起点 `78322ec` 工作树干净且同步，上一轮为已验证进展。Goal 指南的宿主测试/验收证据完整，但源码变更定位仍依赖模型文字。
@@ -645,3 +650,8 @@
 - Playwright + Chrome 验证 1440/390/320 宽度无溢出/行内重叠；筛选、tooltip、按钮在请求期间禁用、重载成功/失败保留清单、loading/empty/error retry 全通过，pageerror 为 0。桌面/手机截图已人工检查并修正页头与长名称断行。
 - 预览 `http://127.0.0.1:7295/#/agents`；临时工作区 `/tmp/cord-stage12-preview`，smoke-result.json / browser-result.json 与 agents-desktop.png / agents-mobile.png 保存实际验收证据。
 - 唤醒后重跑全量 436 测试 / 38 文件通过，`npm run typecheck`、`npm run build:all`、`git diff --check` 通过；阶段 12 进入提交与推送。
+# 阶段 58 收尾（2026-10-10）
+
+- Goal change_summary 只从完整 ready 核验派生，最多 16 条路径样本，完整计数与证据身份进入协调输入。
+- 新增大清单/样本外变化/错误计数和 ACP/headless 子进程、过期/不可读/取消与冷恢复断言。全量首先复现旧调用省略 goals 的兼容错误，修复 optional chaining 后 1158 项 / 80 文件通过；typecheck/build:all/diff 通过。
+- 当前转入用户新提出的 agent 原子能力与启动控制；保留原默认 Goal 与人工终审边界。
