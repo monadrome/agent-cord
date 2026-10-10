@@ -1,6 +1,6 @@
 /** 工作区 agent 配置快照（ADR-0027）：串行重载，成功才替换，在途 run 固定 resolver。 */
 import { dirname, join } from "node:path";
-import { AcpDriver, createAgentRegistry, loadAgentsFile, type AgentDriver, type AgentRegistry } from "agent-cord";
+import { AcpDriver, HeadlessDriver, createAgentRegistry, loadAgentsFile, type AgentDriver, type AgentRegistry } from "agent-cord";
 import type { AgentCatalogView, AgentInspectionView } from "../contracts.js";
 import { badRequest, notFound } from "../errors.js";
 
@@ -33,15 +33,17 @@ export class AgentService {
     if (!this.registry.list().some(entry => entry.name === name)) throw notFound("agent 不在当前可用清单");
     const driver = this.registry.resolve(name); const revision = this.revision;
     let observation: AgentInspectionView["observation"] = null;
+    let cli_observation: AgentInspectionView["cli_observation"] = null;
     if (driver instanceof AcpDriver) {
       try { observation = await driver.inspect(dirname(this.cord_root), timeout_ms); }
       catch { throw badRequest("ACP 能力协商或启动配置核验失败"); }
     }
+    if (driver instanceof HeadlessDriver) cli_observation = await driver.inspect(dirname(this.cord_root), timeout_ms);
     const current_entry = this.registry.list().find(entry => entry.name === name);
     const current_hash = current_entry === undefined ? null : this.registry.resolve(name).configuration_hash ?? null;
     const configuration_hash = driver.configuration_hash ?? null;
     const current = revision === this.revision && configuration_hash !== null && current_hash === configuration_hash;
-    return { revision, configuration_hash, current, capabilities: driver.capabilities ?? null, observation };
+    return { revision, configuration_hash, current, capabilities: driver.capabilities ?? null, observation, cli_observation };
   }
 
   reload(): Promise<AgentCatalogView> {

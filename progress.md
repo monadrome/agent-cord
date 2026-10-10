@@ -1,5 +1,16 @@
 # 工作进度
 
+## 2026-10-10（阶段63）
+
+- 起点7f659db干净/本地tracking同步；上一轮等待投影为已验证进展。
+- 复用planning-with-files/agent-optimizer与OpenAI Docs，Firecrawl官方CLI参考及本机三家--version/help核对。准备headless无prompt运行时查询，不能把help旗标当模型访问或实际执行证明；ADR-0077先行。
+- 实现inspection_profile、version/task/resume固定命令，128KiB/流与全步骤deadline；有限semver/帮助hash/flag三态，无prompt/模型/角色入argv，结果不改变执行身份。成功组长已退出也清理同进程组后代，超时另有有界grace。
+- server新cli_observation独立于ACP，current/固定snapshot和幂等兼容；consoleCLI显式查询/步骤/已配置与帮助展示/缺CLI/未知/历史错误，原始args无probe不猜命令。
+- 首轮大输出fixture立即退出导致输出未刷全，修正flush；旧ACP测试在重载覆盖清单后查询不存在worker，删除该多余断言并由独立custom用例覆盖。Claude本机引号auto枚举新增失败反例修正；成功parent-exit fixture child handle保持eventloop，明确flush+exit并等待实际pid收束后通过，未放宽生产检查。
+- 最终16项probe与3项新增registry HTTP/重载；npm test1269项/85文件、typecheck/build:all/diff、120本地链接通过。测试证据/tmp/cord-stage63-final-tests.json。
+- 实际TCP HTTP仅调用本机Claude2.1.220/Codex0.160.0/Kimi2.1.1版本/help，三者passed，Codexeffort仍null，Claudeauto=true；同键重放一致，需求0/模型prompt0。证据/tmp/cord-stage63-preview-result.json，PID69168/http://127.0.0.1:64264/#/agents健康200。
+- Playwright1440/390/320共七截图/五次显式查询，缺CLI、未展示bare、修复后重载过期/新查询、网络503历史、原始wrapper无按钮均通过；pageerror=[]/页面无横向溢出，截图已查看。证据/tmp/cord-stage63-browser-result.json；临时root/脚本/截图不入仓库，未调用付费模型、原7306真实Draft未操作。准备小步提交与同步，完整目标active。
+
 ## 2026-10-10（阶段62）
 
 - d106c69工作树干净、tracking同步，上一轮ACP状态验证为实际进展。延续planning-with-files与agent-optimizer现有上下文。

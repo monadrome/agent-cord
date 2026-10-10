@@ -183,7 +183,7 @@ server 默认监听 `127.0.0.1:7250`，工作区由 `CORD_ROOT` 指定。核心�
 
 - 查询：`/health`、`/dashboard`、`/requirements`、需求详情、timeline、ledger、votes、runs、approvals。
 - 产物：`GET /requirements/:req_id/artifacts?path=...` 只读当前绑定 SDLC 的声明文件，复用普通文档边界；需求 detail 投影 artifacts 清单，控制台文档页展示指南原文/预览，固定快照仍可编辑。
-- Agent：`GET /agents` 查看配置 revision、公开清单、适配器能力和诊断；`POST /agents/reload` 显式重载，`POST /agents/:name/inspect` 查询 ACP 当前 session 协商能力与启动配置核验（均需幂等键），不发送 prompt。清单不包含 env、args 或角色 prompt，headless 安装/模型可用性仍 unchecked。
+- Agent：`GET /agents` 查看配置 revision、公开清单、适配器能力和诊断；`POST /agents/reload` 显式重载，`POST /agents/:name/inspect` 查询 ACP 当前 session 协商能力或显式headless profile的版本/帮助（均需幂等键），不发送 prompt。清单不包含 env、args 或角色 prompt，静态安装声明与模型可用性仍 unchecked。
 - 协调：`POST/GET /requirements/:req_id/coordination`、`GET /requirements/:req_id/coordination/:round_id`、`POST .../:round_id/cancel`、`POST .../:round_id/adopt`；创建/采用返回 202，每需求至多一个在途协调轮次。
 - 机器验证：`GET /requirements/:req_id/runs/:run_id/nodes/:node_id/verification-context` 获取当前输入 hash；`POST /requirements/:req_id/runs/:run_id/verifications` 记录带 run/input hash 的验证事实。需求详情概览展示各 run 的最新验证状态。
 - 声明验证 `inputs` 时，context 同时返回源码范围与 source_hash；输入清单和内容摘要进入验证、gate 和人工审批 hash。目录增删和代码变化使旧测试结果失效，输入范围需包含实际被验证的代码和 lockfile。
@@ -199,6 +199,8 @@ server 默认监听 `127.0.0.1:7250`，工作区由 `CORD_ROOT` 指定。核心�
 ## 6. Console
 
 Agent 工作台显示适配器启动选项、原生恢复和宿主 Goal/受限节点恢复能力，可按选项筛选。展开 ACP 后显式协议查询，候选值/省略数来自 server 有界观察；查询完成后读取最新清单，配置 revision/hash 漂移、清单不可读与旧查询失败分别呈现。移除 alias 保留所选历史结果，查询禁用；没有绿色注册通过标记。移动端配置选项纵向排列，长列表内部滚动（[ADR-0074](./adr/ADR-0074-agent-capability-console.md)）。
+
+内置Claude/Codex/Kimi模板声明inspection_profile；库自定义兼容模板可显式选择profile，原始args不自动probe。HeadlessDriver.inspect不使用prompt/模型/角色，固定--version/任务帮助（Codex另查exec resume），每流128KiB与总执行timeout，正常/错误/超时均清理进程树。REST cli_observation独立于ACP observation，显示版本/步骤/帮助hash、configured与advertised三态；帮助旗标不证明模型可用或隐藏参数不支持，不把--config当effort键已验证（[ADR-0077](./adr/ADR-0077-headless-cli-inspection.md)）。
 
 console 使用 hash 路由，页面包括工作台、需求列表、需求详情、SDLC 管理和 Agent 工作台。它通过 `apps/server/src/contracts.ts` 共享 DTO，只消费 server 投影；事件流、账本和 workflow 状态不在浏览器重复计算。
 

@@ -1,5 +1,14 @@
 # 调研发现
 
+## 阶段63（2026-10-10）：Headless运行时能力
+
+- 当前headless inspect仅返回静态声明，不能确认实际CLI存在/版本/参数入口。固定版本与帮助命令可以不发送prompt取得本机证据。
+- 本机Claude2.1.220、Codex0.160.0、Kimi2.1.1帮助核验；Claude部分旋钮可能隐藏，未展示不是不支持。Codex effort走配置键，--config本身不证明该键或模型可用。
+- 自定义原始args不能猜--help语义；只对模板显式profile探测。输出应只投影短semver、选项定义和状态/hash，不公开原文/角色/env/错误路径。
+- Claude实际auto choices使用引号，首轮纯解析误报false；新增quoted-auto与无choices反例，修正后本机auto=true。缺旗标标unadvertised，不将hidden参数断言为不支持。
+- 大输出fixture需要等待stdout刷出，立即process.exit会丢弃缓冲而无法证明上限。创建后代的成功fixture必须明确退出组长，默认Node child handle保持事件循环会把用例变成超时；已修正并验证两条独立清理路径。
+- UI网络查询失败保留CLI历史结果时需标“上次查询”，不能在错误旁仍把旧帮助显示为本次成功。实时配置current和CLI查询status是两个维度。
+
 ## 阶段62（2026-10-10）：活动等待查询一致性
 
 - 人工gate promise未返回时run登记仍running，需求事件投影已waiting_human；getRun/列表/协调读取索引而漏掉事实。

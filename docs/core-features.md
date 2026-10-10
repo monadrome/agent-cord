@@ -127,12 +127,14 @@ flowchart LR
 | 固定流程节点恢复 | 原授权 Goal recovery 加 `node_id`，限定原 token 绑定的未退出节点；保持 checkpoint、输入/配置身份、原预算和人工 gate |
 | 扩展 | ACP `config_options` 支持 select/boolean；自定义 argv 显式绑定 model/effort/session；外部行为变化用 `context_revision` |
 
-`GET /agents` 给出适配器声明的能力表，安装状态为 unchecked。`POST /agents/:name/inspect` 可核验 ACP initialize/session/new 和启动配置，不发送 prompt；返回有界 mode、配置 ID、模型/effort 候选及省略数，绑定查询使用的 revision/configuration_hash。headless 查询只返回适配器声明，没有伪造运行时证明。
+`GET /agents` 给出适配器声明的能力表，安装状态为 unchecked。`POST /agents/:name/inspect` 可核验 ACP initialize/session/new 和启动配置，不发送 prompt；返回有界 mode、配置 ID、模型/effort 候选及省略数，绑定查询使用的 revision/configuration_hash。内置headless模板另提供固定版本/帮助查询，明确CLI不可用/超时/无法识别和逐项帮助证据；自定义原始args不猜测探测命令。
 
 控制台 Agent 页提供能力筛选、逐 Agent 声明与显式 ACP 查询。协议观察与静态声明分别呈现；查询后的最新清单核对、失败/重试、过期及移除后的历史材料已接通，不将注册状态表示成验证通过。查询返回时和消费时都核对配置身份，协议协商仍不证明模型访问或额度可用（[ADR-0074](./adr/ADR-0074-agent-capability-console.md)）。
 
 ACP 启动选择持续一致性已接通：`option_ids.mode` 支持仅提供新 configOptions 的 agent，按 mode 后的实际候选选择模型；当前 session 明确选择被更新、移除或改变类型时，以不可重试配置错误取消，不形成 Goal ready 或协调提议。旧 set_mode 兼容空成功回执，同值/未显式选项/外部 session 更新不误冻结（[ADR-0075](./adr/ADR-0075-acp-launch-state-consistency.md)）。
 
 等待最终人审期间，活动run查询/控制台与协调Agent都从当前gate事实显示waiting_human，避免SQLite操作登记running掩盖等待。有效输入后仍需gate重检；active槽位和workspace占用不因等待状态释放（[ADR-0076](./adr/ADR-0076-active-run-wait-projection.md)）。
+
+Headless运行时能力查询已接通，CLI版本、任务/恢复帮助、已配置项与帮助是否展示分别呈现。帮助未展示不等于不支持；Codex effort配置键、模型访问/权限/额度和真实session恢复均不能由帮助证明。查询不执行prompt或改变启动身份，整体超时/输出限量并清理进程树（[ADR-0077](./adr/ADR-0077-headless-cli-inspection.md)）。
 
 待扩展维度包括 provider 路由、MCP/工具集、网络与沙箱、隔离 worktree、CLI 精确版本探测、原生 fork/turn checkpoint；应按厂商真实能力逐项映射。任意历史 workflow rewind、跨 agent 的原生 session 迁移不在当前保证内，不能通过清除已退出节点事实实现。

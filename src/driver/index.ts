@@ -67,3 +67,4 @@ export type { AgentDefinitionInfo, AgentRegistry, AgentsLoadResult, AgentsYaml }
 export { AgentLaunchSchema, validate_agent_launch } from "./launch.js";
 export type { AgentLaunch } from "./launch.js";
 export type { AcpCapabilityObservation } from "./acp-launch.js";
+export type { HeadlessCapabilityObservation, HeadlessInspectionProfile } from "./headless-inspection.js";

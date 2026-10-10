@@ -4,6 +4,7 @@ import { ScanSearch } from "lucide-react";
 import type { AgentCatalogView, AgentInspectionView } from "@agent-cord/server/contracts";
 import { launch_option_text } from "../agent-capabilities.js";
 import { ErrorBanner } from "../ui.js";
+import { CliCapabilityObservation } from "./CliCapabilityObservation.js";
 
 const RESUME_TEXT = { supported: "支持", unsupported: "不支持", negotiated: "需协议协商" } as const;
 interface Props {
@@ -19,9 +20,12 @@ interface Props {
 }
 
 export function AgentCapabilityDetails({ id, agent, inspection, current, catalog_verified, inspecting, disabled, error, onInspect }: Props): ReactElement {
-  const tip_id = useId(); const capabilities = agent.capabilities; const observation = inspection?.observation;
+  const tip_id = useId(); const capabilities = agent.capabilities; const observation = agent.kind === "acp" ? inspection?.observation : null;
   const result_state = current ? "当前配置" : inspection?.current === false ? "旧配置结果"
     : !catalog_verified ? "清单未核验" : inspection?.current !== true ? "新鲜度未核验" : "旧配置结果";
+  const cli_query = agent.kind === "headless" && capabilities?.inspection === "cli_help";
+  const query_name = cli_query ? "CLI 能力" : "协议能力";
+  const query_label = cli_query ? "查询 CLI 能力" : "查询协议能力";
   return <section id={id} className="agent-capability-detail" aria-label={`${agent.name} 能力详情`}>
     <header className="agent-detail-head"><h3>能力声明</h3><span className="muted small">适配器声明</span></header>
     {capabilities === undefined ? <p className="muted small">未提供能力声明</p> : <>
@@ -37,15 +41,16 @@ export function AgentCapabilityDetails({ id, agent, inspection, current, catalog
       </ul>}
     </>}
 
-    {agent.kind === "acp" ? <div className="agent-protocol-observation">
-      <header className="agent-detail-head"><h3>协议查询</h3>
-        <span className="agent-tool"><button type="button" className="btn agent-icon-button" aria-label={`查询协议能力 ${agent.name}`} aria-describedby={tip_id} disabled={disabled} onClick={onInspect}>
+    {agent.kind === "acp" || cli_query ? <div className="agent-protocol-observation">
+      <header className="agent-detail-head"><h3>{cli_query ? "CLI 查询" : "协议查询"}</h3>
+        <span className="agent-tool"><button type="button" className="btn agent-icon-button" aria-label={`${query_label} ${agent.name}`} aria-describedby={tip_id} disabled={disabled} onClick={onInspect}>
           <ScanSearch size={18} className={inspecting ? "agent-spinning" : undefined} aria-hidden="true" />
-        </button><span id={tip_id} role="tooltip" className="agent-tooltip">查询协议能力</span></span>
+        </button><span id={tip_id} role="tooltip" className="agent-tooltip">{query_label}</span></span>
       </header>
       <ErrorBanner message={error} />
-      {inspecting ? <p role="status" className="muted small">正在查询协议能力...</p> : null}
-      {observation == null ? (!inspecting && error === null ? <p className="muted small">尚未查询</p> : null) : <div className="agent-observation-result">
+      {inspecting ? <p role="status" className="muted small">正在查询{query_name}...</p> : null}
+      {cli_query && inspection?.cli_observation != null ? <CliCapabilityObservation inspection={inspection} current={current} result_state={result_state} historical={error !== null || inspecting} /> : null}
+      {observation == null ? (!inspecting && error === null && inspection?.cli_observation == null ? <p className="muted small">尚未查询</p> : null) : <div className="agent-observation-result">
         <div className={`agent-result-state ${current ? "agent-result-current" : "agent-result-stale"}`} role="status">
           <strong>{error !== null || inspecting ? "上次查询" : "协议已协商"}</strong><span>{result_state}</span>
           <code title={inspection?.configuration_hash ?? "未提供"}>{inspection?.configuration_hash?.slice(0, 12) ?? "未提供"}</code>

@@ -11,6 +11,7 @@ import { execa } from "execa";
 import type { AgentDriver, AgentEvent, AgentTask } from "../core/ports.js";
 import { canonicalJson, sha256Hex } from "../core/hash.js";
 import { validate_agent_launch, type AgentCapabilities, type AgentLaunch } from "./launch.js";
+import { cli_help_observation, cli_help_recognized, cli_version, type CliProbeStatus, type HeadlessCapabilityObservation, type HeadlessInspectionProfile } from "./headless-inspection.js";
 
 // ---------------------------------------------------------------------------
 // 事件数据约定（AgentEvent.data 的具体形态）
@@ -454,6 +455,8 @@ export interface HeadlessCliTemplate {
   readonly knobs?: readonly AgentKnob[];
   /** 自定义模板缺省不承诺能恢复；内置模板显式声明。 */
   readonly supports_resume?: boolean;
+  /** 显式兼容的版本/帮助查询；自定义 args 缺省不猜测。 */
+  readonly inspection_profile?: HeadlessInspectionProfile;
   args(input: HeadlessArgInput): string[];
 }
 
@@ -471,6 +474,7 @@ const BUILTIN_TEMPLATES: readonly HeadlessCliTemplate[] = [
   {
     // kimi -p --output-format stream-json（JSONL 为 OpenAI chat 形态：role assistant/tool/meta）
     name: "kimi",
+    inspection_profile: "kimi",
     bin: "kimi",
     knobs: ["model"],
     supports_resume: true,
@@ -488,6 +492,7 @@ const BUILTIN_TEMPLATES: readonly HeadlessCliTemplate[] = [
   {
     // claude -p --output-format stream-json（直接适配器；Claude 无原生 ACP，见 ADR-0017 决策 1）
     name: "claude",
+    inspection_profile: "claude",
     bin: "claude",
     knobs: ["model", "effort", "max_turns", "budget_usd", "system_prompt", "agent", "agents_json", "bare", "auto"],
     supports_resume: true,
@@ -531,6 +536,7 @@ const BUILTIN_TEMPLATES: readonly HeadlessCliTemplate[] = [
   {
     // codex exec --json（NDJSON 为 item/turn 事件流）
     name: "codex",
+    inspection_profile: "codex",
     bin: "codex",
     knobs: ["model", "effort"],
     supports_resume: true,
@@ -622,6 +628,7 @@ export class HeadlessDriver implements AgentDriver {
         `unknown headless CLI "${options.cli}"; known: ${listHeadlessCliTemplates().join(", ")}`,
       );
     }
+    if (template.inspection_profile !== undefined && !["claude", "codex", "kimi"].includes(template.inspection_profile)) throw new Error("未知CLI能力查询profile");
     this.template = { ...template, ...(template.knobs === undefined ? {} : { knobs: [...template.knobs] }) };
     this.bin = options.bin ?? template.bin;
     this.prefixArgs = [...(options.prefixArgs ?? [])];
@@ -634,7 +641,7 @@ export class HeadlessDriver implements AgentDriver {
       if (key in launch && options.knobs![key as AgentKnob] !== launch[key as keyof AgentLaunch]) throw new Error(`启动选项重复且不一致：${key}`);
     }
     this.knobs = { ...options.knobs, ...launch } as HeadlessKnobs;
-    this.capabilities = Object.freeze({ transport: "headless", evidence: "adapter", installation: "unchecked", launch_options: Object.freeze([...supported]),
+    this.capabilities = Object.freeze({ transport: "headless", evidence: "adapter", installation: "unchecked", inspection: template.inspection_profile === undefined ? "unsupported" : "cli_help", launch_options: Object.freeze([...supported]),
       native_resume: template.supports_resume === true ? "supported" : "unsupported", goal: "host", workflow_resume: "authorized_unexited_goal" });
     this.name = options.name ?? `headless:${template.name}`;
     const config_task = { prompt: "cord.configuration.prompt", cwd: "" };
@@ -655,6 +662,53 @@ export class HeadlessDriver implements AgentDriver {
 
   resume(sessionId: string, task: AgentTask): AsyncIterable<AgentEvent> {
     return this.execute(task, sessionId);
+  }
+
+  /** 显式查询只执行版本/帮助，不混入prompt、模型选择或角色参数。 */
+  async inspect(cwd: string, timeout_ms = 5_000): Promise<HeadlessCapabilityObservation | null> {
+    const profile = this.template.inspection_profile;
+    if (profile === undefined) return null;
+    const deadline = Date.now() + timeout_ms;
+    const result: HeadlessCapabilityObservation = { evidence: "cli_help", profile, status: "passed", version: null, help_hash: null,
+      checks: [], launch_options: this.capabilities.launch_options.map(id => ({ id, configured: this.knobs[id as AgentKnob] !== undefined, advertised: null })), native_resume: "unknown" };
+    const commands = [{ id: "version" as const, args: ["--version"] }, { id: "task_help" as const, args: profile === "codex" ? ["exec", "--help"] : ["--help"] },
+      ...(profile === "codex" ? [{ id: "resume_help" as const, args: ["exec", "resume", "--help"] }] : [])];
+    let help: string | null = null; let resume_help: string | null = null;
+    for (const command of commands) {
+      const probe = await this.inspect_command(cwd, command.args, deadline);
+      let status = probe.status;
+      if (status === "passed") {
+        if (command.id === "version") { result.version = cli_version(profile, probe.output); if (result.version === null) status = "unrecognized"; }
+        else if (!cli_help_recognized(profile, probe.output, command.id === "resume_help")) status = "unrecognized";
+        else if (command.id === "task_help") help = probe.output;
+        else resume_help = probe.output;
+      }
+      result.checks.push({ id: command.id, status });
+      if (status !== "passed") { result.status = status; break; }
+    }
+    if (help !== null) Object.assign(result, cli_help_observation(profile, help, resume_help, this.capabilities.launch_options,
+      Object.keys(this.knobs).filter(id => this.knobs[id as AgentKnob] !== undefined)));
+    return result;
+  }
+
+  private async inspect_command(cwd: string, args: string[], deadline: number): Promise<{ status: CliProbeStatus; output: string }> {
+    if (deadline <= Date.now()) return { status: "timeout", output: "" };
+    const child = execa(this.bin, [...this.prefixArgs, ...args], { cwd, env: { ...process.env, ...this.env, NO_COLOR: "1", FORCE_COLOR: "0" },
+      detached: true, reject: false, stdin: "ignore", stdout: "pipe", stderr: "pipe", maxBuffer: 131_072 });
+    const proc = trackProcess(child); let timed_out = false; let kill_timer: NodeJS.Timeout | undefined;
+    const timer = setTimeout(() => { timed_out = true; killProcessTree(proc, "SIGTERM"); kill_timer = setTimeout(() => killProcessTree(proc, "SIGKILL"), this.killGraceMs); }, Math.max(1, deadline - Date.now()));
+    try {
+      const outcome = await child;
+      if (timed_out) return { status: "timeout", output: "" };
+      if (outcome.failed || outcome.exitCode !== 0) return { status: outcome.code === "ENOENT" ? "unavailable" : "failed", output: "" };
+      return { status: "passed", output: `${outcome.stdout}\n${outcome.stderr}`.trim() };
+    } catch { return { status: timed_out ? "timeout" : "failed", output: "" }; }
+    finally {
+      clearTimeout(timer); if (kill_timer !== undefined) clearTimeout(kill_timer);
+      await terminateProcessTree(proc, this.killGraceMs);
+      // 帮助命令结束后也清理其进程组，不能因组长提前退出遗留诊断子进程。
+      killProcessTree(proc, "SIGKILL");
+    }
   }
 
   /** 该驱动实际拼出的 argv（含 bin），供 registry/doctor/测试观测 */

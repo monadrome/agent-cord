@@ -55,7 +55,7 @@ Goal 在 SDLC 的 `run.goal` 中声明，包含宿主检查、输入、review �
 ## 查询与恢复
 
 1. `GET /api/v1/agents`：查看静态能力和配置身份，installation=unchecked。
-2. `POST /api/v1/agents/:name/inspect`，body `{}`、Idempotency-Key：ACP 创建临时 session 并核验配置，返回 protocol_version、native_resume、mode、配置 ID/类型和模型/effort 候选。没有 prompt；工具权限请求/工具报告一律拒绝，不使用 worker 预授权。初始化行为由外部适配器负责。headless observation=null，仅静态声明。
+2. `POST /api/v1/agents/:name/inspect`，body `{}`、Idempotency-Key：ACP 创建临时 session 并核验配置，返回 protocol_version、native_resume、mode、配置 ID/类型和模型/effort 候选。没有 prompt；工具权限请求/工具报告一律拒绝，不使用 worker 预授权。初始化行为由外部适配器负责。headless observation=null，明确profile模板的CLI证据另在cli_observation中返回；原始args没有探测声明时仍仅静态（[CLI查询指南](./2026-10-10-headless-cli-inspection.md)）。
 3. 修改配置后 `POST /api/v1/agents/reload`，使用新的幂等键；新 run 用新 resolver，在途 run 保持原配置。查询返回其自身 revision/hash，调用方需与当前清单比较。
 4. 原生 CLI session：库的 `driver.resume(explicit_session_id, task)`。ACP 未声明 loadSession、自定义没有完整 resume_args、空 session ID 均拒绝，不静默用最新会话。
 5. 固定 workflow 节点：读取 `GET /api/v1/runs/:run_id/goal-recovery`，用返回 token 提交 `{input_hash, node_id}` 到同 URL 的 POST。只能指定返回的原授权未退出节点，保留预算和 checkpoint；不能迁移到另一个节点或回滚已退出事实。

@@ -180,7 +180,7 @@ export interface AcpDriverOptions {
 export class AcpDriver implements AgentDriver {
   readonly name: string;
   readonly configuration_hash: string;
-  readonly capabilities: AgentCapabilities = Object.freeze({ transport: "acp", evidence: "adapter", installation: "unchecked",
+  readonly capabilities: AgentCapabilities = Object.freeze({ transport: "acp", evidence: "adapter", installation: "unchecked", inspection: "acp_handshake",
     launch_options: Object.freeze(["model", "effort", "mode", "option_ids", "config_options"]), native_resume: "negotiated", goal: "host", workflow_resume: "authorized_unexited_goal" });
   private readonly launch: AgentLaunch;
   /** agent 二进制（doctor / registry 观测用） */

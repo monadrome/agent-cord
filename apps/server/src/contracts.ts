@@ -5,7 +5,7 @@
  */
 import { z } from "zod";
 import { ULID_RE, VerificationResultSchema } from "agent-cord";
-import type { AgentCapabilities, AcpCapabilityObservation, CoordinationProposal, CoordinationStatus, GoalUsageBudget, GoalUsageTotals } from "agent-cord";
+import type { AgentCapabilities, AcpCapabilityObservation, HeadlessCapabilityObservation, CoordinationProposal, CoordinationStatus, GoalUsageBudget, GoalUsageTotals } from "agent-cord";
 
 // ---------------------------------------------------------------------------
 // 通用
@@ -46,6 +46,7 @@ export interface AgentInspectionView {
   current: boolean;
   capabilities: AgentCapabilities | null;
   observation: AcpCapabilityObservation | null;
+  cli_observation?: HeadlessCapabilityObservation | null;
 }
 
 // ---------------------------------------------------------------------------

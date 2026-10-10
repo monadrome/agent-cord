@@ -23,6 +23,7 @@ agent-cord 是一个多 agent 共识协作基座：把需求、决策、证据�
 - 用 `agents.yaml` 注册自定义 agent（ACP 子进程、headless CLI、自定义参数模板），与内置 claude / codex / kimi 并列；模板定制支持 `model` / `effort` / `max_turns` / `budget_usd` / `system_prompt` / `agent` / `agents_json` 旋钮——`system_prompt` 是软封装（追加提示），`agent` + `agents_json` 是硬封装（`--agent` 整个会话以该 subagent 身份运行，工具与权限一并继承），把 persona 注册成命名 agent。
 - 自定义 agent 配置按工作区隔离；通过清单 API 查看协议和诊断，通过显式重载应用配置。重载失败保留旧配置，在途 run 固定启动时的 agent 定义。
 - 控制台「Agent」页可搜索与筛选公开配置/启动能力、查看诊断/配置指纹/能力声明、显式查询 ACP 协议候选值、刷新与重载；查询绑定配置并标明旧结果或清单未核验。启动参数身份纳入任务和审批输入，同名 agent 改模型或角色后不复用旧任务。
+- 内置headless Agent可显式查询CLI版本、任务/恢复帮助和逐启动项帮助证据，缺CLI/超时/未知输出独立显示；查询不发prompt或更改执行身份，帮助未展示不代表不支持，模型访问/额度仍未核验（[CLI查询指南](./docs/research/2026-10-10-headless-cli-inspection.md)）。
 - ACP 支持精确 mode 配置映射，并持续核验当前 session 的显式模型/effort/mode/扩展选择；观察到漂移立即取消，禁止自动重试或交付成功。未声明选项保持 agent 自适应，旧模式空回执兼容，详情见 [配置一致性指南](./docs/research/2026-10-10-acp-launch-state-consistency.md)。
 - 用参数化 checker（`checks[].with`）拼装证据门禁：文件存在/非空/含章节/锚点数/事件已发，参数非法 fail-closed。
 - 声明 `run.retry` 让节点内的 agent 任务按退避重试（重试附上次失败摘要）；run 可随时取消——取消先落事件再中止执行器，driver 杀进程树，人工 gate 挂起同时失效。

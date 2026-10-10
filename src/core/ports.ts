@@ -269,6 +269,7 @@ export interface AgentCapabilities {
   transport: "headless" | "acp";
   evidence: "adapter";
   installation: "unchecked";
+  inspection?: "acp_handshake" | "cli_help" | "unsupported";
   launch_options: readonly string[];
   native_resume: "supported" | "unsupported" | "negotiated";
   goal: "host";

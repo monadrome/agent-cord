@@ -1221,6 +1221,7 @@ p {
 .agent-config-options th:nth-child(2) { width: 12%; }
 .agent-config-options th:nth-child(3) { width: 19%; }
 .agent-omitted-values { display: block; margin-top: 3px; }
+.agent-help-hash { margin-top: 10px; overflow-wrap: anywhere; }
 .agent-removed-observation { margin-top: 18px; border-top: 2px solid var(--warn); padding-top: 14px; }
 .coordination-workspace { letter-spacing: 0; min-width: 0; overflow-wrap: anywhere; }
 .requirement-page-head > div { min-width: 0; max-width: 100%; }

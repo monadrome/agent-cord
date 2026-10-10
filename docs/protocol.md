@@ -227,6 +227,8 @@ ADR-0073 增 `AgentDriver.capabilities` 可选静态描述，清单同步公开 
 
 `POST /api/v1/agents/:name/inspect` 需要 Idempotency-Key，可选 timeout_ms 100-10000。只接受当前清单名称，ACP initialize/new/配置核验后返回受限 observation，不发送 prompt；headless observation=null，不能视为安装已验证。响应绑定固定 revision/configuration_hash；动态模式/选项/候选上限 128、标识上限 200，省略数量明确，扩展选项不公开当前值。失败为 400，未知名称 404，配置/环境/argv 不进入响应。
 
+ADR-0077增可选`AgentCapabilities.inspection`与`AgentInspectionView.cli_observation`。内置headless及库显式inspection_profile模板只运行固定版本/help，原始args返回cli_observation=null而不猜命令。CLI结果evidence=cli_help，status为passed/unavailable/timeout/failed/unrecognized，版本短semver、帮助hash、查询步骤、启动选项configured/advertised(boolean|null)和native_resume入口广告状态。CLI缺失/失败作为200的结构化诊断事实返回，不等于配置current=false；同revision/hash只证明查询配置新鲜，不保证CLI外部未变。解析只依赖选项定义行与明确auto choices，Codex effort保持unknown；所有原stdout/stderr/错误正文不进入响应，执行身份不因诊断变化。控制台显式CLI查询和ACP观察分别展示，沿用新鲜度与幂等重放。
+
 ADR-0074 为 inspect 响应增加 `current`：server 返回时，捕获的 revision 与非空 configuration_hash 必须仍匹配同名当前 alias；查询期间成功重载/移除会为 false，失败重载保持旧配置时可为 true。幂等缓存重放原响应，不重新计算 current。console 查询后读取最新 catalog，同时检查 current/revision/hash/alias，刷新失败显示未核验；不能用历史清单或静态声明代替当前协议观察。后续查询失败保留旧结果并标“上次查询”，移除 agent 可查看旧结果但禁止再查询。
 
 ADR-0075 增 `launch.option_ids.mode`：存在时通过精确 select ID/set_config_option 选择模式，无映射则保留旧 modes/set_mode。new/load、回执和当前 session 更新进入每次执行独立的 AcpLaunchState；重复 ID/值、非法默认值、明确选项缺失/类型/值变化 fail-closed。按 mode、排序扩展、model、effort 分步核验最新选项，最后全部选择一致才进入 prompt；sealed 后明确选择漂移触发 configuration error/cancel/进程树收束，不可被后续恢复值或 result 消除。configuration 错误和 permission 同样不可重试，不因后续普通错误重新赋予 retry。显式 launch 的 v5 域绑定 explicit-session-selections.v1 策略，未声明 launch 的默认身份不变；协议协商能力仍不证明真实模型执行或副作用隔离。

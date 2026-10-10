@@ -1,12 +1,12 @@
 /** 工作区 agent 清单、重载、多工作区隔离与在途配置固定（ADR-0027）。 */
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp, type BuiltServer } from "@agent-cord/server";
-import { AcpDriver, type AcpCapabilityObservation } from "agent-cord";
+import { AcpDriver, HeadlessDriver, type AcpCapabilityObservation, type HeadlessCapabilityObservation } from "agent-cord";
 import { createClient } from "../../console/src/api.js";
 
 const fixture = join(dirname(fileURLToPath(import.meta.url)), "../../../tests/driver/fixtures/fake-cli.mjs");
@@ -120,6 +120,51 @@ async function approve(server: BuiltServer, req_id: string): Promise<void> {
 }
 
 describe("工作区 agent registry", () => {
+  it("真实CLI替身的HTTP查询只用help命令，配置/错误/不可用不泄露原文", async () => {
+    const { root, server } = await workspace("seed");
+    const source = join(dirname(fileURLToPath(import.meta.url)), "../../../tests/driver/fixtures/cli-inspection.mjs");
+    const probe = join(root, "probe-agent"); const record = join(root, "probe-calls.jsonl"); await copyFile(source, probe); await chmod(probe, 0o755);
+    await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: {
+      observed: { kind: "headless", template: "claude", bin: probe, launch: { bare: true, auto: true, model: "PRIVATE_MODEL_MARKER" },
+        env: { CORD_INSPECT_PROFILE: "claude", CORD_INSPECT_RECORD: record, PRIVATE_ENV: "PRIVATE_ENV_MARKER" } },
+      unavailable: { kind: "headless", template: "codex", bin: "/missing/private-cli" },
+    } }));
+    await server.agents.reload(); const address = await server.app.listen({ port: 0, host: "127.0.0.1" }); const client = createClient(address);
+    const result = await client.inspectAgent("observed", "cli-fixture-once");
+    expect(result).toMatchObject({ current: true, observation: null, cli_observation: { status: "passed", version: "2.3.4", native_resume: "advertised" } });
+    expect(result.cli_observation!.launch_options.find(option => option.id === "bare")).toMatchObject({ configured: true, advertised: true });
+    expect(await client.inspectAgent("observed", "cli-fixture-once")).toEqual(result);
+    expect((await readFile(record, "utf8")).trim().split("\n").map(line => JSON.parse(line).args)).toEqual([["--version"], ["--help"]]);
+    expect(JSON.stringify(result)).not.toContain("PRIVATE_"); expect(JSON.stringify(result)).not.toContain(probe);
+    expect(await client.inspectAgent("unavailable")).toMatchObject({ current: true, cli_observation: { status: "unavailable", version: null } });
+  });
+
+  it("CLI帮助观察通过真实HTTP保留配置身份/幂等，原始wrapper不自动探测", async () => {
+    const { root, server } = await workspace("seed");
+    const loaded = server.agents.resolver()("worker") as HeadlessDriver;
+    const observed: HeadlessCapabilityObservation = { evidence: "cli_help", profile: "claude", status: "passed", version: "2.1.220", help_hash: "a".repeat(64),
+      checks: [{ id: "version", status: "passed" }], launch_options: [{ id: "model", configured: true, advertised: true }], native_resume: "advertised" };
+    const spy = vi.spyOn(loaded, "inspect").mockResolvedValue(observed);
+    const address = await server.app.listen({ port: 0, host: "127.0.0.1" }); const client = createClient(address);
+    const result = await client.inspectAgent("worker", "cli-once");
+    expect(result).toMatchObject({ current: true, configuration_hash: loaded.configuration_hash, observation: null, cli_observation: observed });
+    expect(await client.inspectAgent("worker", "cli-once")).toEqual(result); expect(spy).toHaveBeenCalledTimes(1);
+    await write_config(root, "new"); await server.agents.reload();
+    expect(await client.inspectAgent("worker", "custom-unchecked")).toMatchObject({ observation: null, cli_observation: null });
+  });
+
+  it("CLI查询期间重载仍保留原身份和current=false，不把新参数贴给旧CLI观察", async () => {
+    const { root, server } = await workspace("old"); const worker = server.agents.resolver()("worker") as HeadlessDriver;
+    const observed: HeadlessCapabilityObservation = { evidence: "cli_help", profile: "codex", status: "timeout", version: null, help_hash: null,
+      checks: [{ id: "version", status: "timeout" }], launch_options: [], native_resume: "unknown" };
+    let entered!: () => void; let release!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; }); const held = new Promise<void>(resolve => { release = resolve; });
+    vi.spyOn(worker, "inspect").mockImplementation(async () => { entered(); await held; return observed; });
+    const before = server.agents.catalog(); const pending = server.agents.inspect("worker"); await started;
+    try { await write_config(root, "new"); await server.agents.reload(); } finally { release(); }
+    expect(await pending).toMatchObject({ current: false, revision: before.revision, configuration_hash: worker.configuration_hash, cli_observation: observed });
+  });
+
   it.each(["changed", "unchanged", "removed", "invalid_reload"])("查询期间 %s 保留原快照身份并核验 current", async mode => {
     const { root, server } = await workspace("seed");
     const config = { agents: { worker: { kind: "acp", bin: "probe-agent" } } };
@@ -168,7 +213,6 @@ describe("工作区 agent registry", () => {
     expect(recorded.some(entry => entry.event === "session/set_mode")).toBe(false);
     expect(first.observation!.config_options.find(option => option.id === "workflow")).toMatchObject({ category: null, values: ["plan", "code"] });
     expect(JSON.stringify(first)).not.toContain("PRIVATE_ENV_MARKER"); expect(JSON.stringify(first)).not.toContain(acp_fixture);
-    expect((await client.inspectAgent("headless:codex")).observation).toBeNull();
     await expect(client.inspectAgent("unknown")).rejects.toMatchObject({ status: 404 });
     await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: { negotiator: { kind: "acp", bin: process.execPath,
       args: [acp_fixture], launch: { model: "large", option_ids: { model: "llm" } } } } }));
