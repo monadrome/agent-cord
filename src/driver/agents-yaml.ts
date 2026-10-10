@@ -40,6 +40,8 @@ const AgentEntrySchema = z.discriminatedUnion("kind", [
     bin: z.string().min(1).optional(),
     args: z.array(z.string()).optional(),
     resume_args: z.array(z.string()).optional(),
+    readonly_args: z.array(z.string()).optional(),
+    readonly_resume_args: z.array(z.string()).optional(),
     env: z.record(z.string(), z.string()).optional(),
     context_revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
     model: z.string().min(1).optional(),
@@ -149,7 +151,7 @@ function compileAgentsYaml(yaml: AgentsYaml | null): {
         continue;
       }
       if (entry.template !== undefined) {
-        if (entry.resume_args !== undefined) throw new Error("模板形态不能声明 resume_args");
+        if (entry.resume_args !== undefined || entry.readonly_args !== undefined || entry.readonly_resume_args !== undefined) throw new Error("模板形态不能声明自定义参数分支");
         const template = getHeadlessCliTemplate(entry.template);
         if (template === undefined) {
           warnings.push(`agents.${name}: 未知 headless 模板 "${entry.template}"，跳过注册`);
@@ -190,7 +192,10 @@ function compileAgentsYaml(yaml: AgentsYaml | null): {
         }
         drivers.set(name, new HeadlessDriver({
           cli: name,
-          template: custom_headless_template(name, entry.bin, args, entry.resume_args),
+          template: custom_headless_template(name, entry.bin, args, entry.resume_args, {
+            ...(entry.readonly_args === undefined ? {} : { readonly_args: entry.readonly_args }),
+            ...(entry.readonly_resume_args === undefined ? {} : { readonly_resume_args: entry.readonly_resume_args }),
+          }),
           ...(entry.launch === undefined ? {} : { launch: entry.launch }),
           ...(entry.env !== undefined ? { env: entry.env } : {}),
           name: `headless:${name}`,

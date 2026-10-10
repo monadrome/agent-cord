@@ -225,6 +225,10 @@ REST 的 `approval_id` 是等待事件 ULID；旧静态编码可解析但不允�
 
 ADR-0073 增 `AgentDriver.capabilities` 可选静态描述，清单同步公开 transport、launch_options、native_resume、宿主 Goal 与受限节点恢复语义。`launch` 严格校验；模板不支持的显式旋钮拒绝该别名，自定义参数不再静默忽略旋钮。ACP model/effort 必须带 option_ids，session/new/load 后核验 select/boolean 和设置回执，再发送 prompt；initialize 声明 boolean 配置能力。readonly 拒绝未知扩展配置和非 plan mode；Claude readonly 覆盖 auto 为 plan。有效参数与协议配置进入配置身份；自定义无 resume_args 不承诺原生恢复。
 
+ADR-0080 为自定义 headless 条目增加完整 `readonly_args/readonly_resume_args`；`{{readonly}}` 替换为任务的 `true/false`。新会话选 args/readonly_args；恢复选 resume_args/readonly_resume_args，分支不相互追加。没有独立只读分支时，resume_args 必须使用 readonly 占位才支持只读恢复；声明 readonly_args 后必须另有 readonly_resume_args。后者要求同时声明前两种分支；恢复必须绑定 session，所有分支保持 model/effort 映射与基本 args 必需的 prompt。未知/漏映射拒绝别名，模板形态禁止混入这些分支。替换一次、不经 shell。
+
+公开与 CoordinationAgentCapabilities 的可选 `readonly_launch: mapped/unmapped`、`readonly_resume: supported/unsupported` 仅描述 headless 参数映射，ACP 不设置这两个字段。外部 HeadlessCliTemplate 的 supports_readonly/supports_readonly_resume 必须显式声明，不从普通 supports_resume 推断；未声明只读恢复则在 spawn 前拒绝。实际四分支 argv/不可用恢复 null 进入配置 hash；旧新任务 argv 不变，但旧无只读恢复映射配置的 hash 可变化并触发现有新鲜度核验。只读工具审计仍独立，不保证 OS 沙箱或回滚副作用。
+
 `POST /api/v1/agents/:name/inspect` 需要 Idempotency-Key，可选 timeout_ms 100-10000。只接受当前清单名称，ACP initialize/new/配置核验后返回受限 observation，不发送 prompt；headless observation=null，不能视为安装已验证。响应绑定固定 revision/configuration_hash；动态模式/选项/候选上限 128、标识上限 200，省略数量明确，扩展选项不公开当前值。失败为 400，未知名称 404，配置/环境/argv 不进入响应。
 
 ADR-0077增可选`AgentCapabilities.inspection`与`AgentInspectionView.cli_observation`。内置headless及库显式inspection_profile模板只运行固定版本/help，原始args返回cli_observation=null而不猜命令。CLI结果evidence=cli_help，status为passed/unavailable/timeout/failed/unrecognized，版本短semver、帮助hash、查询步骤、启动选项configured/advertised(boolean|null)和native_resume入口广告状态。CLI缺失/失败作为200的结构化诊断事实返回，不等于配置current=false；同revision/hash只证明查询配置新鲜，不保证CLI外部未变。解析只依赖选项定义行与明确auto choices，Codex effort保持unknown；所有原stdout/stderr/错误正文不进入响应，执行身份不因诊断变化。控制台显式CLI查询和ACP观察分别展示，沿用新鲜度与幂等重放。

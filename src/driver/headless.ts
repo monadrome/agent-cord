@@ -455,6 +455,9 @@ export interface HeadlessCliTemplate {
   readonly knobs?: readonly AgentKnob[];
   /** 自定义模板缺省不承诺能恢复；内置模板显式声明。 */
   readonly supports_resume?: boolean;
+  /** 只声明CLI参数映射，不证明权限隔离；缺省不声明支持。 */
+  readonly supports_readonly?: boolean;
+  readonly supports_readonly_resume?: boolean;
   /** 显式兼容的版本/帮助查询；自定义 args 缺省不猜测。 */
   readonly inspection_profile?: HeadlessInspectionProfile;
   args(input: HeadlessArgInput): string[];
@@ -478,6 +481,8 @@ const BUILTIN_TEMPLATES: readonly HeadlessCliTemplate[] = [
     bin: "kimi",
     knobs: ["model"],
     supports_resume: true,
+    supports_readonly: true,
+    supports_readonly_resume: true,
     args: ({ prompt, readonly, resume_session_id, model }) => [
       ...(resume_session_id !== undefined ? ["--session", resume_session_id] : []),
       // readonly：plan 模式只出计划不改文件；无人值守时不会弹交互审批
@@ -496,6 +501,8 @@ const BUILTIN_TEMPLATES: readonly HeadlessCliTemplate[] = [
     bin: "claude",
     knobs: ["model", "effort", "max_turns", "budget_usd", "system_prompt", "agent", "agents_json", "bare", "auto"],
     supports_resume: true,
+    supports_readonly: true,
+    supports_readonly_resume: true,
     args: ({
       prompt,
       readonly,
@@ -540,6 +547,8 @@ const BUILTIN_TEMPLATES: readonly HeadlessCliTemplate[] = [
     bin: "codex",
     knobs: ["model", "effort"],
     supports_resume: true,
+    supports_readonly: true,
+    supports_readonly_resume: true,
     args: ({ prompt, readonly, resume_session_id, model, effort }) => [
       "exec",
       ...(resume_session_id !== undefined ? ["resume", resume_session_id] : []),
@@ -642,7 +651,8 @@ export class HeadlessDriver implements AgentDriver {
     }
     this.knobs = { ...options.knobs, ...launch } as HeadlessKnobs;
     this.capabilities = Object.freeze({ transport: "headless", evidence: "adapter", installation: "unchecked", inspection: template.inspection_profile === undefined ? "unsupported" : "cli_help", launch_options: Object.freeze([...supported]),
-      native_resume: template.supports_resume === true ? "supported" : "unsupported", goal: "host", workflow_resume: "authorized_unexited_goal" });
+      native_resume: template.supports_resume === true ? "supported" : "unsupported", readonly_launch: template.supports_readonly === true ? "mapped" : "unmapped",
+      readonly_resume: template.supports_resume === true && template.supports_readonly_resume === true ? "supported" : "unsupported", goal: "host", workflow_resume: "authorized_unexited_goal" });
     this.name = options.name ?? `headless:${template.name}`;
     const config_task = { prompt: "cord.configuration.prompt", cwd: "" };
     this.configuration_hash = sha256Hex(canonicalJson({
@@ -652,7 +662,7 @@ export class HeadlessDriver implements AgentDriver {
       argv: this.buildArgv(config_task),
       readonly_argv: this.buildArgv({ ...config_task, readonly: true }),
       resume_argv: this.template.supports_resume === true ? this.buildArgv(config_task, "cord.configuration.session") : null,
-      readonly_resume_argv: this.template.supports_resume === true ? this.buildArgv({ ...config_task, readonly: true }, "cord.configuration.session") : null,
+      readonly_resume_argv: this.template.supports_resume === true && this.template.supports_readonly_resume === true ? this.buildArgv({ ...config_task, readonly: true }, "cord.configuration.session") : null,
     }));
   }
 
@@ -720,6 +730,7 @@ export class HeadlessDriver implements AgentDriver {
   /** 该驱动实际拼出的 argv（含 bin），供 registry/doctor/测试观测 */
   buildArgv(task: AgentTask, resumeSessionId?: string): string[] {
     if (resumeSessionId !== undefined && (resumeSessionId.length === 0 || this.template.supports_resume !== true)) throw new Error("agent 不支持显式原生 session resume");
+    if (resumeSessionId !== undefined && task.readonly === true && this.template.supports_readonly_resume !== true) throw new Error("agent 不支持当前只读模式的原生session resume");
     return [
       this.bin,
       ...this.prefixArgs,

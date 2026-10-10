@@ -42,11 +42,15 @@ agents:
     kind: headless
     bin: your-wrapper
     args: [run, --model, '{{model}}', --effort, '{{effort}}', '{{prompt}}']
+    readonly_args: [review, --model, '{{model}}', --effort, '{{effort}}', '{{prompt}}']
     resume_args: [resume, '{{resume_session_id}}', --model, '{{model}}', --effort, '{{effort}}', '{{prompt}}']
+    readonly_resume_args: [review-resume, '{{resume_session_id}}', --model, '{{model}}', --effort, '{{effort}}', '{{prompt}}']
     launch: {model: your-model-id, effort: high}
 ```
 
 ACP 的 ID、mode 和值均为示例，必须以实际 session 协商为准。`launch.bare: true` 仅当前 Claude 模板支持，明确承担上下文/认证加载差异后再开启。旧顶层模板旋钮仍接受；与 launch 重复且值不一致时拒绝。自定义参数只能使用已映射的占位符，完整 resume_args 不继承 args。参数直接传给 subprocess，不经 shell；替换一次，不展开 prompt 内的占位文本。
+
+自定义只读新任务与恢复分别选择 readonly_args/readonly_resume_args，或由 args/resume_args 的 `{{readonly}}` 传递模式。缺少只读恢复映射时拒绝启动，能力表明确显示不支持；这会改变受影响的旧配置身份。示例子命令需由真实 wrapper 实现，参数映射不证明只读隔离，详见 [只读配置与迁移指南](./2026-10-10-custom-readonly-launch.md)。
 
 ACP `option_ids.mode` 走新 configOptions；省略映射时使用旧 modes/set_mode。模式改变候选后再按最新列表设置 model/effort。明确选择在当前 session 更新时持续核验，漂移/类型变化/选项缺失立即取消并形成不可重试配置错误，不能产出 ready/成功提议；未显式参数保留 agent 自适应。详细边界和人审见 [配置一致性指南](./2026-10-10-acp-launch-state-consistency.md)。
 

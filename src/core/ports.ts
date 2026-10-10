@@ -272,6 +272,9 @@ export interface AgentCapabilities {
   inspection?: "acp_handshake" | "cli_help" | "unsupported";
   launch_options: readonly string[];
   native_resume: "supported" | "unsupported" | "negotiated";
+  /** ADR-0080：仅描述headless实参映射，不证明工具/OS隔离。 */
+  readonly_launch?: "mapped" | "unmapped";
+  readonly_resume?: "supported" | "unsupported";
   goal: "host";
   workflow_resume: "authorized_unexited_goal";
 }

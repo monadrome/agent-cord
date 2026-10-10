@@ -1,5 +1,13 @@
 # 调研发现
 
+## 阶段66（2026-10-10）：自定义wrapper忽略readonly
+
+- custom_headless_template仅替换prompt/model/effort/session，未消费task.readonly；同wrapper实现与评审只能用相同启动参数，配置意图没有传到CLI。
+- 用完整readonly_args/readonly_resume_args与readonly占位可明确映射四种调用，不推断wrapper/OS已实施权限；legacy无映射继续可见unmapped，独立恢复缺分支不能回退可写或新会话。
+- 配置身份已有四种argv，受影响分支加入hash即可沿用协调/审批/恢复新鲜度，未知/漏模型/漏session需在注册前拒绝。
+- 审查发现通用HeadlessCliTemplate的readonly_resume缺省仍按supports_resume推断，和unmapped声明矛盾；必须显式supports_readonly_resume=true，内置模板补声明，外部缺声明时拒绝，不用普通恢复能力代替模式映射。
+- 实际HTTP中先ready后更新PRD；历史ready成功与最新协调current=true是不同证据，文档须明确新鲜度变化，不能把验收结果中的goal_ready当作当前交付已就绪。
+
 ## 阶段65（2026-10-10）：查询资源生命周期
 
 - REST幂等仅共享同key请求，不同key/多端能力查询会独立spawn；AgentService没有关闭/并发边界。

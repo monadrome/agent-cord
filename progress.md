@@ -1,5 +1,17 @@
 # 工作进度
 
+## 2026-10-10（阶段66）
+
+- b69b051工作树干净/ahead4；阶段65真实TCP/进程验收属于进展，独立ls-remote成功但远端仍b01ea64。积压本地提交保留，结束时再有界同步。
+- 读取自定义args编译与readonly调用、现有四分支配置hash/能力上下文，确定readonly忽略缺口。ADR-0080先于ports/schema修改，沿用planning-with-files/agent-optimizer，不需要付费模型或重新外部调研。
+- 17项自定义分支、2项真实TCP Goal/评审/协调与90项既有启动配置回归通过。首次完整npm test1325项/90文件、typecheck/build:all通过，证据/tmp/cord-stage66-tests.json；Vitest汇总suite数含describe分组，实际文件数以testResults.length为准。
+- 隔离HTTP预览PID34296/http://127.0.0.1:52985：实际write/false、review/true、最新PRD协调review/true，宿主业务值检查与指南证据通过；审批1、人工决定0，仅deliver退出，doctor=true。ready发生在PRD更新前，属于历史交付证据，不冒称仍对应最新需求；更新后的协调current=true/提议wait，人工审批保持未决。
+- Playwright1440/390/320五截图、mapped/unsupported/unmapped三状态通过，pageerror=[]/无横向溢出/inspect请求0；桌面、最窄mapped与legacy截图已查看无覆盖。结果/tmp/cord-stage66-browser-result.json，临时脚本/截图/数据不入仓库。
+- 审查补出外部HeadlessCliTemplate仅普通resume也默认冒称readonly_resume=supported的缺口；先更新ADR-0080，再改为显式声明、内置模板补true并增加无进程拒绝/可写兼容/身份变化回归。README旧“只替换prompt”说明同步修正，核心feature/架构/协议/示例与human review指南补齐迁移边界；最终全量验证待完成。
+- 路由定位首次搜索旧routes/requirements.ts路径不存在，按实际目录检索后继续；未影响运行事实。
+- 42项最终定向回归通过；最终完整npm test1326项/90文件、typecheck/build:all/diff通过，证据/tmp/cord-stage66-final-tests.json。新协调prompt实际包含旧deliver ready/current=false/freshness_reason=stale_input；HTTP health200、审批1、run waiting_human、协调current=true/wait均再次核验。
+- 七份相关文档首轮100项本地链接通过，ADR增加指南后为101项；最终文档链接与diff检查后准备功能小步提交。系统没有gtimeout命令，Git同步采用Node子进程总时长限制，不修改全局设置，不启动版本发布或tag，完整持续目标active。
+
 ## 2026-10-10（阶段65）
 
 - b01ea64工作树干净/tracking同步；上一轮流程Agent上下文与1290项验证属于实际进展。
