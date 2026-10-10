@@ -327,3 +327,9 @@
 - 当前 `AgentDriver` 已统一归一化 `tool_use`，但 coordinator 对可写/只读节点没有跨 driver 的工具事实审计；`readonly=true` 主要依赖 CLI 参数，未知自定义 wrapper 可能仍执行工具。
 - 新策略只在宿主能判断时放行：明确读工具和无副作用的 argv 命令允许，写工具、未知工具、缺少命令输入或含 shell 控制语法均拒绝。违规落现有 `agent.task.completed` driver failure，`retryable=false`，不自动反复尝试。
 - 该策略是 fail-closed 审计，不是执行前拦截或 OS 沙箱；ACP permission policy、Codex read-only sandbox 和最终源码/产物验证仍是独立边界。
+
+## 实现校准（2026-10-09，workspace lease）
+
+- `RunService` 原来只按 `req_id` 限制在途 run；同一 server root 下的两个需求仍可同时启动 worker，共享源码、测试临时文件和自定义 artifact，和文档中的 worktree/隔离安全基线不一致。
+- 本阶段用进程内 workspace lease fail-closed：单 RunService 内只允许一个含 `node.run` 的活动 executor；新请求冲突 409 不落事实，启动失败无条件释放，已派发等 finally 收束。冷恢复冲突保留原 run/预算，释放后自动重检，取消不复活；无 agent 流程兼容。
+- lease 不是 git worktree、OS sandbox 或跨进程分布式锁；它先防止当前 server 内部的并发污染，后续仍需独立 worktree/容器与跨 daemon 锁契约。

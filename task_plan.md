@@ -755,6 +755,15 @@
 - [x] 覆盖读工具、写工具、未知工具、危险命令、真实 ACP/headless coordinator 回归
 - [x] ADR/研究/协议/架构同步；全量 1104 项、typecheck/build:all/diff 通过；功能提交 `ec18ad5` 已推送，收尾文档提交 `a4e8988` 因 GitHub 低速待同步
 
+## 阶段 55：同 workspace agent 执行 lease（已实现并验证，提交中）
+
+- [x] 核对 RunService 当前仅按需求限制 active run，确认共享 workspace 并发污染风险与恢复边界
+- [x] 在 start/recover/retry/close/cancel 生命周期加入 workspace lease，冲突 fail-closed 且无 agent 流程兼容
+- [x] 覆盖同 workspace 并发、不同 workspace 并发、启动失败/取消/恢复释放与索引重建边界
+- [x] ADR/研究/架构/协议及 human review 指南同步；14 项 lease 与 2 项 Goal 占用回归、隔离 ACP/headless 真实 HTTP 通过
+- [x] 全量 1120 项 / 78 文件、typecheck/build:all/diff 通过
+- [ ] 小步功能提交与有界推送，独立核验远端 hash
+
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
 - [x] 核验当前分支与阶段 10；上一轮实现和远端同步属于已验证进展

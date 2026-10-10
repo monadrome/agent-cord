@@ -17,6 +17,16 @@
 - 真实 headless 与 ACP fixture 回归覆盖 `Read`、ACP `read file`、Codex `command_execution` 安全命令及越权路径；该审计明确不替代 ACP permission、CLI/OS sandbox 或副作用回滚。
 - 最终全量 1104 项 / 77 文件、typecheck/build:all/diff 通过；功能提交 `ec18ad5`（`fix: audit readonly worker tools`）HTTP/2 push 报成功；收尾文档提交 `a4e8988` 的 HTTP/2 与 HTTP/1.1 push、独立 `ls-remote` 均因 GitHub 低速（低于 1 bytes/sec 持续 15/20 秒）失败，两个本地提交保留，工作区干净。
 
+## 2026-10-09（阶段 55）
+
+- 发现 RunService 只限制同一需求 active run，同一 server workspace 的不同需求仍能同时启动 worker，共享源码/测试临时目录；先用进程内 workspace lease 建立 fail-fast 保护。
+- lease 覆盖 start、冷恢复、人工授权 Goal 恢复；新请求冲突 409 不落额外事实。首次定向发现授权前错误导致 lease 未释放，最终修正启动 catch 无条件释放；safeFinish 不再提前释放，活动 executor 等 finally 收束。无 agent 流程兼容，冷恢复冲突保留原 run/预算并在释放后自动重检续跑。
+- 新增真实 server 回归：同 workspace 冲突/取消释放、不同 workspace 并发、worker 启动失败释放；ADR-0069、研究/架构/协议/核心 feature/README 已同步，下一步全量验证。
+- 两个新反例先复现登记前失败泄漏和冷恢复冲突伪造 failed；修复后 13 项 lease 回归及 2 项 Goal 占用回归通过，覆盖真实 ACP/headless 在途 PID 回收、并发单启动、冷/索引删除恢复、延后取消、无 agent 兼容、授权/恢复零额外事实。
+- 增加启动校验期间关闭回归，14 项 lease 全绿。首轮全量 1118/1119 通过，唯一失败为旧 registry 测试同目录并行两需求的预期；改为旧 run 完成后启动新 run，仍验证热重载固定旧配置与新配置生效。
+- 最终全量 1120 项 / 78 文件、typecheck/build:all/diff 通过。隔离实际 HTTP ACP/headless：冲突 409/被拒绝启动事实 0、取消后原 PID 回收、下一 worker 1 次/审批 1/人工决定 0/节点退出 0/doctor=true；无付费调用，服务已关闭，证据 `/tmp/cord-stage55-http-result.json`。
+- ADR-0069 和研究 human review 指南已明确单实例 lease、热/冷人审差异、自动原授权恢复与后续 worktree/OS/跨 daemon 隔离限制；原真实开发 Draft 未操作。
+
 ## 2026-10-09（阶段 52）
 
 - 当前 8c330ac 已同步远端且工作树干净；阶段 51 为已验证进展。审查发现 ACP/headless 已有规范化 usage，但 Goal 只保存 task usage，不累计也不限制目标资源。

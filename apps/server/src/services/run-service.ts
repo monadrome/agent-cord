@@ -127,6 +127,10 @@ export class RunService {
   private readonly decision_queue = new Map<string, Promise<unknown>>();
   private recovery_queue: Promise<unknown> = Promise.resolve();
   private readonly goal_recovering = new Map<string, { input_hash: string; promise: Promise<RunInfo> }>();
+  /** ADR-0069：同一 server workspace 内的 agent run 不能并发写共享源码。 */
+  private readonly workspace_leases = new Map<string, { req_id: string; run_id: string }>();
+  /** 只保存已授权、可由启动事实重建的恢复引用，不创建新的排队 run。 */
+  private readonly deferred_recoveries = new Set<string>();
   private closing = false;
 
   constructor(sessions: SessionService, sdlcs: SdlcService, index: IndexStore, options: RunServiceOptions = {}) {
@@ -234,7 +238,9 @@ export class RunService {
           `SDLC "${versioned.sdlc_id}" v${versioned.version} 已归档，禁止启动新 run（可取消归档或选择其他版本）`,
         );
       }
+      this.reserveWorkspace(reqId, reservedRunId, versioned.def);
       await guard?.validate(session, versioned.def, versioned.workflow_revision);
+      if (this.closing) throw conflict("服务正在关闭，不能登记新 run");
       const run: RunRow = {
         run_id: reservedRunId,
         req_id: reqId,
@@ -257,10 +263,12 @@ export class RunService {
           ...(guard?.goal_retry_round_id === undefined ? {} : { goal_retry_round_id: guard.goal_retry_round_id }) }, source: { adapter: "console-server" } });
       await guard?.record(session, reservedRunId);
       await this.assertGoalRetryIdentity(session, await session.events.readOrdered(), run, versioned.def, driverResolver);
+      if (this.closing) throw conflict("服务正在关闭，启动事实已保留，等待冷恢复");
       this.launch(session, run, versioned.def, controller, driverResolver);
       return runRowToInfo(run);
     } catch (error) {
       if (registered) this.safeFinish(reservedRunId, "failed", error instanceof Error ? error.message : String(error));
+      this.releaseWorkspace(reqId, reservedRunId);
       if (this.active.get(reqId)?.run_id === reservedRunId) this.active.delete(reqId);
       throw error;
     }
@@ -463,6 +471,7 @@ export class RunService {
     for (const run of this.index.listRuns()) {
       if (this.closing) break;
       if (run_id !== undefined && run.run_id !== run_id) continue;
+      this.deferred_recoveries.delete(run.run_id);
       if (this.active.has(run.req_id)) continue;
       const session = await this.sessions.open(run.req_id);
       const events = await session.events.readOrdered();
@@ -584,8 +593,12 @@ export class RunService {
       }
       const latest = await this.latestRun(run.req_id);
       if (latest?.run_id !== run.run_id || (latest.status !== "running" && latest.status !== "waiting_human" && !explicit_retry_recovery) || this.active.has(run.req_id)) continue;
-      this.index.setRunStatus(run.run_id, "running");
-      this.launch(session, run, versioned.def, new AbortController(), driverResolver);
+      try { this.reserveWorkspace(run.req_id, run.run_id, versioned.def); }
+      catch { this.deferred_recoveries.add(run.run_id); continue; }
+      try {
+        this.index.setRunStatus(run.run_id, "running");
+        this.launch(session, run, versioned.def, new AbortController(), driverResolver);
+      } catch (error) { this.releaseWorkspace(run.req_id, run.run_id); throw error; }
       resumed.push(`${run.req_id}(${run.run_id})`);
     }
     return resumed;
@@ -682,7 +695,7 @@ export class RunService {
 
   /** 在后台推进执行器；结束时按事件流投影登记终态并重建账本 */
   private launch(session: SessionHandle, run: RunRow, def: WorkflowDef, controller: AbortController, fixed_resolver?: (name: string) => AgentDriver): void {
-    if (this.closing) return;
+    if (this.closing) { this.releaseWorkspace(session.req_id, run.run_id); return; }
     const humanGate = this.createHumanGate(session, run, def);
     const { workspaceRoot } = this.options;
     const driverResolver = fixed_resolver ?? this.options.driverResolverForRun?.() ?? this.options.driverResolver;
@@ -745,6 +758,7 @@ export class RunService {
         for (const [key, pending] of this.pendingAsks) if (pending.req_id === session.req_id) this.pendingAsks.delete(key);
         for (const key of this.decided.keys()) if (key.startsWith(`${session.req_id}:`)) this.decided.delete(key);
         this.active.delete(session.req_id);
+        this.releaseWorkspace(session.req_id, run.run_id);
       });
     this.active.set(session.req_id, { run_id: run.run_id, req_id: session.req_id, promise, controller,
       ...(driverResolver !== undefined ? { driverResolver } : {}),
@@ -938,6 +952,7 @@ export class RunService {
       if (!state.view.available || state.view.input_hash !== input_hash) throw conflict(state.view.reason ?? "Goal 恢复依据已变化，请刷新");
       const checked = await this.readGoalRecoveryState(run, resolver, controller);
       if (checked.view.input_hash !== input_hash) throw conflict("Goal 恢复依据在核验期间已变化");
+      this.reserveWorkspace(run.req_id, run.run_id, state.versioned.def);
       const payload = GoalRecoveryRequestedPayloadSchema.parse({ ...checked.request_input, input_hash });
       await session.events.append({ event_id: ulid(), session_id: run.req_id, type: "goal.recovery.requested", schema_version: "1",
         actor: { kind: "human", id: "local-human" }, correlation_id: runId, payload, source: { adapter: "console-server" } });
@@ -952,12 +967,35 @@ export class RunService {
       }
       return this.getRun(runId);
     } finally {
-      if (!launched && this.active.get(run.req_id)?.controller === controller) this.active.delete(run.req_id);
+      if (!launched && this.active.get(run.req_id)?.controller === controller) {
+        this.active.delete(run.req_id);
+        this.releaseWorkspace(run.req_id, run.run_id);
+      }
     }
   }
 
   listRuns(reqId?: string): RunInfo[] {
     return this.index.listRuns(reqId).map(runRowToInfo);
+  }
+
+  private reserveWorkspace(req_id: string, run_id: string, def: WorkflowDef): void {
+    if (this.closing) throw conflict("服务正在关闭，不能占用工作区");
+    const workspace = this.options.workspaceRoot;
+    if (workspace === undefined || !def.spec.nodes.some(node => node.run !== undefined)) return;
+    const prior = this.workspace_leases.get(workspace);
+    if (prior !== undefined && (prior.run_id !== run_id || prior.req_id !== req_id)) {
+      throw conflict(`当前工作区已被需求 ${prior.req_id} 的 run ${prior.run_id} 占用，请等待其收束`);
+    }
+    this.workspace_leases.set(workspace, { req_id, run_id });
+  }
+
+  private releaseWorkspace(req_id: string, run_id: string): void {
+    const workspace = this.options.workspaceRoot;
+    if (workspace === undefined) return;
+    const lease = this.workspace_leases.get(workspace);
+    if (lease?.req_id !== req_id || lease.run_id !== run_id) return;
+    this.workspace_leases.delete(workspace);
+    if (!this.closing) for (const deferred of this.deferred_recoveries) void this.recover(deferred).catch(() => undefined);
   }
 }
 

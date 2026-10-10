@@ -250,11 +250,11 @@ describe("工作区 agent registry", () => {
     await wait_for(async () => (await server.sessions.listApprovals("REQ-OLD")).length === 1);
     await write_config(root, "NEW_CONFIG");
     expect((await request(server, "POST", "/api/v1/agents/reload", undefined, "while-running")).status).toBe(200);
+    await approve(server, "REQ-OLD");
+    await completed(server, old_run);
     const new_run = await start(server, "REQ-NEW");
     await wait_for(async () => (await server.sessions.listApprovals("REQ-NEW")).length === 1);
-    await approve(server, "REQ-OLD");
     await approve(server, "REQ-NEW");
-    await completed(server, old_run);
     await completed(server, new_run);
     expect(await readFile(join(root, "cord", "REQ-OLD", "findings.md"), "utf8")).toContain("OLD_CONFIG");
     expect(await readFile(join(root, "cord", "REQ-NEW", "findings.md"), "utf8")).toContain("NEW_CONFIG");

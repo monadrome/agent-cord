@@ -12,6 +12,7 @@ import { createClient } from "../../console/src/api.js";
 
 const worker = fileURLToPath(new URL("../../../tests/driver/fixtures/goal-worker.mjs", import.meta.url));
 const supervisor = fileURLToPath(new URL("../../../tests/driver/fixtures/goal-supervisor.mjs", import.meta.url));
+const lease_holder = fileURLToPath(new URL("../../../tests/driver/fixtures/fake-cli.mjs", import.meta.url));
 let root: string;
 let server: BuiltServer | undefined;
 let sequence = 0;
@@ -70,7 +71,53 @@ async function interruptedRetry(max_attempts = 1) {
   return (await facts()).find(event => event.type === "goal.retry.authorized")!.payload["run_id"] as string;
 }
 
+async function holdWorkspace() {
+  await writeFile(join(root, "cord", "agents.yaml"), stringify({ agents: {
+    worker: { kind: "headless", bin: process.execPath, args: [worker, "{{prompt}}"] },
+    supervisor: { kind: "headless", bin: process.execPath, args: [supervisor, "{{prompt}}"] },
+    holder: { kind: "headless", bin: process.execPath, args: [lease_holder, "--mode", "claude", "--no-tools", "{{prompt}}"] },
+  } }));
+  await server!.agents.reload();
+  await server!.sdlcs.publish("workspace-holder", stringify({ apiVersion: "agent-cord.dev/v1alpha1", kind: "Workflow", metadata: { id: "workspace-holder" }, spec: { nodes: [
+    { id: "hold", artifact: "review.md", run: { agent: "holder" }, gates: [{ id: "human", role: {}, attach: { node: "hold", when: "post" },
+      checks: [{ ref: "file-nonempty", with: { path: "review.md" } }], pass: { human_confirm: true }, on_fail: "block" }] },
+  ] } }));
+  expect((await api("POST", "/requirements", { req_id: "REQ-HOLDER", title: "占用工作区" })).status).toBe(201);
+  const started = await api("POST", "/requirements/REQ-HOLDER/runs", { sdlc_id: "workspace-holder" });
+  expect(started.status).toBe(202);
+  await waitFor(async () => (await api("GET", "/requirements/REQ-HOLDER/approvals")).body.approvals.length === 1);
+  return started.body.run.run_id as string;
+}
+
 describe("人工授权 Goal 续跑", () => {
+  it("工作区占用拒绝 Goal 恢复且不落恢复请求，释放后同 token 可续跑", async () => {
+    const run_id = await interruptedRetry();
+    const url = "/runs/" + run_id + "/goal-recovery";
+    const recovery = (await api("GET", url)).body.recovery;
+    const holder = await holdWorkspace();
+    const rejected = await api("POST", url, { input_hash: recovery.input_hash });
+    expect(rejected.status).toBe(409);
+    expect((await facts()).filter(event => event.type === "goal.recovery.requested")).toHaveLength(0);
+    expect(await workerCalls()).toBe(1);
+    await server!.runs.cancel(holder);
+    expect((await api("POST", url, { input_hash: recovery.input_hash })).status).toBe(202);
+    await waitFor(async () => (await api("GET", "/requirements/REQ-RETRY/approvals")).body.approvals.length === 1);
+    expect(await workerCalls()).toBe(2);
+    expect((await facts()).filter(event => event.type === "goal.retry.authorized")).toHaveLength(1);
+  });
+
+  it("工作区占用拒绝新 Goal 授权，不登记半成品启动或扩预算", async () => {
+    await prepare(); const { view, input } = await answer();
+    const holder = await holdWorkspace();
+    expect((await api("POST", command(view.round_id), input)).status).toBe(409);
+    expect((await facts()).filter(event => event.type === "workflow.run.started")).toHaveLength(1);
+    expect((await facts()).filter(event => event.type === "goal.retry.authorized")).toHaveLength(0);
+    await server!.runs.cancel(holder);
+    expect((await api("POST", command(view.round_id), input)).status).toBe(202);
+    await waitFor(async () => (await api("GET", "/requirements/REQ-RETRY/approvals")).body.approvals.length === 1);
+    expect(await workerCalls()).toBe(2);
+  });
+
   it("公开恢复入口在配置还原后继续同 run/审批，不重授预算", async () => {
     await prepare(); const { view, input } = await answer(); const response = await api("POST", command(view.round_id), input);
     const run_id = response.body.run.run_id; const url = "/runs/" + run_id + "/goal-recovery";

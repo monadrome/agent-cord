@@ -46,6 +46,8 @@ ACP 自主权限：[2026-10-09 文件范围预授权](./2026-10-09-acp-workspace
 
 跨 driver 只读审计：[2026-10-09 只读工具审计](./2026-10-09-readonly-tool-audit.md)，记录公开 SDK 的 pre-tool/guardrail 模式与宿主 fail-closed 工具事实边界。
 
+workspace 隔离：[2026-10-09 workspace agent lease](./2026-10-09-workspace-agent-lease.md)，记录共享工作区并发污染风险与进程内 lease 过渡边界。
+
 就绪一致性：[2026-10-09 Goal ready 来源](./2026-10-09-goal-readiness-evidence.md)，记录共享完成证据、过期/不可读/取消、冷恢复与协调来源验收。
 
 | # | 文件 | 主题 | 核心结论 |

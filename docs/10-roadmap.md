@@ -33,6 +33,8 @@
 
 阶段 53 完成当前资源观察：配对事件/逐指标 unknown/ready 重算与冷恢复检查，server goal-usage projection 和协调工作台资源表覆盖 observed/exceeded/unknown/invalid/empty/error 状态；动态扩额与全工作区成本仍后续。
 
+阶段 55 为当前共享工作区加单 RunService agent lease：新启动/授权冲突 409，不追加额外事实；已授权冷恢复保留 run/预算并在释放后自动重检，执行器收束才释放。此原型防同实例并发污染，独立 worktree、OS 隔离和跨 daemon 锁仍待实现（ADR-0069）。
+
 现有默认离线 SDLC 和已发布版本保持原语义，最终人工 gate 保留。以下保留历史 MVP/W1–M4 规划。
 
 ## 本章回答什么问题
