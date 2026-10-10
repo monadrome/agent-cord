@@ -3,8 +3,8 @@ import { ulid } from "ulid";
 import { canonicalJson, sha256Hex } from "../core/hash.js";
 import { readSessionEvents } from "../core/session-events.js";
 import { readSessionDocument, writeSessionDocument } from "../core/session-files.js";
-import type { EventEnvelope, EventType, GoalCommand, GoalUsageTotals, WorkflowDef } from "../core/schema.js";
-import { AgentTaskCompletedPayloadSchema, GoalAttemptCompletedPayloadSchema, GoalAttemptStartedPayloadSchema, VerificationCompletedPayloadSchema } from "../core/schema.js";
+import type { EventEnvelope, EventType, GoalChangeEvidence, GoalCommand, GoalUsageTotals, SourceManifest, WorkflowDef } from "../core/schema.js";
+import { AgentTaskCompletedPayloadSchema, GoalAttemptCompletedPayloadSchema, GoalAttemptStartedPayloadSchema, SourceManifestSchema, VerificationCompletedPayloadSchema } from "../core/schema.js";
 import type { NodeRunContext, NodeRunner, SessionHandle } from "../core/ports.js";
 import type { WorkflowNode } from "../workflow/executor.js";
 import { matchesWorkflowScope } from "../workflow/scope.js";
@@ -14,11 +14,12 @@ import { goalAcceptanceEvidence, renderGoalAcceptance } from "./goal-acceptance.
 import { accumulateGoalUsage, usageBudgetExceeded } from "./goal-usage.js";
 import { executionInputHash } from "./checkpoint.js";
 import { readSnapshot } from "./snapshot.js";
+import { goal_change_evidence, render_goal_changes, source_manifest_hash } from "./goal-changes.js";
 import type { CoordinatorOptions } from "./coordinator.js";
 
 const ADAPTER = "goal-runner";
 type FailureKind = NonNullable<ReturnType<typeof GoalAttemptCompletedPayloadSchema.parse>["failure_kind"]>;
-type Identity = { input_hash: string; source_hash: string; stable_hash: string };
+type Identity = { input_hash: string; source_hash: string; stable_hash: string; source_manifest?: SourceManifest };
 type Check = { command: GoalCommand; result: HostCheckResult; event_id: string };
 
 function scoped(event: EventEnvelope, ctx: NodeRunContext): boolean {
@@ -37,9 +38,14 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
     if (options.read_verification_input === undefined) throw new Error("Goal 缺少宿主验证输入能力");
     const input = await options.read_verification_input(node, session, ctx);
     if (!/^[0-9a-f]{64}$/.test(input.input_hash) || input.source_hash === null || !/^[0-9a-f]{64}$/.test(input.source_hash)) throw new Error("Goal 必须提供有效输入与源码摘要");
+    let source_manifest: SourceManifest | undefined;
+    if (node.run!.goal!.review_changes === true) {
+      source_manifest = SourceManifestSchema.parse(input.source_manifest);
+      if (source_manifest_hash(source_manifest) !== input.source_hash) throw new Error("Goal 源码清单与被测摘要不一致");
+    }
     const snapshot = await readSnapshot(session, { workflow_id: ctx.workflow_id, workflow_revision: ctx.workflow_revision, excerpt_mode: "head_tail",
       files: def.spec.nodes.flatMap(item => item.artifact === undefined ? [] : [item.artifact]) });
-    return { input_hash: input.input_hash, source_hash: input.source_hash,
+    return { input_hash: input.input_hash, source_hash: input.source_hash, source_manifest,
       stable_hash: executionInputHash(def, node, snapshot, options.maxPackChars, options.resolveDriver(node.run!.agent).configuration_hash ?? null, input.source_hash) };
   };
   const append = async (session: SessionHandle, ctx: NodeRunContext, type: EventType, payload: Record<string, unknown>, event_id = ulid()) => session.events.append({
@@ -110,6 +116,16 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
         }
         await finish("cancelled", "Goal 已明确取消，不新增自动尝试", { failure_kind: "cancelled" }); return { status: "cancelled" };
       }
+      let baseline: { event_id: string; manifest: SourceManifest } | null = null;
+      if (goal.review_changes === true && started.length > 0) {
+        const first = started[0]!; const value = GoalAttemptStartedPayloadSchema.parse(first.payload);
+        if (value.attempt !== 1 || value.source_manifest === undefined || first.actor.kind !== "system" || first.actor.id !== ADAPTER
+          || first.source.adapter !== ADAPTER || first.correlation_id !== node.id) {
+          await finish("blocked", "Goal 首次源码基线缺失或来源不可验证，不能用当前代码重置基线", { failure_kind: "environment" });
+          return { status: "failed" };
+        }
+        baseline = { event_id: first.event_id, manifest: value.source_manifest };
+      }
       if (!await check_usage()) return { status: "failed" };
       if (attempt > goal.max_attempts || Date.now() >= deadline) {
         await finish("blocked", "Goal 已消耗声明的尝试或总时长预算，需要显式新 run", { failure_kind: "budget" });
@@ -135,8 +151,10 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
           try { current = await identity(node, session, ctx); }
           catch { await finish("blocked", "无法读取 Goal 的当前需求、源码或配置身份", { failure_kind: "environment" }); return { status: "failed" }; }
           if (!await check_usage()) return { status: "failed" };
-          await append(session, ctx, "goal.attempt.started", GoalAttemptStartedPayloadSchema.parse(base(ctx, attempt)));
-          const instructions = `## Goal 交付契约\n自主实现当前需求的代码 Draft。宿主将实际运行声明检查；一次回复结束不代表目标完成。\n源码范围：${JSON.stringify(goal.inputs)}\n检查：${JSON.stringify(goal.checks)}\n${goal.usage_budget === undefined ? "" : `宿主 usage 预算：${JSON.stringify(goal.usage_budget)}；只按实际 task usage 计量，未知 usage 不等于零。\n`}${goal.acceptance === undefined ? "" : `发布验收条件：${JSON.stringify(goal.acceptance)}\n逐项实现验收条件；宿主生成真实证据矩阵，不以模型自报通过放行。\n`}最终指南必须含非空的二级标题：变更、验收、风险，写明变更定位、验收依据与未覆盖项。不要合入、发布或批准 gate。\n${feedback}`;
+          const attempt_started = await append(session, ctx, "goal.attempt.started", GoalAttemptStartedPayloadSchema.parse({ ...base(ctx, attempt),
+            ...(goal.review_changes === true && baseline === null ? { source_manifest: current.source_manifest } : {}) }));
+          if (goal.review_changes === true && baseline === null) baseline = { event_id: attempt_started.event_id, manifest: current.source_manifest! };
+          const instructions = `## Goal 交付契约\n自主实现当前需求的代码 Draft。宿主将实际运行声明检查；一次回复结束不代表目标完成。\n源码范围：${JSON.stringify(goal.inputs)}\n检查：${JSON.stringify(goal.checks)}\n${goal.review_changes === true ? "宿主将以首次实际源码为基线生成完整变更清单；不要用自报清单替代宿主证据。\n" : ""}${goal.usage_budget === undefined ? "" : `宿主 usage 预算：${JSON.stringify(goal.usage_budget)}；只按实际 task usage 计量，未知 usage 不等于零。\n`}${goal.acceptance === undefined ? "" : `发布验收条件：${JSON.stringify(goal.acceptance)}\n逐项实现验收条件；宿主生成真实证据矩阵，不以模型自报通过放行。\n`}最终指南必须含非空的二级标题：变更、验收、风险，写明变更定位、验收依据与未覆盖项。不要合入、发布或批准 gate。\n${feedback}`;
           const outcome = await task_runner(instructions).runNode(node, session, { ...ctx, signal });
           const task = (await readSessionEvents(session)).filter(event => event.type === "agent.task.completed" && scoped(event, ctx)).at(-1);
           const task_result = task === undefined ? null : AgentTaskCompletedPayloadSchema.safeParse(task.payload);
@@ -176,7 +194,16 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
               if (missing.length === 0 && guide !== null) {
                 const evidence = `\n\n## 宿主验证证据\n\n- 代码 Draft 工作区：${JSON.stringify(options.workspaceRoot)}\n- 声明源码范围：${JSON.stringify(goal.inputs)}\n- 实测 source_hash：${current.source_hash}\n- 最终 review、合入与关键 gate 仍由人工完成。\n\n${checks.map(check => `- ${JSON.stringify(check.command.id)}：${JSON.stringify([check.command.bin, ...check.command.args])}；退出码 ${check.result.exit_code}；${check.result.duration_ms} ms；事件 ${check.event_id}；stdout ${check.result.stdout_hash}；stderr ${check.result.stderr_hash}`).join("\n")}\n`;
                 const acceptance_evidence = goalAcceptanceEvidence(goal, checks.map(check => check.event_id));
-                const delivered = guide + evidence + renderGoalAcceptance(goal, acceptance_evidence);
+                let change_evidence: GoalChangeEvidence | undefined;
+                try {
+                  if (goal.review_changes === true) change_evidence = goal_change_evidence(baseline!.event_id, baseline!.manifest, current.source_manifest!);
+                } catch {
+                  await recordChecks();
+                  await finish("blocked", "无法生成完整宿主源码变更清单，停止交付", { failure_kind: "delivery" });
+                  return { status: "failed" };
+                }
+                const delivered = guide + evidence + renderGoalAcceptance(goal, acceptance_evidence)
+                  + (change_evidence === undefined ? "" : render_goal_changes(change_evidence, current.source_hash));
                 try {
                   await writeSessionDocument(session.dir, node.artifact, delivered, { expected_hash: sha256Hex(guide) });
                   const final_input = await identity(node, session, ctx);
@@ -196,6 +223,7 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
                     completion_event_id: task?.event_id, input_hash: current.input_hash, source_hash: current.source_hash,
                     artifact_hash: sha256Hex(guide), verification_event_ids: checks.map(check => check.event_id),
                     ...(acceptance_evidence === undefined ? {} : { acceptance_evidence }),
+                    ...(change_evidence === undefined ? {} : { change_evidence }),
                     ...(goal.usage_budget === undefined ? {} : { usage_budget: goal.usage_budget, usage_totals }),
                   });
                   return { status: "ok" };

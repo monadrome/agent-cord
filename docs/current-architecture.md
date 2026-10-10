@@ -68,6 +68,8 @@ ready 的来源由 coordinator/goal-evidence.ts 共用解析，runner 与 execut
 
 Goal 可选 acceptance 声明条件到 check ID 的映射。宿主完成检查后生成指南矩阵与 ready.acceptance_evidence，goal-acceptance.ts 派生并核验全集；共用 readiness 拒绝遗漏/错引用，协调当前 ready hook 也必须匹配发布条件。模型自报矩阵不被消费为通过事实，默认模板的三条件仅代表工程基线，业务充分性仍需 review（ADR-0064）。
 
+Goal 的 `review_changes: true` 复用安全扫描按需返回 manifest，第一次尝试前保存 source_manifest，指南补入宿主源码变更清单。ready.change_evidence 引用基线事件，goal-changes.ts 应用完整 delta 重算到被测 source_hash，恢复/协调/post 人审共用核验；基线不因修复或重启而重置。manifest/delta 不含正文，各限 10,000 项和 1,000,000 序列化字符，常规 verification-context REST 不返回清单。推荐 Goal 模板默认开启，旧发布/库调用兼容（ADR-0071）。
+
 失败 Goal 升级协调可按 server coordination_retry 当前 token 重试；持久 request 三字段保存父轮次/输入/配置来源，初始自动与人工重试 actor 区分。goal-coordination.ts 共用来源解析供投影和 Goal 新预算授权恢复，当前 resolver 固定/派发前重检、单子请求/重放与冷中断不调用模型。原 blocker 和 worker 不变，配置修复后明确新 token 可重新解释最新事实（ADR-0065）。
 
 Goal 可选 usage_budget 绑定宿主可观察的 task usage；goal-usage.ts 跨尝试累计输入/输出 token 与 cost，超限写 budget blocker 和 usage_totals，未声明流程保持兼容，未知 usage 不当零（ADR-0066）。

@@ -95,6 +95,7 @@ flowchart LR
 | `run.retry` 的失败摘要、次数与退避 | 已实现；成功任务后的验证失败尚不会自动触发实现修复闭环 |
 | 节点内 Goal、宿主实际验证/修复、指南结构审计与实际证据、次数/时长/无进展边界 | 原型已实现；显式 run.goal，推荐 Agent 模板默认采用 |
 | 声明验收条件覆盖 | 原型已实现；acceptance 绑定已发布检查，宿主生成逐项实测矩阵与事件引用，恢复/协调共用核验；不证明业务测试充分性（[ADR-0064](./adr/ADR-0064-goal-acceptance-coverage.md)） |
+| 宿主源码变更清单 | 原型已实现；`review_changes` 在推荐模板默认开启，首次实际源码作为基线，指南列出声明范围内的增改删/权限/类型变化，ready/恢复/协调/人审共用完整 delta 重算；不推断作者归属或范围外变更（[ADR-0071](./adr/ADR-0071-goal-source-change-evidence.md)） |
 | 人工卡点处理后的续跑 | 原型已实现；有效答复后独立授权原发布预算与当前输入，新 run 重新自测；授权绑定实际 worker 配置，冷漂移拒绝，配置还原后显式恢复原 run/预算，保留旧失败和最终 review（[ADR-0062](./adr/ADR-0062-goal-retry-agent-identity.md)） |
 | 原授权 Goal 恢复 | 原型已实现；GET/POST 恢复依据绑定原授权、checkpoint、当前输入和配置身份，持久化请求后恢复同一 run；保留原 deadline/次数，幂等/冷恢复 fail-closed（[ADR-0063](./adr/ADR-0063-goal-recovery-command.md)） |
 | ACP 文件操作范围预授权 | 已实现可写任务 read/edit 的结构化位置核验与 allow_once；未知/越界拒绝，只读不变 |

@@ -14,6 +14,9 @@ export {
   GoalAcceptanceEvidenceSchema,
   GoalUsageBudgetSchema,
   GoalUsageTotalsSchema,
+  SourceEntrySchema,
+  SourceManifestSchema,
+  GoalChangeEvidenceSchema,
   GoalCommandSchema,
   GoalAttemptStartedPayloadSchema,
   GoalAttemptCompletedPayloadSchema,
@@ -88,6 +91,9 @@ export type {
   GoalAcceptanceEvidence,
   GoalUsageBudget,
   GoalUsageTotals,
+  SourceEntry,
+  SourceManifest,
+  GoalChangeEvidence,
   GoalCommand,
 } from "./schema.js";
 

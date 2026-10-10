@@ -24,6 +24,7 @@ spec:
           review.md 包含非空的变更、验收、风险章节，指明文件/符号和操作路径。
           宿主检查失败时依据实际反馈修复，直到交付通过当前自测的代码和 review 指南。
         goal:
+          review_changes: true
           inputs: [src, apps, tests, package.json, package-lock.json, tsconfig.json, vitest.config.ts]
           max_attempts: 3
           timeout_ms: 1800000

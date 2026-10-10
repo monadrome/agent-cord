@@ -28,13 +28,15 @@ async function waitFor(test: () => Promise<boolean>) {
 async function events() { return (await server.sessions.open("REQ-GOAL")).events.readOrdered(); }
 async function calls() { return Number(await readFile(join(root, ".goal-worker-calls"), "utf8")); }
 
-async function prepare(protocol: "headless" | "acp", always_fail = false, acceptance = false) {
+async function prepare(protocol: "headless" | "acp", always_fail = false, acceptance = false, source_changes = false) {
+  if (source_changes) { await mkdir(join(root, "src")); await writeFile(join(root, "src/deleted.ts"), "export const deleted = true;\n"); }
   await writeFile(join(root, "cord", "agents.yaml"), stringify({ agents: { worker: { kind: protocol, bin: process.execPath,
-    args: [fixture, ...(protocol === "acp" ? ["--acp"] : []), ...(always_fail ? ["--always-fail"] : []), ...(protocol === "headless" ? ["{{prompt}}"] : [])] } } }));
+    args: [fixture, ...(protocol === "acp" ? ["--acp"] : []), ...(always_fail ? ["--always-fail"] : []), ...(source_changes ? ["--source-changes"] : []), ...(protocol === "headless" ? ["{{prompt}}"] : [])] } } }));
   server = await buildApp({ root });
   const yaml = stringify({ apiVersion: "agent-cord.dev/v1alpha1", kind: "Workflow", metadata: { id: "goal-http" }, spec: { nodes: [
-    { id: "deliver", artifact: "review.md", run: { agent: "worker", goal: { inputs: ["value.txt"], max_attempts: 4, no_progress_limit: 2,
+    { id: "deliver", artifact: "review.md", run: { agent: "worker", goal: { inputs: source_changes ? ["value.txt", "src"] : ["value.txt"], max_attempts: 4, no_progress_limit: 2,
       ...(acceptance ? { acceptance: [{ id: "business-value", criterion: "value.txt 业务值 fixed", checks: ["value-test"] }] } : {}),
+      review_changes: true,
       checks: [{ id: "value-test", bin: process.execPath, args: ["-e", "if(require('node:fs').readFileSync('value.txt','utf8') !== 'fixed') {console.error('TRUE_GOAL_FAILURE'); process.exit(1)}"] }] } },
     gates: [{ id: "final-review", attach: { node: "deliver", when: "post" }, role: {}, pass: { human_confirm: true }, on_fail: "block",
       checks: [{ ref: "verification-passed", with: { verification_id: "value-test" } }] }] },
@@ -50,6 +52,52 @@ async function prepare(protocol: "headless" | "acp", always_fail = false, accept
 }
 
 describe("Goal server 交付闭环", () => {
+  it("冷人审缺失首次源码基线时不消费旧 ready，不重建基线或重复 worker", async () => {
+    const run_id = await prepare("headless");
+    await waitFor(async () => (await server.sessions.listApprovals("REQ-GOAL")).length === 1);
+    const approval = (await server.sessions.listApprovals("REQ-GOAL"))[0]!;
+    const session = await server.sessions.open("REQ-GOAL"); const original = await events();
+    await server.app.close(); server.index.close();
+    const invalid: EventEnvelope[] = [];
+    for (const event of original) invalid.push({ ...event, prev_event_hash: invalid.length === 0 ? null : hashEvent(invalid.at(-1)!),
+      payload: event.type === "goal.attempt.started" ? { ...event.payload, source_manifest: undefined } : event.payload });
+    await writeFile(join(session.dir, "events.jsonl"), invalid.map(event => JSON.stringify(event)).join("\n") + "\n");
+    server = await buildApp({ root });
+    expect((await server.runs.getRun(run_id)).status).toBe("failed"); expect(await calls()).toBe(2);
+    expect((await api("POST", `/requirements/REQ-GOAL/approvals/${approval.approval_id}/decide`, { choice: approval.options[0] })).status).toBe(409);
+    const binding = await server.sdlcs.get("goal-http", 1);
+    const observation = await readCoordinationExecutionContext(binding.def, await server.sessions.open("REQ-GOAL"), binding.workflow_revision, server.runs);
+    expect(observation.goals[0]).toMatchObject({ status: "invalid", current: false });
+    expect((await events()).filter(event => event.type === "human.decision.recorded" || event.type === "workflow.node.exited")).toHaveLength(0);
+  });
+
+  it.each(["headless", "acp"] as const)("%s 宿主源码变更指南可读取，冷恢复保留基线，伪造清单不允许人审", async protocol => {
+    const run_id = await prepare(protocol, false, false, true);
+    await waitFor(async () => (await server.sessions.listApprovals("REQ-GOAL")).length === 1);
+    const session = await server.sessions.open("REQ-GOAL");
+    const facts = await events();
+    const baseline = facts.find(event => event.type === "goal.attempt.started")!;
+    const ready = facts.find(event => event.type === "goal.attempt.completed" && event.payload["status"] === "ready")!;
+    expect(ready.payload["change_evidence"]).toMatchObject({ baseline_event_id: baseline.event_id,
+      changes: [{ path: "src/added.ts", status: "added" }, { path: "src/deleted.ts", status: "deleted" }, { path: "value.txt", status: "modified" }] });
+    const guide = (await api("GET", "/requirements/REQ-GOAL/artifacts?path=review.md")).body.content as string;
+    expect(guide).toContain("## 宿主源码变更"); expect(guide).toContain(baseline.event_id);
+    const context = await api("GET", `/requirements/REQ-GOAL/runs/${run_id}/nodes/deliver/verification-context`);
+    expect(context.status).toBe(200); expect(JSON.stringify(context.body)).not.toContain("source_manifest");
+    const approval = (await server.sessions.listApprovals("REQ-GOAL"))[0]!;
+    const read = session.events.readOrdered.bind(session.events);
+    const forged = vi.spyOn(session.events, "readOrdered").mockImplementation(async () => (await read()).map(event => event.event_id === ready.event_id
+      ? { ...event, payload: { ...event.payload, change_evidence: { ...(event.payload["change_evidence"] as object), changes: [] } } } : event));
+    try { expect((await api("POST", `/requirements/REQ-GOAL/approvals/${approval.approval_id}/decide`, { choice: approval.options[0] })).status).toBe(409); }
+    finally { forged.mockRestore(); }
+    await server.app.close(); server.index.close(); server = await buildApp({ root });
+    expect(await calls()).toBe(2);
+    expect((await server.sessions.listApprovals("REQ-GOAL"))[0]!.approval_id).toBe(approval.approval_id);
+    const after = await events();
+    expect(after.find(event => event.type === "goal.attempt.started")!.event_id).toBe(baseline.event_id);
+    expect(after.filter(event => event.type === "human.decision.recorded" || event.type === "workflow.node.exited")).toHaveLength(0);
+  });
+
   it("最终人工审批拒绝缺失验收映射的 ready，测试通过不能绕过声明条件审计", async () => {
     await prepare("headless", false, true);
     await waitFor(async () => (await server.sessions.listApprovals("REQ-GOAL")).length === 1);

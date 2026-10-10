@@ -17,7 +17,7 @@ import type {
   NodeRunStatus,
   SessionHandle,
 } from "../core/ports.js";
-import { AgentTaskCompletedPayloadSchema, type EventDraft, type WorkflowDef } from "../core/schema.js";
+import { AgentTaskCompletedPayloadSchema, type EventDraft, type WorkflowDef, type SourceManifest } from "../core/schema.js";
 import { isPlaceholderDoc } from "../core/session.js";
 import { sha256Hex } from "../core/hash.js";
 import { SessionEventReadError } from "../core/session-events.js";
@@ -65,7 +65,7 @@ export interface CoordinatorOptions {
   /** ADR-0042：宿主声明的只读源码摘要；可写节点不读取此钩子。 */
   read_source_hash?: (node: WorkflowNode) => Promise<string | null>;
   /** ADR-0056：宿主提供与 gate 相同的当前验证输入/源码身份。 */
-  read_verification_input?: (node: WorkflowNode, session: SessionHandle, ctx: NodeRunContext) => Promise<{ input_hash: string; source_hash: string | null }>;
+  read_verification_input?: (node: WorkflowNode, session: SessionHandle, ctx: NodeRunContext) => Promise<{ input_hash: string; source_hash: string | null; source_manifest?: SourceManifest }>;
   /** Goal 的必需说明与失败反馈；计入最终上下文预算，不改变工作流定义。 */
   additional_context?: string;
 }

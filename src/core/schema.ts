@@ -238,6 +238,28 @@ export const GoalUsageTotalsSchema = z.strictObject({
 });
 export type GoalUsageBudget = z.infer<typeof GoalUsageBudgetSchema>;
 export type GoalUsageTotals = z.infer<typeof GoalUsageTotalsSchema>;
+/** ADR-0071：源码观察只记录元信息，不保存内容；顺序与既有摘要域一致。 */
+const SourcePathSchema = z.string().min(1).max(1000).refine(value => !/[\\\x00-\x1f\x7f]/u.test(value)
+  && value.split("/").every(part => part !== "" && part !== "." && part !== ".."), "源码清单路径必须规范且不含控制字符");
+export const SourceEntrySchema = z.discriminatedUnion("kind", [
+  z.strictObject({ path: SourcePathSchema, kind: z.literal("file"), mode: z.number().int().min(0).max(0o777), content_hash: z.string().regex(/^[0-9a-f]{64}$/) }),
+  z.strictObject({ path: SourcePathSchema, kind: z.literal("directory"), mode: z.number().int().min(0).max(0o777) }),
+]);
+export const SourceManifestSchema = z.array(SourceEntrySchema).min(1).max(10_000)
+  .refine(values => values.every((entry, index) => index === 0 || values[index - 1]!.path < entry.path), "源码清单必须按路径唯一排序")
+  .refine(values => JSON.stringify(values).length <= 1_000_000, "源码清单超过 1,000,000 字符预算");
+export type SourceEntry = z.infer<typeof SourceEntrySchema>;
+export type SourceManifest = z.infer<typeof SourceManifestSchema>;
+export const GoalChangeEvidenceSchema = z.strictObject({
+  baseline_event_id: z.string().regex(ULID_RE), baseline_source_hash: z.string().regex(/^[0-9a-f]{64}$/),
+  changes: z.array(z.strictObject({ path: SourcePathSchema, status: z.enum(["added", "modified", "deleted"]),
+    before: SourceEntrySchema.nullable(), after: SourceEntrySchema.nullable(),
+  }).refine(value => (value.before === null || value.before.path === value.path) && (value.after === null || value.after.path === value.path), "变更路径与前后清单不一致")
+    .refine(value => value.status === "added" ? value.before === null && value.after !== null
+      : value.status === "deleted" ? value.before !== null && value.after === null : value.before !== null && value.after !== null, "变更状态与前后清单不一致"))
+    .max(10_000).refine(values => values.every((entry, index) => index === 0 || values[index - 1]!.path < entry.path), "变更清单必须按路径唯一排序"),
+}).refine(value => JSON.stringify(value).length <= 1_000_000, "变更证据超过 1,000,000 字符预算");
+export type GoalChangeEvidence = z.infer<typeof GoalChangeEvidenceSchema>;
 export const GoalConfigSchema = z.strictObject({
   inputs: z.array(z.string().min(1).max(500)).min(1).max(64),
   checks: z.array(GoalCommandSchema).min(1).max(16).refine(values => new Set(values.map(value => value.id)).size === values.length, "Goal 检查 id 必须唯一"),
@@ -246,6 +268,8 @@ export const GoalConfigSchema = z.strictObject({
     .refine(values => new Set(values.map(value => value.id)).size === values.length, "Goal 验收条件 id 必须唯一").optional(),
   /** ADR-0066：宿主按合法 task usage 累计，opt-in 资源边界。 */
   usage_budget: GoalUsageBudgetSchema.optional(),
+  /** ADR-0071：宿主保存源码基线并审计交付变更；推荐模板默认开启。 */
+  review_changes: z.boolean().optional(),
   max_attempts: z.number().int().min(1).max(10).default(3),
   timeout_ms: z.number().int().positive().max(86_400_000).default(1_800_000),
   no_progress_limit: z.number().int().min(1).max(10).default(2),
@@ -744,8 +768,9 @@ export const VerificationCompletedPayloadSchema = VerificationResultSchema.loose
 export const GoalAttemptStartedPayloadSchema = z.strictObject({
   workflow_id: z.string().min(1), workflow_revision: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   run_id: z.string().regex(ULID_RE), node_id: z.string().min(1), attempt: z.number().int().positive().max(10),
+  source_manifest: SourceManifestSchema.optional(),
 });
-export const GoalAttemptCompletedPayloadSchema = GoalAttemptStartedPayloadSchema.safeExtend({
+export const GoalAttemptCompletedPayloadSchema = GoalAttemptStartedPayloadSchema.omit({ source_manifest: true }).safeExtend({
   max_attempts: z.number().int().positive().max(10).optional(),
   status: z.enum(["ready", "retrying", "blocked", "cancelled"]),
   failure_kind: z.enum(["configuration", "environment", "input_changed", "verification", "delivery", "driver", "budget", "no_progress", "attempt_limit", "cancelled"]).optional(),
@@ -758,8 +783,10 @@ export const GoalAttemptCompletedPayloadSchema = GoalAttemptStartedPayloadSchema
   acceptance_evidence: GoalAcceptanceEvidenceSchema.optional(),
   usage_budget: GoalUsageBudgetSchema.optional(),
   usage_totals: GoalUsageTotalsSchema.optional(),
+  change_evidence: GoalChangeEvidenceSchema.optional(),
   progress_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
 }).refine(value => value.acceptance_evidence === undefined || value.status === "ready", "仅 ready Goal 可声明验收通过证据")
+  .refine(value => value.change_evidence === undefined || value.status === "ready", "仅 ready Goal 可声明源码变更证据")
   .refine(value => value.status !== "ready" || (value.failure_kind === undefined && value.completion_event_id !== undefined
   && value.input_hash !== undefined && value.source_hash !== undefined && value.artifact_hash !== undefined && value.verification_event_ids.length > 0), "Goal ready 必须携带当前交付与验证身份");
 

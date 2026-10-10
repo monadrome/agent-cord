@@ -50,6 +50,8 @@ workspace 隔离：[2026-10-09 workspace agent lease](./2026-10-09-workspace-age
 
 跨进程互斥：[2026-10-09 SQLite workspace lease](./2026-10-09-cross-process-workspace-lease.md)，记录同 root 双 server、异常 owner 标记、detached 存活和原授权恢复的边界。
 
+源码交付证据：[2026-10-09 Goal 宿主源码变更](./2026-10-09-goal-source-change-evidence.md)，记录首次实际基线、完整 delta 重算、指南定位和 ACP/headless 冷恢复/人审核验。
+
 就绪一致性：[2026-10-09 Goal ready 来源](./2026-10-09-goal-readiness-evidence.md)，记录共享完成证据、过期/不可读/取消、冷恢复与协调来源验收。
 
 | # | 文件 | 主题 | 核心结论 |

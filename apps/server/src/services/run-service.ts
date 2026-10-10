@@ -197,14 +197,15 @@ export class RunService {
     const inputs = verificationSourceInputs(node);
     if (inputs.length > 0 && this.options.workspaceRoot === undefined) throw new VerificationInputError("声明源码输入需要验证工作区根目录");
     let source;
-    try { source = await readVerificationSource(this.options.workspaceRoot ?? "", inputs); }
+    try { source = await readVerificationSource(this.options.workspaceRoot ?? "", inputs, node.run?.goal?.review_changes === true); }
     catch (error) {
       if (error instanceof VerificationInputError) throw error;
       throw new VerificationInputError("无法读取声明的验证输入，请检查工作区文件与访问权限");
     }
     const context_hash = await readApprovalContextHash(def, node, session, configuration_hash, workflow_revision);
+    const { source_manifest, ...source_identity } = source;
     const input_hash = source.source_hash === null ? context_hash : sha256Hex(canonicalJson({
-      domain: "cord.verification-input.v1", context_hash, ...source,
+      domain: "cord.verification-input.v1", context_hash, ...source_identity,
     }));
     return { input_hash, ...source };
   }
@@ -618,7 +619,7 @@ export class RunService {
   }
 
   private assertGoalAcceptanceProof(events: readonly EventEnvelope[], run: RunRow, def: WorkflowDef, node: WorkflowDef["spec"]["nodes"][number]): void {
-    if (node.run?.goal === undefined || (node.run.goal.acceptance === undefined && node.run.goal.usage_budget === undefined)) return;
+    if (node.run?.goal === undefined || (node.run.goal.acceptance === undefined && node.run.goal.usage_budget === undefined && node.run.goal.review_changes !== true)) return;
     const scope = { workflow_id: def.metadata.id, workflow_revision: run.workflow_revision ?? undefined, run_id: run.run_id };
     const ready = events.filter(event => event.type === "goal.attempt.completed" && matchesWorkflowScope(event.payload, scope)
       && event.payload["run_id"] === run.run_id && event.payload["node_id"] === node.id).at(-1);

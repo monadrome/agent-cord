@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { parseWorkflow } from "agent-cord";
+import { parseWorkflow, source_manifest_hash } from "agent-cord";
 import YAML from "yaml";
 import { readVerificationSource, verificationSourceInputs } from "../src/services/verification-inputs.js";
 
@@ -31,6 +31,15 @@ afterEach(async () => {
 const read = (paths = ["src"]) => readVerificationSource(root, paths);
 
 describe("验证源码输入身份", () => {
+  it("按需返回同次安全扫描清单，源码摘要域不变且没有正文", async () => {
+    const ordinary = await read();
+    expect(ordinary.source_manifest).toBeUndefined();
+    const detailed = await readVerificationSource(root, ["src"], true);
+    expect(detailed.source_hash).toBe(ordinary.source_hash);
+    expect(source_manifest_hash(detailed.source_manifest!)).toBe(ordinary.source_hash);
+    expect(detailed.source_manifest!.map(entry => entry.path)).toEqual(["src", "src/a.ts"]);
+    expect(JSON.stringify(detailed.source_manifest)).not.toContain("export const a");
+  });
   it("相同输入重复扫描稳定，根位置/输入顺序/重复项不改变内容身份", async () => {
     await fs.writeFile(join(root, "package.json"), '{"name":"fixture"}');
     const first = await read(["src", "package.json"]);

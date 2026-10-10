@@ -9,10 +9,11 @@ import { WorkflowDefSchema, type EventEnvelope } from "../../src/core/schema.js"
 import { createNodeRunner } from "../../src/coordinator/coordinator.js";
 import { resolveGoalReadiness } from "../../src/coordinator/goal-evidence.js";
 import { accumulateGoalUsage } from "../../src/coordinator/goal-usage.js";
+import { source_manifest_hash } from "../../src/coordinator/goal-changes.js";
 
 const def = WorkflowDefSchema.parse({ apiVersion: "agent-cord.dev/v1alpha1", kind: "Workflow", metadata: { id: "goal-evidence" }, spec: { nodes: [{ id: "deliver", artifact: "review.md",
   run: { agent: "fake", goal: { inputs: ["value.txt"], checks: [{ id: "test", bin: process.execPath, args: ["-e", "process.exit(0)"] }],
-    acceptance: [{ id: "baseline", criterion: "声明测试通过", checks: ["test"] }, { id: "delivery", criterion: "交付所需检查通过", checks: ["test"] }] } } }] } });
+    review_changes: true, acceptance: [{ id: "baseline", criterion: "声明测试通过", checks: ["test"] }, { id: "delivery", criterion: "交付所需检查通过", checks: ["test"] }] } } }] } });
 const node = def.spec.nodes[0]!;
 const scope = { workflow_id: def.metadata.id, workflow_revision: "a".repeat(64), run_id: ulid() };
 let root: string; let events: EventEnvelope[];
@@ -21,8 +22,11 @@ beforeAll(async () => {
   const session = await initSession(join(root, "cord"), "REQ-EVIDENCE");
   await writeFile(join(root, "value.txt"), "fixed");
   const runner = createNodeRunner(def, { workspaceRoot: root, resolveDriver: () => ({ name: "fake", configuration_hash: "b".repeat(64),
-    async *run() { yield { type: "result", data: { text: "## 变更\n当前实现。\n## 验收\n声明测试。\n## 风险\n仅 Draft。\n" } }; }, async *resume() {} }),
-    read_verification_input: async () => ({ input_hash: "c".repeat(64), source_hash: sha256Hex(await readFile(join(root, "value.txt"), "utf8")) }) });
+    async *run() { await writeFile(join(root, "value.txt"), "changed"); yield { type: "result", data: { text: "## 变更\n当前实现。\n## 验收\n声明测试。\n## 风险\n仅 Draft。\n" } }; }, async *resume() {} }),
+    read_verification_input: async () => {
+      const source_manifest = [{ path: "value.txt", kind: "file" as const, mode: 0o644, content_hash: sha256Hex(await readFile(join(root, "value.txt"), "utf8")) }];
+      return { input_hash: "c".repeat(64), source_hash: source_manifest_hash(source_manifest), source_manifest };
+    } });
   expect((await runner.runNode(node, session, { ...scope, node_id: node.id })).status).toBe("ok");
   events = await session.events.readOrderedStrict!();
 });
@@ -34,6 +38,24 @@ function patch(type: string, fields: Partial<EventEnvelope>, data?: Record<strin
 }
 
 describe("共享 Goal ready 证据", () => {
+  it.each(["missing", "wrong_source", "omitted", "forged_baseline", "forged_after"])("源码变更证据 %s 不可作为当前 ready", mode => {
+    const evidence = structuredClone(ready().payload["change_evidence"]) as { baseline_event_id: string; baseline_source_hash: string; changes: Array<{ after: unknown }> };
+    if (mode === "wrong_source") evidence.baseline_event_id = ulid();
+    if (mode === "omitted") evidence.changes = [];
+    if (mode === "forged_baseline") evidence.baseline_source_hash = "f".repeat(64);
+    if (mode === "forged_after") evidence.changes[0]!.after = { path: "value.txt", kind: "file", mode: 0o644, content_hash: "f".repeat(64) };
+    expect(inspect(patch("goal.attempt.completed", {}, { change_evidence: mode === "missing" ? undefined : evidence }))).toBeNull();
+  });
+
+  it("无首次源码基线、错误 actor 或基线变更时拒绝，不用最新代码补造", () => {
+    expect(inspect(patch("goal.attempt.started", {}, { source_manifest: undefined }))).toBeNull();
+    expect(inspect(patch("goal.attempt.started", { actor: { kind: "agent", id: "fake" } }))).toBeNull();
+    expect(inspect(patch("goal.attempt.started", {}, { source_manifest: [{ path: "value.txt", kind: "file", mode: 0o644, content_hash: "f".repeat(64) }] }))).toBeNull();
+    const old = structuredClone(node); delete old.run!.goal!.review_changes;
+    expect(resolveGoalReadiness(ready(), events, old, scope)).toBeNull();
+    const old_events = patch("goal.attempt.completed", {}, { change_evidence: undefined });
+    expect(resolveGoalReadiness(ready(old_events), old_events, old, scope)).not.toBeNull();
+  });
   it("ready 的 usage 预算缺失、篡改或超限不能复用", () => {
     const budget_node = structuredClone(node);
     budget_node.run!.goal!.usage_budget = { max_input_tokens: 10 };

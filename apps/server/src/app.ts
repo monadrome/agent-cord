@@ -175,7 +175,7 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
       workflow_id: versioned.def.metadata.id,
       workflow_revision: versioned.workflow_revision,
       node_id: nodeId,
-      ...identity,
+      input_hash: identity.input_hash, source_hash: identity.source_hash, source_inputs: identity.source_inputs,
     };
   };
 

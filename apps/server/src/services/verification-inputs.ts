@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { constants, type Stats } from "node:fs";
 import { lstat, open, readdir, realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { canonicalJson, resolveSessionFile, sha256Hex, type WorkflowDef } from "agent-cord";
+import { canonicalJson, resolveSessionFile, sha256Hex, SourceManifestSchema, type SourceManifest, type WorkflowDef } from "agent-cord";
 import { z } from "zod";
 
 const InputPathsSchema = z.array(z.string().min(1).max(500)).min(1).max(64);
@@ -18,6 +18,7 @@ export class VerificationInputError extends Error {}
 export interface VerificationSource {
   source_inputs: string[];
   source_hash: string | null;
+  source_manifest?: SourceManifest;
 }
 
 /** 当前节点所有验证检查的声明取并集，保持 context 与每个 gate 的指纹一致。 */
@@ -37,7 +38,7 @@ function sameMetadata(first: Stats, second: Stats): boolean {
     && first.size === second.size && first.mtimeMs === second.mtimeMs && first.ctimeMs === second.ctimeMs;
 }
 
-export async function readVerificationSource(workspace_root: string, source_inputs: string[]): Promise<VerificationSource> {
+export async function readVerificationSource(workspace_root: string, source_inputs: string[], include_manifest = false): Promise<VerificationSource> {
   if (source_inputs.length === 0) return { source_inputs: [], source_hash: null };
   const root_info = await lstat(resolve(workspace_root));
   if (!root_info.isDirectory() || root_info.isSymbolicLink()) throw new VerificationInputError("验证工作区必须是普通目录");
@@ -117,5 +118,6 @@ export async function readVerificationSource(workspace_root: string, source_inpu
     if (!valid) throw new VerificationInputError(`扫描期间验证输入发生变化：${file}`);
   }
   const manifest = [...entries.values()].sort((first, second) => first.path < second.path ? -1 : first.path > second.path ? 1 : 0);
-  return { source_inputs: [...new Set(source_inputs)].sort(), source_hash: sha256Hex(canonicalJson({ domain: "cord.verification-source.v1", entries: manifest })) };
+  return { source_inputs: [...new Set(source_inputs)].sort(), source_hash: sha256Hex(canonicalJson({ domain: "cord.verification-source.v1", entries: manifest })),
+    ...(include_manifest ? { source_manifest: SourceManifestSchema.parse(manifest) } : {}) };
 }

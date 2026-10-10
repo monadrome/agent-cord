@@ -157,6 +157,8 @@ ADR-0069：RunService 对含 `node.run` 的流程在 start、冷恢复和授权 
 
 ADR-0070 替换上述内存锁载体：独立 `workspace-lease.sqlite` 的 BEGIN IMMEDIATE 在本地跨实例/进程互斥，获取后独占落盘 owner 标记，正常收束删除并 rollback/close。busy 返回 409，既有授权恢复每秒重检原身份/输入/预算，跨实例释放后自动继续；损坏/IO 返回 500。宿主强杀留下 owner 标记，未知副作用不自动重放；unresolved 为 409，需核验遗留进程后修复。活动期间禁止删除/替换 `.index` 或执行锁，不将此能力解释为同需求多 daemon 写事件、审批或协调的支持。
 
+ADR-0071：Goal 可声明 `review_changes: true`，推荐模板默认开启。首条合法 goal.attempt.started.source_manifest 保存真实基线，只有 path/kind/mode/content_hash；ready.change_evidence 记录基线 event_id/hash 与完整增改删前后清单，应用 delta 重算必须等于实际验证/ready 的 source_hash。缺失/错来源/漏项/伪造均拒绝，冷恢复不重置基线。宿主生成指南“宿主源码变更”，源码/指南变动继续使旧证据失效；常规验证 REST 不暴露完整 manifest。未声明流程保持原契约，不把清单当业务验收或作者归因。
+
 Goal 问题记录当前有效人工答复后，view.goal_retry 提供 available/reason、当前 input_hash 与已发布 max_attempts/timeout_ms；不复用答复前协调 hash。`POST .../:round_id/retry-goal` 要求幂等键、answer_event_id 和该输入 token，是独立执行授权。宿主运行槽位内与授权落盘前再次核验，先写 workflow.run.started.goal_retry_round_id，再写人工 goal.retry.authorized，最后派发。授权记录 round、新/旧 run、node、blocker、答复、input_hash 和预算；新 run 使用原发布额度，旧 Goal 失败与已退出节点保留。worker 使用固定 resolver；代码/事实/配置变化时旧 token 409，刷新后可授权当前版本。
 
 ADR-0062 要求在首次校验前捕获 resolver，校验、授权和实际派发使用同一快照，并在授权前核对当前 worker/supervisor 身份。新 goal.retry.authorized 完整保存 agent_configuration_hash、supervisor_configuration_hash、node_input_hash；旧事件可三者全缺省，部分字段声明无效，聚合 input_hash 域仍为 v1。冷恢复与人工审批核验授权 worker 身份，漂移 failed/409；首次 worker 派发前还须节点输入相同。旧授权仅从首条合法、因果后续的 worker 任务归因，缺来源或坏来源拒绝。还原原配置后显式恢复同 run，保留原次数/时长；旧审批失效只重检原授权 run，不能借普通 start 新建预算。有效已开始 Goal 的正常输出不被视为首次派发输入篡改。

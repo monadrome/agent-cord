@@ -7,6 +7,7 @@ import { goalCommandHash } from "../workflow/host-verification.js";
 import { goalAcceptanceIsComplete } from "./goal-acceptance.js";
 import { accumulateGoalUsage, goalUsageTotalsMatch, usageBudgetExceeded } from "./goal-usage.js";
 import { canonicalJson } from "../core/hash.js";
+import { goal_changes_are_complete } from "./goal-changes.js";
 
 export interface GoalReadinessEvidence {
   completion: EventEnvelope;
@@ -43,6 +44,15 @@ export function resolveGoalReadiness(candidate: EventEnvelope, events: readonly 
     || goal.checks.length !== ready.verification_event_ids.length || new Set(ready.verification_event_ids).size !== ready.verification_event_ids.length) return null;
   const belongs = (item: EventEnvelope) => item.session_id === event.session_id && matchesWorkflowScope(item.payload, scope)
     && payload(item)["run_id"] === scope.run_id && payload(item)["node_id"] === node.id;
+  if (goal.review_changes === true) {
+    const baseline = events.filter(item => item.type === "goal.attempt.started" && belongs(item))[0];
+    const baseline_index = events.findIndex(item => item.event_id === baseline?.event_id);
+    const initial = GoalAttemptStartedPayloadSchema.safeParse(baseline?.payload);
+    if (baseline === undefined || baseline_index < 0 || baseline_index >= index || !initial.success || initial.data.attempt !== 1 || initial.data.source_manifest === undefined
+      || baseline.actor.kind !== "system" || baseline.actor.id !== "goal-runner" || baseline.source.adapter !== "goal-runner" || baseline.correlation_id !== node.id
+      || events.filter(item => item.event_id === baseline.event_id).length !== 1 || ready.change_evidence === undefined
+      || !goal_changes_are_complete(ready.change_evidence, baseline.event_id, initial.data.source_manifest, ready.source_hash)) return null;
+  } else if (ready.change_evidence !== undefined) return null;
   if (events.filter(item => ["goal.attempt.started", "goal.attempt.completed"].includes(item.type) && belongs(item)).at(-1)?.event_id !== event.event_id
     || isVerificationRunCancelled(events, scope)) return null;
   const completion = events.filter(item => ["agent.task.started", "agent.task.completed", "agent.task.reused"].includes(item.type) && belongs(item)).at(-1);

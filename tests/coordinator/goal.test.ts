@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ulid } from "ulid";
@@ -10,6 +10,7 @@ import type { AgentDriver, AgentTask, SessionHandle } from "../../src/core/ports
 import { createNodeRunner } from "../../src/coordinator/coordinator.js";
 import { readApprovalContextHash } from "../../src/coordinator/checkpoint.js";
 import { createExecutor } from "../../src/workflow/executor.js";
+import { goal_changes_are_complete, source_manifest_hash } from "../../src/coordinator/goal-changes.js";
 
 let root: string;
 let session: SessionHandle;
@@ -51,9 +52,11 @@ function setup(def: WorkflowDef, agent: AgentDriver) {
   const run_id = ulid();
   const ctx = { workflow_id: def.metadata.id, run_id, node_id: node.id };
   const read_input = async () => {
-    const source_hash = sha256Hex(await readFile(join(root, "value.txt"), "utf8"));
+    const content_hash = sha256Hex(await readFile(join(root, "value.txt"), "utf8"));
+    const source_manifest = [{ path: "value.txt", kind: "file" as const, mode: (await stat(join(root, "value.txt"))).mode & 0o777, content_hash }];
+    const source_hash = node.run!.goal!.review_changes === true ? source_manifest_hash(source_manifest) : content_hash;
     const context_hash = await readApprovalContextHash(def, node, session, agent.configuration_hash ?? null);
-    return { source_hash, input_hash: sha256Hex(canonicalJson({ source_hash, context_hash })) };
+    return { source_hash, input_hash: sha256Hex(canonicalJson({ source_hash, context_hash })), ...(node.run!.goal!.review_changes ? { source_manifest } : {}) };
   };
   const runner = createNodeRunner(def, { workspaceRoot: root, resolveDriver: () => agent, read_verification_input: read_input });
   return { runner, ctx, node, read_input };
@@ -62,6 +65,65 @@ function setup(def: WorkflowDef, agent: AgentDriver) {
 async function latest_goal() { return (await session.events.readOrdered()).filter(e => e.type === "goal.attempt.completed").at(-1)!; }
 
 describe("Goal 自主交付", () => {
+  it("自动修复与冷恢复保留首次源码基线，指南与 ready 使用宿主完整变更", async () => {
+    const agent = driver(async attempt => { await writeFile(join(root, "value.txt"), attempt === 1 ? "broken" : "fixed"); return report; });
+    const def = definition({ review_changes: true }); const { runner, ctx, node } = setup(def, agent);
+    const original = session.events.append.bind(session.events);
+    const crash = vi.spyOn(session.events, "append").mockImplementation(async draft => {
+      const result = await original(draft);
+      if (draft.type === "goal.attempt.completed" && draft.payload["status"] === "retrying") throw Error("修复反馈落盘后中断");
+      return result;
+    });
+    try { await expect(runner.runNode(node, session, ctx)).rejects.toThrow("中断"); } finally { crash.mockRestore(); }
+    expect((await setup(def, agent).runner.runNode(node, session, ctx)).status).toBe("ok");
+    const facts = await session.events.readOrdered();
+    const starts = facts.filter(event => event.type === "goal.attempt.started");
+    expect(starts).toHaveLength(2); expect(starts[1]!.payload["source_manifest"]).toBeUndefined();
+    const ready = await latest_goal(); const changes = ready.payload["change_evidence"] as Parameters<typeof goal_changes_are_complete>[0];
+    expect(changes.changes[0]).toMatchObject({ path: "value.txt", status: "modified", before: { content_hash: sha256Hex("initial") }, after: { content_hash: sha256Hex("fixed") } });
+    expect(goal_changes_are_complete(changes, starts[0]!.event_id, starts[0]!.payload["source_manifest"] as Parameters<typeof source_manifest_hash>[0], ready.payload["source_hash"] as string)).toBe(true);
+    const guide = await readFile(join(session.dir, "review.md"), "utf8");
+    expect(guide).toContain("## 宿主源码变更"); expect(guide).toContain(starts[0]!.event_id); expect(guide).toContain("value.txt");
+    expect(agent.prompts).toHaveLength(2);
+  });
+
+  it("开启变更审计但 hook 缺少 manifest 时不派发", async () => {
+    const agent = driver(async () => report); const def = definition({ review_changes: true }); const node = def.spec.nodes[0]!;
+    const runner = createNodeRunner(def, { workspaceRoot: root, resolveDriver: () => agent,
+      read_verification_input: async () => ({ input_hash: "a".repeat(64), source_hash: "b".repeat(64) }) });
+    expect((await runner.runNode(node, session, { workflow_id: def.metadata.id, run_id: ulid(), node_id: node.id })).status).toBe("failed");
+    expect(agent.prompts).toHaveLength(0);
+    expect((await latest_goal()).payload).toMatchObject({ status: "blocked", failure_kind: "environment" });
+  });
+
+  it("hook 清单摘要不匹配时不派发，首次基线追加失败不会启动 worker", async () => {
+    const agent = driver(async () => report); const def = definition({ review_changes: true }); const { runner, ctx, node, read_input } = setup(def, agent);
+    const mismatched = createNodeRunner(def, { workspaceRoot: root, resolveDriver: () => agent,
+      read_verification_input: async () => ({ ...await read_input(), source_hash: "f".repeat(64) }) });
+    expect((await mismatched.runNode(node, session, { ...ctx, run_id: ulid() })).status).toBe("failed");
+    expect(agent.prompts).toHaveLength(0);
+    const original = session.events.append.bind(session.events);
+    const failure = vi.spyOn(session.events, "append").mockImplementation(async draft => {
+      if (draft.type === "goal.attempt.started") throw Error("基线 fsync 失败"); return original(draft);
+    });
+    try { await expect(runner.runNode(node, session, ctx)).rejects.toThrow("基线 fsync"); } finally { failure.mockRestore(); }
+    expect(agent.prompts).toHaveLength(0);
+    expect((await session.events.readOrdered()).filter(event => event.type === "goal.attempt.started")).toHaveLength(0);
+  });
+
+  it("恢复缺少首次 manifest 时拒绝用当前源码补基线，不再次调用 worker", async () => {
+    const agent = driver(async () => { await writeFile(join(root, "value.txt"), "fixed"); return report; });
+    const def = definition({ review_changes: true }); const { runner, ctx, node } = setup(def, agent);
+    expect((await runner.runNode(node, session, ctx)).status).toBe("ok");
+    const read = session.events.readOrderedStrict!.bind(session.events);
+    const missing = vi.spyOn(session.events, "readOrderedStrict").mockImplementation(async () => (await read()).map(event =>
+      event.type === "goal.attempt.started" ? { ...event, payload: { ...event.payload, source_manifest: undefined } } : event));
+    try { expect((await runner.runNode(node, session, ctx)).status).toBe("failed"); } finally { missing.mockRestore(); }
+    expect(agent.prompts).toHaveLength(1);
+    expect((await latest_goal()).payload).toMatchObject({ status: "blocked", failure_kind: "environment" });
+    expect((await session.events.readOrdered()).filter(event => event.type === "goal.attempt.started")).toHaveLength(1);
+  });
+
   it("发布验收清单拒绝未知检查、遗漏基线、重复条件或空映射", () => {
     const acceptance = [{ id: "business-value", criterion: "业务值满足当前 PRD", checks: ["value-test"] }];
     expect(definition({ acceptance }).spec.nodes[0]!.run!.goal).toMatchObject({ acceptance });

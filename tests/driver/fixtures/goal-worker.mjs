@@ -1,5 +1,5 @@
 // 离线 Goal worker：真实 ACP/headless 子进程，首次写坏值，收到宿主反馈后修复。
-import { appendFileSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
@@ -18,6 +18,12 @@ function work(prompt) {
   appendFileSync(join(cwd, ".goal-worker-prompts.jsonl"), JSON.stringify({ prompt, calls: calls + 1 }) + "\n");
   const repaired = calls > 0 && !always_fail;
   writeFileSync(join(cwd, "value.txt"), repaired ? "fixed" : "broken");
+  if (process.argv.includes("--source-changes")) {
+    mkdirSync(join(cwd, "src"), { recursive: true });
+    rmSync(join(cwd, "src/deleted.ts"), { force: true });
+    writeFileSync(join(cwd, "src/added.ts"), "export const added = true;\n");
+    chmodSync(join(cwd, "value.txt"), 0o755);
+  }
   return report;
 }
 
