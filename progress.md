@@ -9,6 +9,7 @@
 - 最终npm test1250项/84文件，typecheck/build:all/diff、113本地文档链接通过；/tmp/cord-stage62-final-tests.json。
 - 临时真实验收脚本多余括号在进程终态确认后修正，重新用隔离root完成TCP HTTP：worker2/协调1/审批1/人工决定0/节点退出0/doctor=true，run/列表/需求/协调prompt都waiting_human，SQLite仍running、active=true；没有付费模型调用，原7306Draft未操作。
 - 浏览器1440/390/320三张截图已查看，运行实例“等待人工”、无pageerror/页面横向溢出。证据/tmp/cord-stage62-real-result.json、/tmp/cord-stage62-browser-result.json；PID40502/http://127.0.0.1:61992/#/requirements/REQ-WAIT-STATUS隔离预览健康，截图/运行数据不入仓库。准备小步提交与同步，完整目标active。
+- 功能提交dbb49ef（fix: project active run human waits from events），HTTP/1.1推送成功，独立ls-remote核验dbb49efc368af5d8e8e6b58fc3321534e2d10ab8；预览健康200/审批1，完整目标active。
 
 ## 2026-10-10（阶段 61）
 
