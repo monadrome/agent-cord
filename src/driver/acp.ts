@@ -228,13 +228,15 @@ export class AcpDriver implements AgentDriver {
   }
 
   /** 只协商新 session 并校验启动配置，不发送 prompt 或请求工具。 */
-  async inspect(cwd: string, timeout_ms = 5_000): Promise<AcpCapabilityObservation> {
+  async inspect(cwd: string, timeout_ms = 5_000, signal?: AbortSignal): Promise<AcpCapabilityObservation> {
+    if (signal?.aborted) throw new Error("ACP 能力查询已取消");
     let observation: AcpCapabilityObservation | undefined;
-    for await (const event of this.execute({ prompt: "", cwd, timeout_ms }, undefined, true)) {
+    for await (const event of this.execute({ prompt: "", cwd, timeout_ms, ...(signal === undefined ? {} : { signal }) }, undefined, true)) {
       if (event.type === "error") throw new Error("ACP 能力协商或启动配置核验失败");
       if (event.type === "tool_use") throw new Error("ACP 能力查询不允许工具调用");
       if (event.type === "result") observation = (event.data as { raw: AcpCapabilityObservation }).raw;
     }
+    if (signal?.aborted) throw new Error("ACP 能力查询已取消");
     if (observation === undefined) throw new Error("ACP 未返回能力协商结果");
     return observation;
   }
@@ -413,7 +415,7 @@ export class AcpDriver implements AgentDriver {
           state = created;
         }
         activeSessionId = sessionId;
-        this.onSession?.(sessionId);
+        if (!inspect_only) this.onSession?.(sessionId);
         assert_running();
         launch_state = new AcpLaunchState(this.launch, readonly);
         launch_state.initialize(state);
@@ -492,6 +494,7 @@ export class AcpDriver implements AgentDriver {
       // abort 后提前 return 也须等取消通知的有界发送，不能抢先杀进程。
       await shutdown_promise;
       if (sigkillTimer !== undefined) clearTimeout(sigkillTimer);
+      try { connection.close(); } catch { /* 提前停止消费也必须释放挂起协议请求。 */ }
       await terminateProcessTree(proc, this.killGraceMs);
     }
   }

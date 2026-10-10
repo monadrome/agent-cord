@@ -137,6 +137,8 @@ ACP 启动选择持续一致性已接通：`option_ids.mode` 支持仅提供新 
 
 Headless运行时能力查询已接通，CLI版本、任务/恢复帮助、已配置项与帮助是否展示分别呈现。帮助未展示不等于不支持；Codex effort配置键、模型访问/权限/额度和真实session恢复均不能由帮助证明。查询不执行prompt或改变启动身份，整体超时/输出限量并清理进程树（[ADR-0077](./adr/ADR-0077-headless-cli-inspection.md)）。
 
+能力查询受单服务实例生命周期控制：相同快照和timeout的并发查询共享一次探测，不同查询冲突返回稍后重试；完成结果不缓存。server关闭前取消在途ACP/CLI查询并等待进程收束，关闭后新查询返回service_closing，不占用worker执行槽位（[ADR-0079](./adr/ADR-0079-agent-inspection-lifecycle.md)）。
+
 独立协调已默认读取完整流程worker/supervisor配置身份和有界能力声明；worker模型、角色、通道或context_revision改变会使旧提议不可采用。未知/缺稳定身份的next worker不能advance，只能解释配置卡点；采用固定实际resolver并重检，冷恢复也验证原完成来源与同一身份，不自动换Agent或放行gate（[ADR-0078](./adr/ADR-0078-coordination-agent-context.md)）。
 
 待扩展维度包括 provider 路由、MCP/工具集、网络与沙箱、隔离 worktree、CLI 精确版本探测、原生 fork/turn checkpoint；应按厂商真实能力逐项映射。任意历史 workflow rewind、跨 agent 的原生 session 迁移不在当前保证内，不能通过清除已退出节点事实实现。

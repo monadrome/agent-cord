@@ -2,7 +2,7 @@ import type { ReactElement } from "react";
 import type { AgentInspectionView } from "@agent-cord/server/contracts";
 import { launch_option_text } from "../agent-capabilities.js";
 
-const STATUS_TEXT = { passed: "帮助已读取", unavailable: "CLI 不可用", timeout: "查询超时", failed: "查询失败", unrecognized: "输出无法识别" } as const;
+const STATUS_TEXT = { passed: "帮助已读取", unavailable: "CLI 不可用", timeout: "查询超时", failed: "查询失败", unrecognized: "输出无法识别", cancelled: "查询已取消" } as const;
 const CHECK_TEXT = { version: "版本", task_help: "任务帮助", resume_help: "恢复帮助" } as const;
 interface Props {
   inspection: AgentInspectionView;

@@ -71,6 +71,20 @@ describe("Headless 固定CLI帮助查询", () => {
     expect((await driver("claude", "normal", ["--child-pid-file", child_pid]).inspect(cwd))!.status).toBe("passed");
     await expect_dead(Number(await readFile(child_pid, "utf8")));
   });
+  it("预取消不spawn，运行中取消10秒查询并清理进程树，不启动后续help", async () => {
+    const controller = new AbortController(); controller.abort();
+    expect(await driver("claude").inspect(cwd, 10000, controller.signal)).toMatchObject({ status: "cancelled", version: null, native_resume: "unknown" });
+    await expect(readFile(record, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    const running = new AbortController(); const pid_file = join(cwd, "pid"); const child_file = join(cwd, "child-pid");
+    const result = driver("claude", "hang", ["--pid-file", pid_file, "--child-pid-file", child_file]).inspect(cwd, 10000, running.signal);
+    const deadline = Date.now() + 3000;
+    while (!await readFile(child_file, "utf8").then(() => true).catch(() => false)) { if (Date.now() > deadline) throw new Error("诊断进程未启动"); await new Promise(resolve => setTimeout(resolve, 10)); }
+    running.abort();
+    expect(await result).toMatchObject({ status: "cancelled", checks: [{ id: "version", status: "cancelled" }] });
+    await expect_dead(Number(await readFile(pid_file, "utf8"))); await expect_dead(Number(await readFile(child_file, "utf8")));
+    expect(await calls()).toEqual([["--version"]]);
+    expect((await driver("claude").inspect(cwd))!.status).toBe("passed");
+  });
   it("版本解析只投影短标识，不公开任意版本输出", () => {
     expect(cli_version("codex", "codex-cli 1.2.3\nPRIVATE_ENV_MARKER")).toBe("1.2.3");
     expect(cli_version("claude", "3.2.1 (Claude Code)")).toBe("3.2.1");

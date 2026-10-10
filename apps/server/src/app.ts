@@ -103,6 +103,7 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
   await runInit(root);
   await sdlcs.ensureDefaults();
   await coordination.recover();
+  app.addHook("preClose", async () => { await agents.close(); });
   app.addHook("onClose", async () => {
     await runs.close();
     await coordination.close();

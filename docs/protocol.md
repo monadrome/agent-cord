@@ -231,6 +231,8 @@ ADR-0077增可选`AgentCapabilities.inspection`与`AgentInspectionView.cli_obser
 
 ADR-0074 为 inspect 响应增加 `current`：server 返回时，捕获的 revision 与非空 configuration_hash 必须仍匹配同名当前 alias；查询期间成功重载/移除会为 false，失败重载保持旧配置时可为 true。幂等缓存重放原响应，不重新计算 current。console 查询后读取最新 catalog，同时检查 current/revision/hash/alias，刷新失败显示未核验；不能用历史清单或静态声明代替当前协议观察。后续查询失败保留旧结果并标“上次查询”，移除 agent 可查看旧结果但禁止再查询。
 
+ADR-0079：AgentService同一实例只允许同 revision/configuration_hash/规范化 timeout 的能力查询共享一个在途 driver；不同Agent/配置/timeout冲突409，完成结果不缓存。ACP/Headless inspect接收AbortSignal，service preClose取消并等待；关闭中新查询/重载503 `service_closing`。查询取消不进入workflow/事件流、不调用模型、不授予worker工具权限。
+
 ADR-0075 增 `launch.option_ids.mode`：存在时通过精确 select ID/set_config_option 选择模式，无映射则保留旧 modes/set_mode。new/load、回执和当前 session 更新进入每次执行独立的 AcpLaunchState；重复 ID/值、非法默认值、明确选项缺失/类型/值变化 fail-closed。按 mode、排序扩展、model、effort 分步核验最新选项，最后全部选择一致才进入 prompt；sealed 后明确选择漂移触发 configuration error/cancel/进程树收束，不可被后续恢复值或 result 消除。configuration 错误和 permission 同样不可重试，不因后续普通错误重新赋予 retry。显式 launch 的 v5 域绑定 explicit-session-selections.v1 策略，未声明 launch 的默认身份不变；协议协商能力仍不证明真实模型执行或副作用隔离。
 
 Goal recovery POST 增可选 node_id，只能等于原授权未退出节点；首次恢复和已处理请求重放都验证该约束，错误节点 409 且不写新恢复事实。不改变原 token、事件协议、截止时间或预算，不提供 workflow rewind。

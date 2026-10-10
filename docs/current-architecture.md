@@ -204,6 +204,8 @@ Agent 工作台显示适配器启动选项、原生恢复和宿主 Goal/受限�
 
 内置Claude/Codex/Kimi模板声明inspection_profile；库自定义兼容模板可显式选择profile，原始args不自动probe。HeadlessDriver.inspect不使用prompt/模型/角色，固定--version/任务帮助（Codex另查exec resume），每流128KiB与总执行timeout，正常/错误/超时均清理进程树。REST cli_observation独立于ACP observation，显示版本/步骤/帮助hash、configured与advertised三态；帮助旗标不证明模型可用或隐藏参数不支持，不把--config当effort键已验证（[ADR-0077](./adr/ADR-0077-headless-cli-inspection.md)）。
 
+AgentService对能力查询建立单实例slot：同revision/hash/timeout共享，异配置/timeout冲突，完成不缓存。Fastify preClose先取消slot并等待driver清理，之后拒绝新inspect/reload；关闭查询不产生Agent事件或workflow事实（[ADR-0079](./adr/ADR-0079-agent-inspection-lifecycle.md)）。
+
 console 使用 hash 路由，页面包括工作台、需求列表、需求详情、SDLC 管理和 Agent 工作台。它通过 `apps/server/src/contracts.ts` 共享 DTO，只消费 server 投影；事件流、账本和 workflow 状态不在浏览器重复计算。
 
 需求详情页启动 run 时可选 SDLC 与版本（默认 = 内置 SDLC 最新版）；SDLC 页支持模板载入、草稿保存/恢复、克隆已发布版本到编辑器、版本归档。

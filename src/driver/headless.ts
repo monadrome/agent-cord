@@ -665,7 +665,7 @@ export class HeadlessDriver implements AgentDriver {
   }
 
   /** 显式查询只执行版本/帮助，不混入prompt、模型选择或角色参数。 */
-  async inspect(cwd: string, timeout_ms = 5_000): Promise<HeadlessCapabilityObservation | null> {
+  async inspect(cwd: string, timeout_ms = 5_000, signal?: AbortSignal): Promise<HeadlessCapabilityObservation | null> {
     const profile = this.template.inspection_profile;
     if (profile === undefined) return null;
     const deadline = Date.now() + timeout_ms;
@@ -675,8 +675,8 @@ export class HeadlessDriver implements AgentDriver {
       ...(profile === "codex" ? [{ id: "resume_help" as const, args: ["exec", "resume", "--help"] }] : [])];
     let help: string | null = null; let resume_help: string | null = null;
     for (const command of commands) {
-      const probe = await this.inspect_command(cwd, command.args, deadline);
-      let status = probe.status;
+      const probe = await this.inspect_command(cwd, command.args, deadline, signal);
+      let status: CliProbeStatus = signal?.aborted ? "cancelled" : probe.status;
       if (status === "passed") {
         if (command.id === "version") { result.version = cli_version(profile, probe.output); if (result.version === null) status = "unrecognized"; }
         else if (!cli_help_recognized(profile, probe.output, command.id === "resume_help")) status = "unrecognized";
@@ -691,19 +691,25 @@ export class HeadlessDriver implements AgentDriver {
     return result;
   }
 
-  private async inspect_command(cwd: string, args: string[], deadline: number): Promise<{ status: CliProbeStatus; output: string }> {
+  private async inspect_command(cwd: string, args: string[], deadline: number, signal?: AbortSignal): Promise<{ status: CliProbeStatus; output: string }> {
+    if (signal?.aborted) return { status: "cancelled", output: "" };
     if (deadline <= Date.now()) return { status: "timeout", output: "" };
     const child = execa(this.bin, [...this.prefixArgs, ...args], { cwd, env: { ...process.env, ...this.env, NO_COLOR: "1", FORCE_COLOR: "0" },
       detached: true, reject: false, stdin: "ignore", stdout: "pipe", stderr: "pipe", maxBuffer: 131_072 });
-    const proc = trackProcess(child); let timed_out = false; let kill_timer: NodeJS.Timeout | undefined;
-    const timer = setTimeout(() => { timed_out = true; killProcessTree(proc, "SIGTERM"); kill_timer = setTimeout(() => killProcessTree(proc, "SIGKILL"), this.killGraceMs); }, Math.max(1, deadline - Date.now()));
+    const proc = trackProcess(child); let timed_out = false; let cancelled = false; let kill_timer: NodeJS.Timeout | undefined;
+    const stop = (): void => { killProcessTree(proc, "SIGTERM"); kill_timer ??= setTimeout(() => killProcessTree(proc, "SIGKILL"), this.killGraceMs); };
+    const on_abort = (): void => { cancelled = true; stop(); };
+    const timer = setTimeout(() => { timed_out = true; stop(); }, Math.max(1, deadline - Date.now()));
+    if (signal?.aborted) on_abort(); else signal?.addEventListener("abort", on_abort, { once: true });
     try {
       const outcome = await child;
+      if (cancelled) return { status: "cancelled", output: "" };
       if (timed_out) return { status: "timeout", output: "" };
       if (outcome.failed || outcome.exitCode !== 0) return { status: outcome.code === "ENOENT" ? "unavailable" : "failed", output: "" };
       return { status: "passed", output: `${outcome.stdout}\n${outcome.stderr}`.trim() };
-    } catch { return { status: timed_out ? "timeout" : "failed", output: "" }; }
+    } catch { return { status: cancelled ? "cancelled" : timed_out ? "timeout" : "failed", output: "" }; }
     finally {
+      signal?.removeEventListener("abort", on_abort);
       clearTimeout(timer); if (kill_timer !== undefined) clearTimeout(kill_timer);
       await terminateProcessTree(proc, this.killGraceMs);
       // 帮助命令结束后也清理其进程组，不能因组长提前退出遗留诊断子进程。

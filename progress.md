@@ -1,5 +1,10 @@
 # 工作进度
 
+## 2026-10-10（阶段65）
+
+- b01ea64工作树干净/tracking同步；上一轮流程Agent上下文与1290项验证属于实际进展。
+- 审查发现能力查询不同幂等键无限并发、无服务关闭收束。沿用planning-with-files/agent-optimizer；读取Fastify本地preClose生命周期源码，ADR-0079先行，不重新调用付费模型。
+
 ## 2026-10-10（阶段64）
 
 - 5f84234干净/ahead2；阶段63为已实现验证进展，独立HTTP/1.1 ls-remote15秒上限退出124，本地提交保留。
@@ -18,6 +23,12 @@
 
 - 起点7f659db干净/本地tracking同步；上一轮等待投影为已验证进展。
 - 复用planning-with-files/agent-optimizer与OpenAI Docs，Firecrawl官方CLI参考及本机三家--version/help核对。准备headless无prompt运行时查询，不能把help旗标当模型访问或实际执行证明；ADR-0077先行。
+
+## 2026-10-10（阶段65）
+
+- 增加 AgentService 同配置在途 slot、不同 timeout 冲突、不缓存完成结果、AbortSignal 和 preClose 关闭收束；20项 registry/16项 probe 通过。
+- 首次关闭测试显式关 index 后 afterEach 重复关闭，修正测试生命周期；Headless取消错误归一为503。完整回归、实际HTTP和CLI预览待最终收尾。
+- 最终完整回归 `npm test` 1293项/87文件，typecheck/build:all/diff、123本地链接通过；新增slot/关闭回归与既有Goal、协调、ACP/headless测试全部通过，证据/tmp/cord-stage65-tests.json。
 - 实现inspection_profile、version/task/resume固定命令，128KiB/流与全步骤deadline；有限semver/帮助hash/flag三态，无prompt/模型/角色入argv，结果不改变执行身份。成功组长已退出也清理同进程组后代，超时另有有界grace。
 - server新cli_observation独立于ACP，current/固定snapshot和幂等兼容；consoleCLI显式查询/步骤/已配置与帮助展示/缺CLI/未知/历史错误，原始args无probe不猜命令。
 - 首轮大输出fixture立即退出导致输出未刷全，修正flush；旧ACP测试在重载覆盖清单后查询不存在worker，删除该多余断言并由独立custom用例覆盖。Claude本机引号auto枚举新增失败反例修正；成功parent-exit fixture child handle保持eventloop，明确flush+exit并等待实际pid收束后通过，未放宽生产检查。

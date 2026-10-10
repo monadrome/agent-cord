@@ -2,7 +2,7 @@
 import { canonicalJson, sha256Hex } from "../core/hash.js";
 
 export type HeadlessInspectionProfile = "claude" | "codex" | "kimi";
-export type CliProbeStatus = "passed" | "unavailable" | "timeout" | "failed" | "unrecognized";
+export type CliProbeStatus = "passed" | "unavailable" | "timeout" | "failed" | "unrecognized" | "cancelled";
 export interface HeadlessCapabilityObservation {
   evidence: "cli_help";
   profile: HeadlessInspectionProfile;
