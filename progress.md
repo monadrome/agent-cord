@@ -8,6 +8,7 @@
 - 真实子进程强杀后 detached 子进程仍活着的反例已复现；最终增加 fsync owner 标记，只有正常收束删除，异常/更改时 fail-closed 不自动抢占。标记是执行资源，不改变 workflow 授权事实。
 - 27 项执行锁/lease 回归通过，含真实双 server 进程 HTTP、root 别名、正常释放/强杀、损坏与链接、错误 owner、标记变更、跨实例原 run 自动恢复；ADR-0070/研究与 human review 指南已同步，进入全量验证。
 - 最终全量 1133 项 / 79 文件、typecheck/build:all/diff 通过；真实双进程 HTTP 409/无启动事实、释放后一次 worker/人工 gate 未决/人工决定及节点退出 0。强杀/detached 回归均收束测试进程，无付费模型调用，没有操作原真实 Draft。准备独立提交与有界远端同步。
+- 功能提交 `bf484ac`（`fix: guard workspace execution across server processes`）HTTP/2 push 成功；独立 ls-remote 核验远端 `bf484ac898161932097b8b95a4d307cef3d9121e`，阶段 54/55 积压一并同步。完整持续目标保持 active，worktree/OS/同需求多 daemon 写入和更完整自主协调仍需后续。
 
 ## 2026-10-09（阶段 53）
 
