@@ -10,6 +10,7 @@
 import { execa } from "execa";
 import type { AgentDriver, AgentEvent, AgentTask } from "../core/ports.js";
 import { canonicalJson, sha256Hex } from "../core/hash.js";
+import { validate_agent_launch, type AgentCapabilities, type AgentLaunch } from "./launch.js";
 
 // ---------------------------------------------------------------------------
 // 事件数据约定（AgentEvent.data 的具体形态）
@@ -427,9 +428,11 @@ export interface HeadlessArgInput {
   agent?: string | undefined;
   /** 免写盘注入 subagent 定义（claude --agents <json>；与 agent 搭配使用） */
   agents_json?: string | undefined;
+  bare?: boolean | undefined;
+  auto?: boolean | undefined;
 }
 
-/** 模板声明支持的旋钮；agents.yaml 配了不支持的旋钮 → 注册 warning（逐条降级，不阻断） */
+/** 显式旋钮必须被模板声明，否则拒绝启动。 */
 export type AgentKnob =
   | "model"
   | "effort"
@@ -437,7 +440,9 @@ export type AgentKnob =
   | "budget_usd"
   | "system_prompt"
   | "agent"
-  | "agents_json";
+  | "agents_json"
+  | "bare"
+  | "auto";
 
 export interface HeadlessCliTemplate {
   /** 模板名：registry 用它把 agent 名映射到驱动参数 */
@@ -446,6 +451,8 @@ export interface HeadlessCliTemplate {
   readonly bin: string;
   /** 支持的旋钮清单；缺省视为全不支持（保守） */
   readonly knobs?: readonly AgentKnob[];
+  /** 自定义模板缺省不承诺能恢复；内置模板显式声明。 */
+  readonly supports_resume?: boolean;
   args(input: HeadlessArgInput): string[];
 }
 
@@ -465,6 +472,7 @@ const BUILTIN_TEMPLATES: readonly HeadlessCliTemplate[] = [
     name: "kimi",
     bin: "kimi",
     knobs: ["model"],
+    supports_resume: true,
     args: ({ prompt, readonly, resume_session_id, model }) => [
       ...(resume_session_id !== undefined ? ["--session", resume_session_id] : []),
       // readonly：plan 模式只出计划不改文件；无人值守时不会弹交互审批
@@ -480,7 +488,8 @@ const BUILTIN_TEMPLATES: readonly HeadlessCliTemplate[] = [
     // claude -p --output-format stream-json（直接适配器；Claude 无原生 ACP，见 ADR-0017 决策 1）
     name: "claude",
     bin: "claude",
-    knobs: ["model", "effort", "max_turns", "budget_usd", "system_prompt", "agent", "agents_json"],
+    knobs: ["model", "effort", "max_turns", "budget_usd", "system_prompt", "agent", "agents_json", "bare", "auto"],
+    supports_resume: true,
     args: ({
       prompt,
       readonly,
@@ -492,7 +501,11 @@ const BUILTIN_TEMPLATES: readonly HeadlessCliTemplate[] = [
       system_prompt,
       agent,
       agents_json,
+      bare,
+      auto,
     }) => [
+      ...(bare === true ? ["--bare"] : []),
+      ...(auto === true && !readonly ? ["--permission-mode", "auto"] : []),
       ...(resume_session_id !== undefined
         ? readonly
           ? ["--resume", resume_session_id, "--fork-session"] // 只读任务不污染原会话
@@ -519,13 +532,14 @@ const BUILTIN_TEMPLATES: readonly HeadlessCliTemplate[] = [
     name: "codex",
     bin: "codex",
     knobs: ["model", "effort"],
+    supports_resume: true,
     args: ({ prompt, readonly, resume_session_id, model, effort }) => [
       "exec",
       ...(resume_session_id !== undefined ? ["resume", resume_session_id] : []),
       "--json",
       ...(model !== undefined ? ["--model", model] : []),
       // effort → codex 配置覆盖（codex 无 effort CLI 旗标）
-      ...(effort !== undefined ? ["-c", `model_reasoning_effort="${effort}"`] : []),
+      ...(effort !== undefined ? ["-c", `model_reasoning_effort=${JSON.stringify(effort)}`] : []),
       // codex exec 默认 read-only 沙箱（已实证）：非只读任务必须显式 workspace-write，
       // 否则写文件被拦截且无审批交互（exec 无人值守）；`exec resume` 不收 -s，统一走 -c
       "-c",
@@ -575,21 +589,23 @@ export interface HeadlessDriverOptions {
   kill_grace_ms?: number;
   /** 暴露给 registry 的驱动名，默认 `headless:<cli>` */
   name?: string;
-  /** 参数旋钮（agents.yaml 注册时注入）；模板不支持的旋钮已在注册期降级为 warning */
+  /** 参数旋钮；不支持的配置拒绝启动。 */
   knobs?: HeadlessKnobs;
+  launch?: AgentLaunch;
 }
 
 /** 模板旋钮值集（HeadlessArgInput 里除 prompt/readonly/resume 外的部分） */
 export type HeadlessKnobs = Partial<
   Pick<
     HeadlessArgInput,
-    "model" | "effort" | "max_turns" | "budget_usd" | "system_prompt" | "agent" | "agents_json"
+    "model" | "effort" | "max_turns" | "budget_usd" | "system_prompt" | "agent" | "agents_json" | "bare" | "auto"
   >
 >;
 
 export class HeadlessDriver implements AgentDriver {
   readonly name: string;
   readonly configuration_hash: string;
+  readonly capabilities: AgentCapabilities;
   private readonly template: HeadlessCliTemplate;
   private readonly bin: string;
   private readonly prefixArgs: string[];
@@ -605,12 +621,20 @@ export class HeadlessDriver implements AgentDriver {
         `unknown headless CLI "${options.cli}"; known: ${listHeadlessCliTemplates().join(", ")}`,
       );
     }
-    this.template = { ...template };
+    this.template = { ...template, ...(template.knobs === undefined ? {} : { knobs: [...template.knobs] }) };
     this.bin = options.bin ?? template.bin;
     this.prefixArgs = [...(options.prefixArgs ?? [])];
     this.env = { ...options.env };
     this.killGraceMs = options.kill_grace_ms ?? DEFAULT_KILL_GRACE_MS;
-    this.knobs = { ...options.knobs };
+    const supported = template.knobs ?? [];
+    const launch = validate_agent_launch(options.launch, supported);
+    for (const key of Object.keys(options.knobs ?? {})) {
+      if (!supported.includes(key as AgentKnob)) throw new Error(`agent 模板不支持旋钮：${key}`);
+      if (key in launch && options.knobs![key as AgentKnob] !== launch[key as keyof AgentLaunch]) throw new Error(`启动选项重复且不一致：${key}`);
+    }
+    this.knobs = { ...options.knobs, ...launch } as HeadlessKnobs;
+    this.capabilities = Object.freeze({ transport: "headless", evidence: "adapter", installation: "unchecked", launch_options: Object.freeze([...supported]),
+      native_resume: template.supports_resume === true ? "supported" : "unsupported", goal: "host", workflow_resume: "authorized_unexited_goal" });
     this.name = options.name ?? `headless:${template.name}`;
     const config_task = { prompt: "cord.configuration.prompt", cwd: "" };
     this.configuration_hash = sha256Hex(canonicalJson({
@@ -619,8 +643,8 @@ export class HeadlessDriver implements AgentDriver {
       name: this.name,
       argv: this.buildArgv(config_task),
       readonly_argv: this.buildArgv({ ...config_task, readonly: true }),
-      resume_argv: this.buildArgv(config_task, "cord.configuration.session"),
-      readonly_resume_argv: this.buildArgv({ ...config_task, readonly: true }, "cord.configuration.session"),
+      resume_argv: this.template.supports_resume === true ? this.buildArgv(config_task, "cord.configuration.session") : null,
+      readonly_resume_argv: this.template.supports_resume === true ? this.buildArgv({ ...config_task, readonly: true }, "cord.configuration.session") : null,
     }));
   }
 
@@ -634,6 +658,7 @@ export class HeadlessDriver implements AgentDriver {
 
   /** 该驱动实际拼出的 argv（含 bin），供 registry/doctor/测试观测 */
   buildArgv(task: AgentTask, resumeSessionId?: string): string[] {
+    if (resumeSessionId !== undefined && (resumeSessionId.length === 0 || this.template.supports_resume !== true)) throw new Error("agent 不支持显式原生 session resume");
     return [
       this.bin,
       ...this.prefixArgs,

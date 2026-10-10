@@ -792,13 +792,14 @@
 - [x] 当前/过期/取消、ACP/headless fixture 子进程与冷恢复回归；共享来源/范围核验沿用，不重新调用付费模型
 - [x] 全量 1158 项 / 80 文件、typecheck/build:all/diff 通过，小步提交；与阶段 59 一并尝试有界推送
 
-## 阶段 59：Agent 原子能力与启动控制（实现中）
+## 阶段 59：Agent 原子能力与启动控制（已实现并验证，远端同步待核验）
 
 - [x] 核对现有 driver/YAML/恢复契约和本地 CLI help；ADR-0073 先行
-- [ ] 能力描述、严格 launch 配置、headless/custom 实参编译与 ACP session 协商
-- [ ] 清单 API 与固定未退出 Goal 节点恢复约束
-- [ ] 离线实际子进程/HTTP 回归，研究与 human review 指南
-- [ ] 全量验证、小步提交、有界推送与远端核验
+- [x] 能力描述、严格 launch 配置、headless/custom 实参编译与 ACP session 协商
+- [x] 清单/inspect API 与固定未退出原授权 Goal 节点恢复约束；查询不发送 prompt、不使用 worker 预授权
+- [x] 21 项 launch 离线实际子进程回归、真实 TCP HTTP 幂等/错误路径、固定节点恢复；核心 feature/研究与 human review 指南同步
+- [x] 全量 1181 项 / 81 文件、typecheck/build:all/diff、100 项本地链接通过；隔离预览健康与协商 HTTP 200，同键重放一致
+- [ ] 有界推送与远端核验；保持原真实 Draft 未操作，完整持续优化目标仍 active
 
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 

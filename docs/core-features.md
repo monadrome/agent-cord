@@ -1,4 +1,4 @@
-# 核心 Feature：默认 Goal 驱动的自主 Draft 交付
+# 核心 Feature：自主 Draft 交付与 Agent 启动能力
 
 > 状态：已采纳的产品与架构基线（2026-10-09）；节点内 Goal、自动卡点升级、人工续跑/恢复与声明验收覆盖原型已实现，业务覆盖充分性与资源治理待完善。当前能力见 [当前架构](./current-architecture.md)，原则见 [ADR-0055](./adr/ADR-0055-goal-driven-draft-delivery.md)，原型协议见 [ADR-0056](./adr/ADR-0056-goal-node-execution.md)。
 
@@ -110,3 +110,23 @@ flowchart LR
 | 独立 Context Session Agent | 已实现最新快照提议、人工采用与受限 Goal 观察；声明 supervisor 后自动解释 blocker 并生成人工卡点，完整监督续跑仍待完善 |
 
 真实 agent 开发流程的设计默认是 Goal；“Agent 协作 · Goal”模板与 [goal-sdlc.yaml](../examples/goal-sdlc.yaml) 提供当前原型。零外部依赖的离线 `simple-sdlc` 继续用于验证平台内核，既有发布版本与人工 gate 保留原语义。后续按 [路线图](./10-roadmap.md) 继续完善，跨模块协议先更新 ADR。
+
+## 7. 原子 Agent 能力与启动控制
+
+**平台先识别可用能力，再编译明确的启动配置。用户选择的能力必须生效；不支持时直接拒绝，不能告警后悄悄使用默认模型或开启新会话。** 这项原则覆盖内置 CLI、自定义 wrapper 和 ACP，协议见 [ADR-0073](./adr/ADR-0073-agent-launch-capabilities.md)，配置与 human review 指南见 [启动能力验收](./research/2026-10-10-agent-launch-capabilities.md)。
+
+| 维度 | 当前控制与边界 |
+|---|---|
+| 通道 | `kind: acp/headless` 或显式 driver 前缀；裸 agent 名遵循 registry 选择规则 |
+| 上下文 | Claude `launch.bare` 明确关闭部分自动加载；会改变仓库指令/认证加载，不默认开启 |
+| 执行生命周期 | `run.goal` 由宿主控制代码、自测、修复与 review 交付；普通单次调用仍可显式配置 |
+| 自主权限 | Claude `launch.auto` 使用厂商 auto 审批；ACP 使用协商 mode/文件范围预授权；readonly 优先，最终 gate 仍人工 |
+| LLM 与 effort | `launch.model/effort`；headless 编译 CLI 实参，ACP 映射明确配置 ID 并核验允许值及最终回执 |
+| 角色与资源 | Claude 支持 `launch.agent/agents_json/system_prompt/max_turns/budget_usd`；Goal 有宿主时长、尝试、无进展和可靠 usage 预算 |
+| 原生会话恢复 | 必须显式 session ID；内置 headless 模板、ACP 协商 loadSession、自定义 `resume_args` 分别负责 |
+| 固定流程节点恢复 | 原授权 Goal recovery 加 `node_id`，限定原 token 绑定的未退出节点；保持 checkpoint、输入/配置身份、原预算和人工 gate |
+| 扩展 | ACP `config_options` 支持 select/boolean；自定义 argv 显式绑定 model/effort/session；外部行为变化用 `context_revision` |
+
+`GET /agents` 给出适配器声明的能力表，安装状态为 unchecked。`POST /agents/:name/inspect` 可核验 ACP initialize/session/new 和启动配置，不发送 prompt；返回有界 mode、配置 ID、模型/effort 候选及省略数，绑定查询使用的 revision/configuration_hash。headless 查询只返回适配器声明，没有伪造运行时证明。
+
+待扩展维度包括 provider 路由、MCP/工具集、网络与沙箱、隔离 worktree、CLI 精确版本探测、原生 fork/turn checkpoint；应按厂商真实能力逐项映射。任意历史 workflow rewind、跨 agent 的原生 session 迁移不在当前保证内，不能通过清除已退出节点事实实现。

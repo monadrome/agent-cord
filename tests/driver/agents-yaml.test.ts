@@ -104,7 +104,7 @@ agents:
     expect(result.warnings[0]).toContain("未知 headless 模板");
   });
 
-  it("模板不支持的旋钮 → warning 忽略但不阻断注册", () => {
+  it("模板不支持的显式旋钮拒绝注册，不退回内置配置", () => {
     const { yaml } = parseAgentsYaml(`
 agents:
   reviewer:
@@ -115,23 +115,20 @@ agents:
     system_prompt: 你是评审
 `);
     const result = registerAgentsYaml(yaml!);
-    expect(result.registered).toContain("reviewer");
-    // kimi 支持 model、不支持 system_prompt → 恰好一条降级 warning
+    expect(result.registered).not.toContain("reviewer");
     expect(result.warnings).toHaveLength(1);
     expect(result.warnings[0]).toContain("system_prompt");
-    const argv = (resolveWithAgentsYaml(yaml)("reviewer") as HeadlessDriver).buildArgv({ prompt: "p", cwd: "/tmp" });
-    expect(argv).toContain("k2");
-    expect(argv).not.toContain("你是评审");
+    expect(() => resolveWithAgentsYaml(yaml)("reviewer")).toThrow(/配置无效/);
   });
 
-  it("自定义 args 形态配旋钮 → warning 提示不支持", () => {
+  it("自定义 args 配未映射旋钮拒绝注册", () => {
     const { yaml } = parseAgentsYaml(`
 agents:
   raw: { kind: headless, bin: x, args: ["run", "{{prompt}}"], model: m1 }
 `);
     const result = registerAgentsYaml(yaml!);
-    expect(result.registered).toContain("raw");
-    expect(result.warnings[0]).toContain("自定义 args 形态不支持旋钮");
+    expect(result.registered).not.toContain("raw");
+    expect(result.warnings[0]).toContain("显式占位符");
   });
 });
 

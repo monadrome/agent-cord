@@ -352,3 +352,11 @@
 - 源码 delta 最多 10,000 项/1,000,000 字符，协调必需上下文只有 60,000 字符预算；直接注入会挤掉真实需求与文档，不符合最新快照协调职责。
 - 共享 ready 核验后再生成计数和 16 条路径样本，完整证据 hash 纳入观察身份；过期时保留历史但不能引用为当前 ready，非法/取消不提供摘要。
 - hook 契约与发布 review_changes 一致性须在模型派发前核验；摘要是受信宿主投影，不让模型重新累计或核验源码正文。
+# 阶段 59：Agent 启动能力（2026-10-10）
+
+- 用户的默认 Goal 交付原则适合当前宿主验证/修复闭环；ACP、CLI bare、auto、模型/effort 与恢复必须分轴，不能作为同一种 mode。
+- 本机 Claude 2.1.220 help 确认 bare/auto；Codex 0.160.0 help 与 OpenAI Docs 确认 exec/resume。bare 会改变仓库指令与认证加载，不能默认启用；模板声明不代表当前安装/模型可用性已核验。
+- ACP category 仅为 UX 元信息。精确 option_ids、select/grouped/boolean 值校验、完整 currentValue 回执及最终再核验，能阻断未知值、忽略设置或后续重置。boolean 需 initialize 协商及设置 type=boolean。
+- 自定义 wrapper 必须显式映射模型/effort，完整 resume_args 绑定 session ID；不支持的旋钮与 native resume 现在拒绝，不能静默降级。配置身份覆盖恢复映射，旧自定义身份可能变化并触发保守重验。
+- 原子查询只能确认本次 ACP handshake/session 的能力，不能证明模型权限/额度。查询拒绝权限请求与工具报告，不沿用 worker 写预授权；投影有界并携带省略数，不公开 argv/env/当前扩展值。
+- workflow 固定节点恢复限定原授权未退出节点，保留 checkpoint/预算/配置和人工 gate；任意历史 rewind、provider/MCP/网络/原生 turn checkpoint 仍需逐项适配。

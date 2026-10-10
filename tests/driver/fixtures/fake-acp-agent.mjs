@@ -33,6 +33,18 @@ const respondError = (id, code, message) => send({ jsonrpc: "2.0", id, error: { 
 const notify = (method, params) => send({ jsonrpc: "2.0", method, params });
 
 const sessionId = "acp-session-1";
+const configOptions = [
+  { id: "llm", name: "LLM", category: "model", type: "select", currentValue: "small", options: [{ group: "models", name: "Models", options: [{ value: "small", name: "Small" }, { value: "large", name: "Large" }] }] },
+  { id: "thinking", name: "Effort", category: "thought_level", type: "select", currentValue: "low", options: [{ value: "low", name: "Low" }, { value: "high", name: "High" }] },
+  { id: "extended", name: "Extension", type: "boolean", currentValue: false },
+];
+const availableModes = [{ id: "plan", name: "Plan" }, { id: "code", name: "Code" }];
+if (argv.includes("--large-capabilities")) {
+  configOptions[0].options = [{ group: "models", name: "Models", options: Array.from({ length: 140 }, (_, index) => ({ value: `model-${index}`, name: `Model ${index}` })) }];
+  availableModes.push(...Array.from({ length: 140 }, (_, index) => ({ id: `mode-${index}`, name: `Mode ${index}` })));
+  configOptions.push(...Array.from({ length: 140 }, (_, index) => ({ id: `option-${index}`, name: `Option ${index}`, type: "boolean", currentValue: false })));
+}
+const sessionState = () => argv.includes("--config") ? { modes: { currentModeId: "plan", availableModes }, configOptions } : {};
 let permissionRequestId = 0;
 // 挂起的 prompt 请求 id：permission 应答后决定是否作答（模拟挂死）
 let pendingPromptId = undefined;
@@ -94,9 +106,11 @@ function handleMessage(message) {
   const { id, method, params } = message;
 
   if (method === "initialize") {
+    record({ event: "initialize", clientCapabilities: params.clientCapabilities });
+    if (mode === "hang-init") return;
     respond(id, {
       protocolVersion: mode === "bad-version" ? 2 : 1,
-      agentCapabilities: { loadSession: true },
+      agentCapabilities: { loadSession: !argv.includes("--no-resume") },
       agentInfo: { name: "fake-acp-agent", version: "0.0.1" },
     });
     return;
@@ -104,7 +118,11 @@ function handleMessage(message) {
 
   if (method === "session/new") {
     record({ event: "session/new", cwd: params.cwd, mcpServers: params.mcpServers ?? null });
-    respond(id, { sessionId });
+    if (argv.includes("--permission-on-new")) send({ jsonrpc: "2.0", id: "perm-1", method: "session/request_permission", params: {
+      sessionId, toolCall: { toolCallId: "probe-tool", title: "write file", kind: "edit" },
+      options: [{ optionId: "allow-once", name: "Allow", kind: "allow_once" }] } });
+    if (argv.includes("--tool-on-new")) update({ sessionUpdate: "tool_call", toolCallId: "probe-tool", title: "read file", kind: "read", status: "pending" });
+    respond(id, { sessionId, ...sessionState() });
     return;
   }
 
@@ -114,8 +132,21 @@ function handleMessage(message) {
       respondError(id, -32601, "session/load not supported");
       return;
     }
-    respond(id, {});
+    respond(id, sessionState());
     return;
+  }
+
+  if (method === "session/set_mode") {
+    record({ event: method, ...params });
+    respond(id, {}); return;
+  }
+  if (method === "session/set_config_option") {
+    record({ event: method, ...params });
+    if (mode === "reject-config") { respondError(id, -32000, "configuration rejected"); return; }
+    const option = configOptions.find(value => value.id === params.configId);
+    if (option && mode !== "ignore-config") option.currentValue = params.value;
+    if (mode === "reset-config" && params.configId === "thinking") configOptions[0].currentValue = "small";
+    respond(id, { configOptions }); return;
   }
 
   if (method === "session/prompt") {

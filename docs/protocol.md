@@ -223,6 +223,12 @@ REST 的 `approval_id` 是等待事件 ULID；旧静态编码可解析但不允�
 
 `GET /api/v1/agents` 返回 `revision`、`agents[{name, kind, source, template, configuration_hash}]`、`warnings`、`rejected`。configuration_hash 无身份时为 null，表示执行定义，不探测安装、环境变量或外部命名 agent 文件。`POST /api/v1/agents/reload` 需要 `Idempotency-Key`，成功后替换配置并递增 revision，失败保持原配置；删除可选文件后重载恢复内置清单。在途 run 固定 resolver 与身份，后续 run 使用新配置；重启后 resolver 从当前文件重建，revision 重新编号。响应不携带 env、完整 args、角色 prompt 或 `agents_json`。console Agent 页只展示此投影并发起明确命令。
 
+ADR-0073 增 `AgentDriver.capabilities` 可选静态描述，清单同步公开 transport、launch_options、native_resume、宿主 Goal 与受限节点恢复语义。`launch` 严格校验；模板不支持的显式旋钮拒绝该别名，自定义参数不再静默忽略旋钮。ACP model/effort 必须带 option_ids，session/new/load 后核验 select/boolean 和设置回执，再发送 prompt；initialize 声明 boolean 配置能力。readonly 拒绝未知扩展配置和非 plan mode；Claude readonly 覆盖 auto 为 plan。有效参数与协议配置进入配置身份；自定义无 resume_args 不承诺原生恢复。
+
+`POST /api/v1/agents/:name/inspect` 需要 Idempotency-Key，可选 timeout_ms 100-10000。只接受当前清单名称，ACP initialize/new/配置核验后返回受限 observation，不发送 prompt；headless observation=null，不能视为安装已验证。响应绑定固定 revision/configuration_hash；动态模式/选项/候选上限 128、标识上限 200，省略数量明确，扩展选项不公开当前值。失败为 400，未知名称 404，配置/环境/argv 不进入响应。
+
+Goal recovery POST 增可选 node_id，只能等于原授权未退出节点；首次恢复和已处理请求重放都验证该约束，错误节点 409 且不写新恢复事实。不改变原 token、事件协议、截止时间或预算，不提供 workflow rewind。
+
 ## 7. Context Session Agent
 
 `ContextSessionAgent.coordinate` 每轮重新采集当前 workflow 的需求文档、事件派生账本/进度/人工等待，调用 `driver.run` 新会话（readonly），不 resume 或注入历史事件/旧提议。上下文总字符预算与结果上限为 60000/32768，必需元信息超预算时拒绝派发。driver metadata 不作文本 fallback，明确空最终字符串不能回退。

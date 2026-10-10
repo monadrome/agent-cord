@@ -655,3 +655,11 @@
 - Goal change_summary 只从完整 ready 核验派生，最多 16 条路径样本，完整计数与证据身份进入协调输入。
 - 新增大清单/样本外变化/错误计数和 ACP/headless 子进程、过期/不可读/取消与冷恢复断言。全量首先复现旧调用省略 goals 的兼容错误，修复 optional chaining 后 1158 项 / 80 文件通过；typecheck/build:all/diff 通过。
 - 当前转入用户新提出的 agent 原子能力与启动控制；保留原默认 Goal 与人工终审边界。
+# 阶段 59 验证（2026-10-10）
+
+- ADR-0073 先于 ports 修改。新增严格 launch/capabilities、Claude bare/auto/角色/预算、ACP 精确 ID 选择与最终回执、boolean 协商、custom model/effort/resume 参数映射；显式不支持配置 fail-closed。
+- server 能力清单/无 prompt inspect、typed client 和原授权恢复 node_id 约束完成。能力查询拒绝权限和工具，不使用 worker 预授权；静态声明与 session 协商结果明确分开。
+- 定向 21 项 launch、实际 fixture 子进程、TCP HTTP 查询与幂等、固定节点/预算/人工 gate 通过。全量首先复现旧忽略旋钮/隐式 resume/清单精确结构断言，按新契约修正；最终 npm test 1181 项 / 81 文件通过，typecheck/build:all/diff、100 项本地文档链接通过。
+- 核心 feature、README、架构、协议、示例、研究与 human review 指南同步。未调用付费模型，未操作 7306 上的真实 Draft。
+- 隔离预览 PID 81269，http://127.0.0.1:56982；/api/v1/health、/agents、/agents/capability-demo/inspect 均 200，模型/effort 候选来自 fixture 协商，同键重放一致。定位 /tmp/cord-stage59-preview-result.json；终态测试 JSON 为 /tmp/cord-stage59-final-tests.json。
+- 功能将小步提交，随后有界推送与远端独立核验；完整持续优化目标保持 active。

@@ -56,7 +56,7 @@ describe("agent 配置身份", () => {
     const template = { name: "custom", bin: "custom", args: ({ prompt }: { prompt: string }) => [prompt] };
     const plain = new HeadlessDriver({ cli: "custom", template });
     const readonly = new HeadlessDriver({ cli: "custom", template: { ...template, args: ({ prompt, readonly }) => [prompt, ...(readonly ? ["--restrict"] : [])] } });
-    const resume = new HeadlessDriver({ cli: "custom", template: { ...template, args: ({ prompt, resume_session_id }) => [prompt, ...(resume_session_id ? ["--resume", resume_session_id] : [])] } });
+    const resume = new HeadlessDriver({ cli: "custom", template: { ...template, supports_resume: true, args: ({ prompt, resume_session_id }) => [prompt, ...(resume_session_id ? ["--resume", resume_session_id] : [])] } });
     expect(readonly.configuration_hash).not.toBe(plain.configuration_hash);
     expect(resume.configuration_hash).not.toBe(plain.configuration_hash);
   });
@@ -69,8 +69,9 @@ describe("agent 配置身份", () => {
     expect(new AcpDriver({ bin: "other", name: "same", args: ["acp"] }).configuration_hash).not.toBe(first.configuration_hash);
   });
 
-  it("忽略的旋钮和 YAML 格式不改变执行身份", () => {
-    const first = resolveWithAgentsYaml(parseAgentsYaml("agents: { worker: { kind: headless, template: kimi, model: k2, system_prompt: unused } }").yaml)("worker");
+  it("未支持旋钮拒绝构造身份；有效 YAML 格式变化不改变身份", () => {
+    expect(() => resolveWithAgentsYaml(parseAgentsYaml("agents: { worker: { kind: headless, template: kimi, model: k2, system_prompt: unused } }").yaml)("worker")).toThrow(/配置无效/);
+    const first = resolveWithAgentsYaml(parseAgentsYaml("agents: { worker: { kind: headless, template: kimi, model: k2 } }").yaml)("worker");
     const second = resolveWithAgentsYaml(parseAgentsYaml("agents:\n  worker:\n    template: kimi\n    model: k2\n    kind: headless\n").yaml)("worker");
     expect(first.configuration_hash).toBe(second.configuration_hash);
   });

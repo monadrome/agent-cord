@@ -25,6 +25,7 @@ import {
   RevokeCoordinationAnswerInputSchema,
   RetryGoalInputSchema,
   RecoverGoalInputSchema,
+  InspectAgentInputSchema,
   UpdateDocInputSchema,
   ReadArtifactInputSchema,
   ValidateSdlcInputSchema,
@@ -201,6 +202,11 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
     ...agents.catalog(),
   }));
   app.post("/api/v1/agents/reload", { config: { idempotency: true } }, async (req) => ({ request_id: requestId(req), ...await agents.reload() }));
+  app.post("/api/v1/agents/:name/inspect", { config: { idempotency: true } }, async req => {
+    const { name } = req.params as { name: string };
+    const input = parseOrThrow(InspectAgentInputSchema, req.body ?? {});
+    return { request_id: requestId(req), ...await agents.inspect(name, input.timeout_ms) };
+  });
 
   // ---- Dashboard -----------------------------------------------------------
   app.get("/api/v1/dashboard", async (req): Promise<DashboardView & { request_id: string }> => {
@@ -368,7 +374,7 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
   app.post("/api/v1/runs/:run_id/goal-recovery", { config: { idempotency: true } }, async (req, reply) => {
     const { run_id } = req.params as { run_id: string };
     const input = parseOrThrow(RecoverGoalInputSchema, req.body);
-    const run = await runs.recoverGoal(run_id, input.input_hash);
+    const run = await runs.recoverGoal(run_id, input.input_hash, input.node_id);
     reply.code(202);
     return { request_id: requestId(req), run };
   });

@@ -1,8 +1,8 @@
 /** 工作区 agent 配置快照（ADR-0027）：串行重载，成功才替换，在途 run 固定 resolver。 */
-import { join } from "node:path";
-import { createAgentRegistry, loadAgentsFile, type AgentDriver, type AgentRegistry } from "agent-cord";
-import type { AgentCatalogView } from "../contracts.js";
-import { badRequest } from "../errors.js";
+import { dirname, join } from "node:path";
+import { AcpDriver, createAgentRegistry, loadAgentsFile, type AgentDriver, type AgentRegistry } from "agent-cord";
+import type { AgentCatalogView, AgentInspectionView } from "../contracts.js";
+import { badRequest, notFound } from "../errors.js";
 
 export class AgentService {
   private registry: AgentRegistry = createAgentRegistry(null);
@@ -15,7 +15,10 @@ export class AgentService {
   catalog(): AgentCatalogView {
     return {
       revision: this.revision,
-      agents: this.registry.list().map((entry) => ({ ...entry, configuration_hash: this.registry.resolve(entry.name).configuration_hash ?? null })),
+      agents: this.registry.list().map((entry) => {
+        const driver = this.registry.resolve(entry.name);
+        return { ...entry, configuration_hash: driver.configuration_hash ?? null, ...(driver.capabilities === undefined ? {} : { capabilities: driver.capabilities }) };
+      }),
       warnings: [...this.warnings],
       rejected: [...this.registry.rejected],
     };
@@ -24,6 +27,17 @@ export class AgentService {
   /** 返回固定的配置快照闭包，重载不会修改已持有的 resolver。 */
   resolver(): (name: string) => AgentDriver {
     return this.registry.resolve;
+  }
+
+  async inspect(name: string, timeout_ms?: number): Promise<AgentInspectionView> {
+    if (!this.registry.list().some(entry => entry.name === name)) throw notFound("agent 不在当前可用清单");
+    const driver = this.registry.resolve(name); const revision = this.revision;
+    let observation: AgentInspectionView["observation"] = null;
+    if (driver instanceof AcpDriver) {
+      try { observation = await driver.inspect(dirname(this.cord_root), timeout_ms); }
+      catch { throw badRequest("ACP 能力协商或启动配置核验失败"); }
+    }
+    return { revision, configuration_hash: driver.configuration_hash ?? null, capabilities: driver.capabilities ?? null, observation };
   }
 
   reload(): Promise<AgentCatalogView> {

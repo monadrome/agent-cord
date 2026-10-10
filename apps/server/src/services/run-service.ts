@@ -127,7 +127,7 @@ export class RunService {
   private readonly decided = new Map<string, string>();
   private readonly decision_queue = new Map<string, Promise<unknown>>();
   private recovery_queue: Promise<unknown> = Promise.resolve();
-  private readonly goal_recovering = new Map<string, { input_hash: string; promise: Promise<RunInfo> }>();
+  private readonly goal_recovering = new Map<string, { input_hash: string; node_id?: string; promise: Promise<RunInfo> }>();
   /** ADR-0069/0070：同一 workspace 内的 agent run 不能并发写共享源码。 */
   private readonly workspace_lease: WorkspaceLease;
   /** 只保存已授权、可由启动事实重建的恢复引用，不创建新的排队 run。 */
@@ -940,15 +940,15 @@ export class RunService {
   }
 
   /** 持久化恢复意图后继续原 run；恢复失败只保留请求事实，不授予新预算。 */
-  recoverGoal(runId: string, input_hash: string): Promise<RunInfo> {
+  recoverGoal(runId: string, input_hash: string, node_id?: string): Promise<RunInfo> {
     const pending = this.goal_recovering.get(runId);
-    if (pending !== undefined) return pending.input_hash === input_hash ? pending.promise : Promise.reject(conflict("已有不同依据的 Goal 恢复正在处理"));
-    const operation = this.recoverGoalOnce(runId, input_hash).finally(() => { if (this.goal_recovering.get(runId)?.promise === operation) this.goal_recovering.delete(runId); });
-    this.goal_recovering.set(runId, { input_hash, promise: operation });
+    if (pending !== undefined) return pending.input_hash === input_hash && pending.node_id === node_id ? pending.promise : Promise.reject(conflict("已有不同依据或节点的 Goal 恢复正在处理"));
+    const operation = this.recoverGoalOnce(runId, input_hash, node_id).finally(() => { if (this.goal_recovering.get(runId)?.promise === operation) this.goal_recovering.delete(runId); });
+    this.goal_recovering.set(runId, { input_hash, ...(node_id === undefined ? {} : { node_id }), promise: operation });
     return operation;
   }
 
-  private async recoverGoalOnce(runId: string, input_hash: string): Promise<RunInfo> {
+  private async recoverGoalOnce(runId: string, input_hash: string, node_id?: string): Promise<RunInfo> {
     if (this.closing) throw conflict("服务正在关闭");
     const run = this.index.getRun(runId);
     if (run === null) throw notFound(`run 不存在：${runId}`);
@@ -960,9 +960,13 @@ export class RunService {
     try {
       const session = await this.sessions.open(run.req_id); const events = await session.events.readOrdered();
       const prior = readGoalRecoveryRequest(events, runId);
-      if (prior?.request.input_hash === input_hash) return this.getRun(runId);
+      if (prior?.request.input_hash === input_hash) {
+        if (node_id !== undefined && prior.request.node_id !== node_id) throw conflict("恢复节点不匹配原请求");
+        return this.getRun(runId);
+      }
       if (existing !== undefined) throw conflict("需求仍有执行体，不能恢复");
       const state = await this.readGoalRecoveryState(run, resolver, controller);
+      if (node_id !== undefined && state.view.node_id !== node_id) throw conflict("只能恢复原授权的未退出 Goal 节点");
       if (!state.view.available || state.view.input_hash !== input_hash) throw conflict(state.view.reason ?? "Goal 恢复依据已变化，请刷新");
       const checked = await this.readGoalRecoveryState(run, resolver, controller);
       if (checked.view.input_hash !== input_hash) throw conflict("Goal 恢复依据在核验期间已变化");

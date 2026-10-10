@@ -5,7 +5,7 @@
  */
 import { z } from "zod";
 import { ULID_RE, VerificationResultSchema } from "agent-cord";
-import type { CoordinationProposal, CoordinationStatus, GoalUsageBudget, GoalUsageTotals } from "agent-cord";
+import type { AgentCapabilities, AcpCapabilityObservation, CoordinationProposal, CoordinationStatus, GoalUsageBudget, GoalUsageTotals } from "agent-cord";
 
 // ---------------------------------------------------------------------------
 // 通用
@@ -33,9 +33,17 @@ export interface AgentCatalogView {
     configuration_hash: string | null;
     context_revision?: number;
     permission_policy?: { read_count: number; edit_count: number };
+    capabilities?: AgentCapabilities;
   }>;
   warnings: string[];
   rejected: string[];
+}
+export const InspectAgentInputSchema = z.strictObject({ timeout_ms: z.number().int().min(100).max(10_000).optional() });
+export interface AgentInspectionView {
+  revision: number;
+  configuration_hash: string | null;
+  capabilities: AgentCapabilities | null;
+  observation: AcpCapabilityObservation | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,7 +125,7 @@ export interface LedgerView {
 
 export type RunStatus = "running" | "waiting_human" | "completed" | "blocked" | "failed" | "cancelled";
 
-export const RecoverGoalInputSchema = z.strictObject({ input_hash: z.string().regex(/^[0-9a-f]{64}$/) });
+export const RecoverGoalInputSchema = z.strictObject({ input_hash: z.string().regex(/^[0-9a-f]{64}$/), node_id: z.string().min(1).max(200).optional() });
 export type RecoverGoalInput = z.infer<typeof RecoverGoalInputSchema>;
 export interface GoalRecoveryView {
   run_id: string;

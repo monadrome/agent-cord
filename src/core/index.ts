@@ -100,6 +100,7 @@ export type {
 } from "./schema.js";
 
 export type {
+  AgentCapabilities,
   AgentDriver,
   AgentEvent,
   AgentTask,

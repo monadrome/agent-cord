@@ -54,7 +54,7 @@ describe("console API client：默认 SDLC 闭环", () => {
     } }));
     const updated = await client.reloadAgents("agent-config-action");
     expect(updated.revision).toBe(2);
-    expect(updated.agents).toContainEqual({ name: "local", kind: "acp", source: "workspace", template: null, configuration_hash: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect(updated.agents).toContainEqual(expect.objectContaining({ name: "local", kind: "acp", source: "workspace", template: null, configuration_hash: expect.stringMatching(/^[0-9a-f]{64}$/) }));
     expect(updated.rejected).toEqual(["broken"]);
     expect(JSON.stringify(updated)).not.toContain("PRIVATE_VALUE");
     expect((await client.reloadAgents("agent-config-action")).revision).toBe(2);

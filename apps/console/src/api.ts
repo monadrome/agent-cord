@@ -9,6 +9,7 @@
  */
 import type {
   AgentCatalogView,
+  AgentInspectionView,
   ApprovalItem,
   CreateRequirementInput,
   CoordinationRoundView,
@@ -282,6 +283,7 @@ export interface ApiClient {
   dashboard(): Promise<DashboardResponse>;
   listAgents(): Promise<AgentCatalogResponse>;
   reloadAgents(key?: string): Promise<AgentCatalogResponse>;
+  inspectAgent(name: string, key?: string): Promise<AgentInspectionView & { request_id: string }>;
 
   listRequirements(): Promise<RequirementsResponse>;
   getRequirement(reqId: string): Promise<RequirementResponse>;
@@ -309,7 +311,7 @@ export interface ApiClient {
   /** 取消 run（ADR-0025）：幂等，已终态返回现状 */
   cancelRun(runId: string, reason?: string, key?: string): Promise<RunResponse>;
   getGoalRecovery(runId: string): Promise<GoalRecoveryResponse>;
-  recoverGoal(runId: string, input_hash: string, key?: string): Promise<RunResponse>;
+  recoverGoal(runId: string, input_hash: string, key?: string, node_id?: string): Promise<RunResponse>;
   decideApproval(
     reqId: string,
     approvalId: string,
@@ -340,6 +342,7 @@ export function createClient(baseUrl = ""): ApiClient {
     dashboard: () => request<DashboardResponse>(baseUrl, "/api/v1/dashboard"),
     listAgents: () => request<AgentCatalogResponse>(baseUrl, "/api/v1/agents"),
     reloadAgents: (key) => request<AgentCatalogResponse>(baseUrl, "/api/v1/agents/reload", writeInit("POST", undefined, key)),
+    inspectAgent: (name, key) => request<AgentInspectionView & { request_id: string }>(baseUrl, `/api/v1/agents/${encodeURIComponent(name)}/inspect`, writeInit("POST", {}, key)),
 
     listRequirements: () => request<RequirementsResponse>(baseUrl, "/api/v1/requirements"),
     getRequirement: (reqId) => request<RequirementResponse>(baseUrl, reqPath(reqId)),
@@ -377,7 +380,7 @@ export function createClient(baseUrl = ""): ApiClient {
         writeInit("POST", reason !== undefined ? { reason } : {}, key),
       ),
     getGoalRecovery: runId => request<GoalRecoveryResponse>(baseUrl, `/api/v1/runs/${encodeURIComponent(runId)}/goal-recovery`),
-    recoverGoal: (runId, input_hash, key) => request<RunResponse>(baseUrl, `/api/v1/runs/${encodeURIComponent(runId)}/goal-recovery`, writeInit("POST", { input_hash }, key)),
+    recoverGoal: (runId, input_hash, key, node_id) => request<RunResponse>(baseUrl, `/api/v1/runs/${encodeURIComponent(runId)}/goal-recovery`, writeInit("POST", { input_hash, ...(node_id === undefined ? {} : { node_id }) }, key)),
     decideApproval: (reqId, approvalId, choice, key) =>
       request<DecideApprovalResponse>(baseUrl, decidePath(reqId, approvalId), writeInit("POST", { choice }, key)),
 

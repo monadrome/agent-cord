@@ -81,6 +81,8 @@ npm run cord -- demo
 
 ## 自定义 Agent
 
+Agent 能力识别与启动控制是平台原子能力：严格 `launch` 配置覆盖模型/effort、Claude bare/auto/角色/预算、ACP mode 与 select/boolean 扩展、自定义参数映射及显式 session 恢复。不支持的参数拒绝注册，固定流程节点恢复限定原授权未退出 Goal 节点。能力清单与无 prompt 的 ACP 协商接口、配置示例和 human review 指南见 [启动能力验收](./docs/research/2026-10-10-agent-launch-capabilities.md)。
+
 工作区 `cord/agents.yaml` 支持 ACP、内置 headless 模板和自定义参数三种形态：
 
 ```yaml

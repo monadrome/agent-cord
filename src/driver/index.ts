@@ -64,3 +64,6 @@ export {
   resolveWithAgentsYaml,
 } from "./agents-yaml.js";
 export type { AgentDefinitionInfo, AgentRegistry, AgentsLoadResult, AgentsYaml } from "./agents-yaml.js";
+export { AgentLaunchSchema, validate_agent_launch } from "./launch.js";
+export type { AgentLaunch } from "./launch.js";
+export type { AcpCapabilityObservation } from "./acp-launch.js";

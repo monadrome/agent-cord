@@ -265,8 +265,20 @@ export interface AgentEvent {
   session_id?: string | null;
 }
 
+export interface AgentCapabilities {
+  transport: "headless" | "acp";
+  evidence: "adapter";
+  installation: "unchecked";
+  launch_options: readonly string[];
+  native_resume: "supported" | "unsupported" | "negotiated";
+  goal: "host";
+  workflow_resume: "authorized_unexited_goal";
+}
+
 export interface AgentDriver {
   readonly name: string;
+  /** ADR-0073：适配器声明；ACP 动态选择仍须在 prompt 前协商核验。 */
+  readonly capabilities?: AgentCapabilities;
   /** ADR-0031：固定有效启动定义的 hash；env/凭据不参与，可选供外部 driver 兼容 */
   readonly configuration_hash?: string;
   /** 流式事件 + 最终结果文本 */

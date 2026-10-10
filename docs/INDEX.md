@@ -7,7 +7,7 @@
 | 文档 | 内容 |
 |---|---|
 | [README.md](../README.md) | 安装、运行、控制台操作和当前能力边界。 |
-| [core-features.md](./core-features.md) | 已采纳的核心 feature：默认 Goal 自主 Draft 交付、交付契约、人工边界与待实现项。 |
+| [core-features.md](./core-features.md) | 已采纳的核心 feature：默认 Goal 自主 Draft 交付、原子 Agent 能力与启动控制、人工边界与待实现项。 |
 | [current-architecture.md](./current-architecture.md) | 当前代码的分层、数据布局、运行路径、API 和非目标。 |
 | [protocol.md](./protocol.md) | 事件、账本、workflow、gate 和 voting 的实现协议速查。 |
 | [10-roadmap.md](./10-roadmap.md) | 后续工作、已完成项和未实现能力。 |
@@ -22,6 +22,7 @@
 | 想理解核心产品原则 | [core-features.md](./core-features.md) → [ADR-0055](./adr/ADR-0055-goal-driven-draft-delivery.md) |
 | 想理解当前代码 | [current-architecture.md](./current-architecture.md) → [protocol.md](./protocol.md) |
 | 想修改跨模块协议 | [protocol.md](./protocol.md) → [adr/](./adr/) → 源码和测试 |
+| 想配置 Agent 启动/模型/恢复 | [启动能力与人审指南](./research/2026-10-10-agent-launch-capabilities.md) → [ADR-0073](./adr/ADR-0073-agent-launch-capabilities.md) |
 | 想了解未来设计或风险 | [10-roadmap.md](./10-roadmap.md) → 旧章节 → [research/](./research/) |
 
 如果时间只够读一份技术文档，读 [current-architecture.md](./current-architecture.md)。它描述的是当前代码，而不是未来设计。

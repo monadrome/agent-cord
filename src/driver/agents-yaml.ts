@@ -9,6 +9,8 @@ import { z } from "zod";
 import type { AgentDriver } from "../core/ports.js";
 import { AcpDriver } from "./acp.js";
 import { AcpPermissionPolicySchema } from "./acp-permissions.js";
+import { AgentLaunchSchema } from "./launch.js";
+import { custom_headless_template } from "./custom-template.js";
 import {
   HeadlessDriver,
   getHeadlessCliTemplate,
@@ -29,6 +31,7 @@ const AgentEntrySchema = z.discriminatedUnion("kind", [
     env: z.record(z.string(), z.string()).optional(),
     context_revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
     permission_policy: AcpPermissionPolicySchema.optional(),
+    launch: AgentLaunchSchema.optional(),
   }),
   z.strictObject({
     kind: z.literal("headless"),
@@ -36,6 +39,7 @@ const AgentEntrySchema = z.discriminatedUnion("kind", [
     /** 模板形态可省略二进制；自定义 args 形态必须声明 */
     bin: z.string().min(1).optional(),
     args: z.array(z.string()).optional(),
+    resume_args: z.array(z.string()).optional(),
     env: z.record(z.string(), z.string()).optional(),
     context_revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
     model: z.string().min(1).optional(),
@@ -45,6 +49,7 @@ const AgentEntrySchema = z.discriminatedUnion("kind", [
     system_prompt: z.string().min(1).optional(),
     agent: z.string().min(1).optional(),
     agents_json: z.string().min(1).optional(),
+    launch: AgentLaunchSchema.optional(),
   }),
 ]);
 
@@ -123,75 +128,81 @@ function compileAgentsYaml(yaml: AgentsYaml | null): {
   const warnings: string[] = [];
   const rejected: string[] = [];
   for (const [name, entry] of Object.entries(yaml?.agents ?? {})) {
-    if (entry.kind === "acp") {
-      drivers.set(name, new AcpDriver({
-        bin: entry.bin,
-        args: [...(entry.args ?? ["acp"])],
-        name: `acp:${name}`,
-        ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }),
-        ...(entry.permission_policy === undefined ? {} : { permission_policy: entry.permission_policy }),
-        ...(entry.env !== undefined ? { env: { ...entry.env } } : {}),
-      }));
-      entries.push({ name, kind: "acp", source: "workspace", template: null, ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }),
-        ...(entry.permission_policy === undefined ? {} : { permission_policy: { read_count: entry.permission_policy.read.length, edit_count: entry.permission_policy.edit.length } }) });
-      continue;
-    }
-    if ((entry.template === undefined) === (entry.args === undefined)) {
-      warnings.push(`agents.${name}: headless 需要 template 或 args 之一，且不能同时声明，跳过注册`);
-      rejected.push(name);
-      continue;
-    }
-    if (entry.template !== undefined) {
-      const template = getHeadlessCliTemplate(entry.template);
-      if (template === undefined) {
-        warnings.push(`agents.${name}: 未知 headless 模板 "${entry.template}"，跳过注册`);
-        rejected.push(name);
-        continue;
-      }
-      const supported = new Set<AgentKnob>(template.knobs ?? []);
-      const knobs: HeadlessKnobs = {};
-      for (const key of KNOB_KEYS) {
-        const value = entry[key];
-        if (value === undefined) continue;
-        if (!supported.has(key)) {
-          warnings.push(`agents.${name}: 模板 "${entry.template}" 不支持旋钮 ${key}，忽略`);
-        } else {
-          (knobs as Record<string, unknown>)[key] = value;
-        }
-      }
-      drivers.set(name, new HeadlessDriver({
-        cli: entry.template,
-        template,
-        ...(entry.bin !== undefined ? { bin: entry.bin } : {}),
-        ...(entry.env !== undefined ? { env: entry.env } : {}),
-        name: `headless:${name}`,
-        knobs,
-        ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }),
-      }));
-    } else {
-      if (entry.bin === undefined) {
-        warnings.push(`agents.${name}.bin: 自定义 args 形态必须声明二进制，跳过注册`);
-        rejected.push(name);
-        continue;
-      }
-      const args = [...entry.args!];
-      const used = KNOB_KEYS.filter((key) => entry[key] !== undefined);
-      if (used.length > 0) {
-        warnings.push(`agents.${name}: 自定义 args 形态不支持旋钮（${used.join("/")}），忽略`);
-      }
-      drivers.set(name, new HeadlessDriver({
-        cli: name,
-        template: {
-          name,
+    try {
+      if (entry.kind === "acp") {
+        drivers.set(name, new AcpDriver({
           bin: entry.bin,
-          args: ({ prompt }) => args.map((arg) => arg.replaceAll("{{prompt}}", prompt)),
-        },
-        ...(entry.env !== undefined ? { env: entry.env } : {}),
-        name: `headless:${name}`,
-        ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }),
-      }));
+          args: [...(entry.args ?? ["acp"])],
+          name: `acp:${name}`,
+          ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }),
+          ...(entry.permission_policy === undefined ? {} : { permission_policy: entry.permission_policy }),
+          ...(entry.launch === undefined ? {} : { launch: entry.launch }),
+          ...(entry.env !== undefined ? { env: { ...entry.env } } : {}),
+        }));
+        entries.push({ name, kind: "acp", source: "workspace", template: null, ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }),
+          ...(entry.permission_policy === undefined ? {} : { permission_policy: { read_count: entry.permission_policy.read.length, edit_count: entry.permission_policy.edit.length } }) });
+        continue;
+      }
+      if ((entry.template === undefined) === (entry.args === undefined)) {
+        warnings.push(`agents.${name}: headless 需要 template 或 args 之一，且不能同时声明，跳过注册`);
+        rejected.push(name);
+        continue;
+      }
+      if (entry.template !== undefined) {
+        if (entry.resume_args !== undefined) throw new Error("模板形态不能声明 resume_args");
+        const template = getHeadlessCliTemplate(entry.template);
+        if (template === undefined) {
+          warnings.push(`agents.${name}: 未知 headless 模板 "${entry.template}"，跳过注册`);
+          rejected.push(name);
+          continue;
+        }
+        const supported = new Set<AgentKnob>(template.knobs ?? []);
+        const knobs: HeadlessKnobs = {};
+        for (const key of KNOB_KEYS) {
+          const value = entry[key];
+          if (value === undefined) continue;
+          if (!supported.has(key)) {
+            throw new Error(`模板不支持旋钮 ${key}`);
+          } else {
+            (knobs as Record<string, unknown>)[key] = value;
+          }
+        }
+        drivers.set(name, new HeadlessDriver({
+          cli: entry.template,
+          template,
+          ...(entry.bin !== undefined ? { bin: entry.bin } : {}),
+          ...(entry.env !== undefined ? { env: entry.env } : {}),
+          name: `headless:${name}`,
+          knobs,
+          ...(entry.launch === undefined ? {} : { launch: entry.launch }),
+          ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }),
+        }));
+      } else {
+        if (entry.bin === undefined) {
+          warnings.push(`agents.${name}.bin: 自定义 args 形态必须声明二进制，跳过注册`);
+          rejected.push(name);
+          continue;
+        }
+        const args = [...entry.args!];
+        const used = KNOB_KEYS.filter((key) => entry[key] !== undefined);
+        if (used.length > 0) {
+          throw new Error(`自定义 args 旋钮须改用 launch 与显式占位符：${used.join("/")}`);
+        }
+        drivers.set(name, new HeadlessDriver({
+          cli: name,
+          template: custom_headless_template(name, entry.bin, args, entry.resume_args),
+          ...(entry.launch === undefined ? {} : { launch: entry.launch }),
+          ...(entry.env !== undefined ? { env: entry.env } : {}),
+          name: `headless:${name}`,
+          ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }),
+        }));
+      }
+      entries.push({ name, kind: "headless", source: "workspace", template: entry.template ?? null, ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }) });
+    } catch (error) {
+      drivers.delete(name);
+      rejected.push(name);
+      warnings.push(`agents.${name}: ${error instanceof Error ? error.message : "启动配置无效"}，跳过注册`);
     }
-    entries.push({ name, kind: "headless", source: "workspace", template: entry.template ?? null, ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }) });
   }
   return { drivers, entries, warnings, rejected };
 }

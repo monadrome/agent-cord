@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp, type BuiltServer } from "@agent-cord/server";
+import { createClient } from "../../console/src/api.js";
 
 const fixture = join(dirname(fileURLToPath(import.meta.url)), "../../../tests/driver/fixtures/fake-cli.mjs");
 const servers: BuiltServer[] = [];
@@ -118,6 +119,33 @@ async function approve(server: BuiltServer, req_id: string): Promise<void> {
 }
 
 describe("工作区 agent registry", () => {
+  it("真实 HTTP 能力查询固定配置身份、ACP 协商且无 prompt，幂等重放不再启动", async () => {
+    const { root, server } = await workspace("seed");
+    const record = join(root, "inspection.jsonl");
+    const acp_fixture = join(dirname(fileURLToPath(import.meta.url)), "../../../tests/driver/fixtures/fake-acp-agent.mjs");
+    await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: { negotiator: { kind: "acp", bin: process.execPath,
+      args: [acp_fixture, "--config", "--record", record], env: { PRIVATE_ENV: "PRIVATE_ENV_MARKER" },
+      launch: { model: "large", effort: "high", option_ids: { model: "llm", effort: "thinking" } } } } }));
+    await server.agents.reload();
+    const address = await server.app.listen({ port: 0, host: "127.0.0.1" }); const client = createClient(address);
+    const catalog = await client.listAgents();
+    expect(catalog.agents.find(agent => agent.name === "negotiator")?.capabilities).toMatchObject({ native_resume: "negotiated", evidence: "adapter", installation: "unchecked" });
+    expect((await request(server, "POST", "/api/v1/agents/negotiator/inspect", {})).status).toBe(400);
+    const first = await client.inspectAgent("negotiator", "inspect-once");
+    expect(first).toMatchObject({ configuration_hash: expect.stringMatching(/^[0-9a-f]{64}$/), observation: { evidence: "acp_handshake", native_resume: true } });
+    expect(await client.inspectAgent("negotiator", "inspect-once")).toEqual(first);
+    const recorded = (await readFile(record, "utf8")).trim().split("\n").map(line => JSON.parse(line));
+    expect(recorded.filter(entry => entry.event === "session/new")).toHaveLength(1);
+    expect(recorded.some(entry => entry.event === "prompt")).toBe(false);
+    expect(JSON.stringify(first)).not.toContain("PRIVATE_ENV_MARKER"); expect(JSON.stringify(first)).not.toContain(acp_fixture);
+    expect((await client.inspectAgent("headless:codex")).observation).toBeNull();
+    await expect(client.inspectAgent("unknown")).rejects.toMatchObject({ status: 404 });
+    await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: { negotiator: { kind: "acp", bin: process.execPath,
+      args: [acp_fixture], launch: { model: "large", option_ids: { model: "llm" } } } } }));
+    await server.agents.reload();
+    await expect(client.inspectAgent("negotiator", "inspect-bad")).rejects.toMatchObject({ status: 400 });
+  });
+
   it("公开上下文版本且保留旧 resolver，环境行为变化用版本声明，不公开环境值", async () => {
     const { root, server } = await workspace("seed");
     async function write(version: number, role: string) {
@@ -167,7 +195,7 @@ describe("工作区 agent registry", () => {
     const reload = await request(server, "POST", "/api/v1/agents/reload", undefined, "reload-config");
     expect(reload.status).toBe(200);
     expect(reload.body.revision).toBe(2);
-    expect(reload.body.agents).toContainEqual({ name: "reviewer", kind: "headless", source: "workspace", template: "claude", configuration_hash: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect(reload.body.agents).toContainEqual(expect.objectContaining({ name: "reviewer", kind: "headless", source: "workspace", template: "claude", configuration_hash: expect.stringMatching(/^[0-9a-f]{64}$/) }));
     expect(reload.body.rejected).toEqual(expect.arrayContaining(["malformed", "codex"]));
     expect(reload.body.warnings.join("\n")).toContain("agents.malformed.bin");
     expect(JSON.stringify(reload.body)).not.toContain("PRIVATE_");

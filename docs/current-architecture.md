@@ -133,7 +133,7 @@ ACP 的 permission_policy 支持可写 worker read/edit 范围预授权。普通
 
 启动时先登记 run，再追加 workflow.run.started 发布绑定事实，之后才派发。索引删除后从启动事实重建当前版本；当前绑定按因果顺序确定，恢复只推进最新 run，历史版本保留。执行版本缺失、启动事实缺失或发布定义被外部改动时拒绝自动恢复；重新 start 指定版本会重新核验，旧事件/文档仍保留审计。无版本库调用保持独立兼容模式。
 
-worker agent 的来源：内置驱动清单（claude / codex / kimi 直连，ACP 优先探测）+ `cord/agents.yaml` 自定义注册（ACP 子进程 / headless 模板定制 / 自定义 args 模板三种形态）。模板定制形态支持旋钮：`model`（三家通用）、`effort`（claude/codex）、`max_turns`/`budget_usd`/`system_prompt`/`agent`/`agents_json`（claude）。角色封装分软硬两档：`system_prompt` 追加系统提示，`agents_json` + `agent` 走 `--agents` / `--agent` 让会话整体以该 subagent 身份运行（工具面与权限一并继承）——把「资深评审」「架构师」这类 persona 注册成命名 agent。模板不支持的旋钮在注册期降级为 warning。默认 SDLC 不挂执行体（开箱可跑零依赖）；挂执行体的流程从模板库「Agent 协作」档起步。
+worker agent 的来源：内置驱动清单（claude / codex / kimi 直连，ACP 按声明选择）+ `cord/agents.yaml` 自定义注册（ACP 子进程 / headless 模板定制 / 自定义 args 模板三种形态）。统一 `launch` 支持模板声明的模型、effort、角色与预算；Claude 增 bare/auto，readonly 强制 plan。ACP model/effort 通过明确 option_ids 映射，并在 prompt 前协商允许值和设置回执；config_options 提供 select/boolean 扩展。自定义 argv 用明确占位符与完整 resume_args，不能静默开新会话。显式不支持的旋钮现在拒绝注册；旧顶层模板旋钮仍兼容。宿主 Goal 生命周期、CLI 权限模式和通信通道分别控制（[ADR-0073](./adr/ADR-0073-agent-launch-capabilities.md)）。默认 SDLC 不挂执行体（开箱可跑零依赖）；挂执行体的流程从模板库「Agent 协作」档起步。
 
 普通 `readonly` worker 还经过 coordinator 的跨 driver 工具审计：明确读工具与受限无副作用命令通过，写工具、未知工具和不可核验命令形成不可自动重试的 driver failure；不保存工具输入。它是事件级 fail-closed 兜底，不能撤销已经发生的副作用，也不取代 ACP permission 或 OS sandbox（ADR-0068）。
 
@@ -179,7 +179,7 @@ server 默认监听 `127.0.0.1:7250`，工作区由 `CORD_ROOT` 指定。核心�
 
 - 查询：`/health`、`/dashboard`、`/requirements`、需求详情、timeline、ledger、votes、runs、approvals。
 - 产物：`GET /requirements/:req_id/artifacts?path=...` 只读当前绑定 SDLC 的声明文件，复用普通文档边界；需求 detail 投影 artifacts 清单，控制台文档页展示指南原文/预览，固定快照仍可编辑。
-- Agent：`GET /agents` 查看配置 revision、公开清单和诊断；`POST /agents/reload` 显式重载（幂等键），清单不包含 env、args 或角色 prompt。
+- Agent：`GET /agents` 查看配置 revision、公开清单、适配器能力和诊断；`POST /agents/reload` 显式重载，`POST /agents/:name/inspect` 查询 ACP 当前 session 协商能力与启动配置核验（均需幂等键），不发送 prompt。清单不包含 env、args 或角色 prompt，headless 安装/模型可用性仍 unchecked。
 - 协调：`POST/GET /requirements/:req_id/coordination`、`GET /requirements/:req_id/coordination/:round_id`、`POST .../:round_id/cancel`、`POST .../:round_id/adopt`；创建/采用返回 202，每需求至多一个在途协调轮次。
 - 机器验证：`GET /requirements/:req_id/runs/:run_id/nodes/:node_id/verification-context` 获取当前输入 hash；`POST /requirements/:req_id/runs/:run_id/verifications` 记录带 run/input hash 的验证事实。需求详情概览展示各 run 的最新验证状态。
 - 声明验证 `inputs` 时，context 同时返回源码范围与 source_hash；输入清单和内容摘要进入验证、gate 和人工审批 hash。目录增删和代码变化使旧测试结果失效，输入范围需包含实际被验证的代码和 lockfile。

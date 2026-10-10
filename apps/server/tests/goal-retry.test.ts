@@ -90,6 +90,23 @@ async function holdWorkspace() {
 }
 
 describe("人工授权 Goal 续跑", () => {
+  it("固定节点恢复只接受原授权节点，错误节点不落事实或调用 worker", async () => {
+    const run_id = await interruptedRetry(); const url = "/runs/" + run_id + "/goal-recovery";
+    const recovery = (await api("GET", url)).body.recovery;
+    const before = await workerCalls();
+    const human_events = (await facts()).filter(event => event.type === "human.decision.recorded" || event.type === "workflow.node.exited").map(event => event.event_id);
+    expect((await api("POST", url, { input_hash: recovery.input_hash, node_id: "other-node" })).status).toBe(409);
+    expect((await facts()).filter(event => event.type === "goal.recovery.requested")).toHaveLength(0);
+    expect(await workerCalls()).toBe(before);
+    expect((await api("POST", url, { input_hash: recovery.input_hash, node_id: recovery.node_id })).status).toBe(202);
+    await waitFor(async () => (await api("GET", "/requirements/REQ-RETRY/approvals")).body.approvals.length === 1);
+    const request = (await facts()).find(event => event.type === "goal.recovery.requested")!;
+    expect(request.payload["node_id"]).toBe(recovery.node_id);
+    expect((await facts()).filter(event => event.type === "goal.retry.authorized")).toHaveLength(1);
+    expect((await api("POST", url, { input_hash: recovery.input_hash, node_id: "other-node" })).status).toBe(409);
+    expect((await facts()).filter(event => event.type === "human.decision.recorded" || event.type === "workflow.node.exited").map(event => event.event_id)).toEqual(human_events);
+  });
+
   it("工作区占用拒绝 Goal 恢复且不落恢复请求，释放后同 token 可续跑", async () => {
     const run_id = await interruptedRetry();
     const url = "/runs/" + run_id + "/goal-recovery";
