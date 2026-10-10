@@ -10,6 +10,7 @@
 - 最终全量1404项/98文件、typecheck/build:all/diff通过，证据/tmp/cord-stage72-tests.json。另加重复目标ID在request写前拒绝回归；未修改核心schema/ports，状态仍经events.append。
 - 隔离实际HTTP PID81208/http://127.0.0.1:57051：code/plan/plan调用，最新PRD下重试同blocker，Goal尝试1/协调请求2、current/answerable=true、人工答复0/授权0/人工决定0/节点退出0、doctor=true。预览保留未答问题，不操作原7306Draft；无真实模型调用。浏览器首次定位Coordination.tsx不存在，rg核验实际CoordinationPanel.tsx后继续，未影响生产行为。
 - Playwright1440/390/320三截图验证当前自动升级/来源/可用澄清选项，未选答复按钮禁用、未答无新Goal授权按钮，pageerror=[]/写请求0/无横向溢出；桌面与最窄截图已查看。证据/tmp/cord-stage72-browser-result.json；9份文档首121个本地链接通过，ADR添加指南后122个，临时脚本/图/运行数据不入仓库，完整目标active。
+- 功能提交c3ea559（fix: validate goal blocker source before coordination），HTTP/1.1 push成功（9227ccb→c3ea559），独立HTTP/2 ls-remote核验c3ea5595873611a77d5e463aca8fbdf67e7f3738。预览health200/current=true/answerable=true/ask_human再次核验，保留未答问题，不操作原真实Draft；完整持续目标active。
 
 ## 2026-10-10（阶段71）
 
