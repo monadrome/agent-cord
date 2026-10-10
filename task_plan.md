@@ -753,7 +753,7 @@
 - [x] 核对当前 ACP/headless 事件归一化、readonly 参数与缺失的宿主工具审计；完成公开能力调研
 - [x] 设计并实现保守只读工具/命令策略，违规记录 driver failure 且禁止自动重试
 - [x] 覆盖读工具、写工具、未知工具、危险命令、真实 ACP/headless coordinator 回归
-- [x] ADR/研究/协议/架构同步；全量 1104 项、typecheck/build:all/diff 通过；提交 `ec18ad5` 已推送待远端 hash 核验
+- [x] ADR/研究/协议/架构同步；全量 1104 项、typecheck/build:all/diff 通过；功能提交 `ec18ad5` 已推送，收尾文档提交 `a4e8988` 因 GitHub 低速待同步
 
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
