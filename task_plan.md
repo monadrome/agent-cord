@@ -764,6 +764,15 @@
 - [x] 全量 1120 项 / 78 文件、typecheck/build:all/diff 通过
 - [x] 小步功能提交 `9d8b755`；HTTP/2/HTTP1.1 推送因 GitHub 低速失败，独立远端 hash 未核验，提交保留本地
 
+## 阶段 56：跨实例 SQLite workspace lease（已实现并验证）
+
+- [x] 核验 `0387d4f` 干净工作树，上一轮为已验证实现进展；确认同 root 不同 RunService 可绕过内存 lease
+- [x] 用独立 SQLite `BEGIN IMMEDIATE` 实测互斥，基础替换与同 root 双实例回归通过
+- [x] 区分 busy 与损坏/IO、每秒原授权恢复检查、释放/强杀/异常标记回归；27 项锁/lease 通过
+- [x] ADR-0070/研究/human review 指南，标明本地互斥与未知副作用 fail-closed，不提供多 daemon 事件写入支持
+- [x] ADR-0070/研究/限制与 human review 指南、真实双进程 HTTP 验收；全量 1133 项 / 79 文件、typecheck/build:all/diff 通过
+- [ ] 小步提交并推送当前分支，记录实际远端结果
+
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
 - [x] 核验当前分支与阶段 10；上一轮实现和远端同步属于已验证进展

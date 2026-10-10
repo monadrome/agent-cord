@@ -105,6 +105,7 @@ flowchart LR
 | 当前 Goal 资源观察 | 原型已实现；server 提供当前 run 的逐指标 totals/budget/unknown/exceeded/invalid，协调模型与控制台消费同一投影，冷恢复和来源跳转保持绑定（[ADR-0067](./adr/ADR-0067-goal-usage-observation.md)） |
 | 跨 driver 只读 worker 审计 | 原型已实现；readonly worker 的明确读工具/安全命令通过，写入/未知/危险工具 fail-closed 为不可重试 driver failure，不保存工具输入；不替代 OS 沙箱（[ADR-0068](./adr/ADR-0068-readonly-tool-audit.md)） |
 | 同 workspace agent lease | 原型已实现；单 RunService 只允许一个含 `node.run` 的活动执行器，启动冲突 409，冷恢复释放后自动续跑原 run/预算，执行收束或启动失败才释放；不冻结 review 版本，不替代 worktree 或 OS sandbox（[ADR-0069](./adr/ADR-0069-workspace-agent-lease.md)） |
+| 本地跨实例执行锁 | 原型已实现；SQLite 跨进程互斥，busy 原授权恢复自动重检，正常收束清 owner 标记，宿主崩溃/未知副作用保留标记并阻断派发；不保证同需求多 daemon 事件写入安全（[ADR-0070](./adr/ADR-0070-cross-process-workspace-lease.md)） |
 | 独立 Context Session Agent | 已实现最新快照提议、人工采用与受限 Goal 观察；声明 supervisor 后自动解释 blocker 并生成人工卡点，完整监督续跑仍待完善 |
 
 真实 agent 开发流程的设计默认是 Goal；“Agent 协作 · Goal”模板与 [goal-sdlc.yaml](../examples/goal-sdlc.yaml) 提供当前原型。零外部依赖的离线 `simple-sdlc` 继续用于验证平台内核，既有发布版本与人工 gate 保留原语义。后续按 [路线图](./10-roadmap.md) 继续完善，跨模块协议先更新 ADR。

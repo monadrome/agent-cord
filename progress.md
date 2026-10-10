@@ -1,5 +1,14 @@
 # 工作进度
 
+## 2026-10-09（阶段 56）
+
+- 起点 `0387d4f` 工作树干净，上一轮 workspace lease 为已验证进展；当前内存 Map 无法约束同 root 的另一个实例。
+- SQLite 本地探针证明独立文件 `BEGIN IMMEDIATE` 互斥，busy 为 `ERR_SQLITE_ERROR/errcode=5`，rollback 后可重新获取。已替换基础 lease，59 项相关回归和 15 项 lease 用例通过。
+- 审查发现基础版把损坏/IO 都映射 busy、跨进程释放没有本地通知、SQLite 崩溃释放不证明 detached worker 消亡；正在补严格错误分类、恢复检查与明确的运行边界。
+- 真实子进程强杀后 detached 子进程仍活着的反例已复现；最终增加 fsync owner 标记，只有正常收束删除，异常/更改时 fail-closed 不自动抢占。标记是执行资源，不改变 workflow 授权事实。
+- 27 项执行锁/lease 回归通过，含真实双 server 进程 HTTP、root 别名、正常释放/强杀、损坏与链接、错误 owner、标记变更、跨实例原 run 自动恢复；ADR-0070/研究与 human review 指南已同步，进入全量验证。
+- 最终全量 1133 项 / 79 文件、typecheck/build:all/diff 通过；真实双进程 HTTP 409/无启动事实、释放后一次 worker/人工 gate 未决/人工决定及节点退出 0。强杀/detached 回归均收束测试进程，无付费模型调用，没有操作原真实 Draft。准备独立提交与有界远端同步。
+
 ## 2026-10-09（阶段 53）
 
 - d7a4103 工作树起点干净，ahead 4；上一轮严格未知 usage 修复为实际进展。HTTP/2 远端查询本轮 20 秒超时。

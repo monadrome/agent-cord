@@ -137,6 +137,8 @@ worker agent 的来源：内置驱动清单（claude / codex / kimi 直连，ACP
 
 RunService 维护进程内 agent lease：新 start/Goal 授权/显式恢复遇到含 `node.run` 的活动执行器返回 409，不写额外请求事实。冷恢复冲突保留原 run，lease 释放后经既有恢复器自动重检续跑；原启动事实支持重启/索引删除重建。启动失败无条件释放，已派发 executor 等 finally 收束后释放；无 agent 流程和无活动 executor 的冷人审不占 lease，未来恢复重新获取（ADR-0069）。这是单实例冲突保护，不冻结 review 版本，不代替 worktree、容器或跨进程锁。
 
+ADR-0070 已将载体升级为独立 SQLite 事务和 fsync owner 标记，在本地跨实例互斥；主索引不持长事务。正常 executor 收束才清标记，强杀/外部修改保留 unresolved 并阻断新派发，SQLite 锁释放不推断 detached worker 死亡。busy 原授权恢复每秒重检，关闭取消检查；不可读取与占用分开诊断。锁不冻结 review、提供 OS 隔离或允许同需求多 daemon 写事件，运行中不删除 `.index`。
+
 工作区配置编译为独立 resolver，不写全局模板表；driver 固定构造时的参数。`AgentService` 提供公开清单与串行显式重载，成功后原子替换配置，文件整体错误时保留旧配置。新 run 固定当前 resolver；在途 run 不受重载影响，重启恢复使用当前文件。配置无效的别名不能退回同名内置 agent（ADR-0027）。
 
 内置 driver 的 configuration_hash 从有效普通/只读/resume 启动参数派生（ACP 为 bin/args），全部 env 不参与；任务事件记录 agent_configuration_hash 并纳入 execution_input_hash，审批上下文也覆盖该身份。重启时同名 agent 参数变化导致旧任务与审批失效，在途 run 仍固定原身份（ADR-0031）。

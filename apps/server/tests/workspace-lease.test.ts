@@ -5,10 +5,13 @@ import { fileURLToPath } from "node:url";
 import { stringify } from "yaml";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ulid } from "ulid";
+import { spawn, type ChildProcess } from "node:child_process";
+import { once } from "node:events";
 import { buildApp, type BuiltServer } from "@agent-cord/server";
 
 const fixture = fileURLToPath(new URL("../../../tests/driver/fixtures/fake-cli.mjs", import.meta.url));
 const acp_fixture = fileURLToPath(new URL("../../../tests/driver/fixtures/fake-acp-agent.mjs", import.meta.url));
+const server_fixture = fileURLToPath(new URL("../../../tests/driver/fixtures/workspace-lease-server.mjs", import.meta.url));
 const workflow = stringify({
   apiVersion: "agent-cord.dev/v1alpha1", kind: "Workflow", metadata: { id: "lease-flow" }, spec: { nodes: [
     { id: "deliver", artifact: "review.md", run: { agent: "worker" }, gates: [{ id: "review", role: {}, attach: { node: "deliver", when: "post" }, checks: [{ ref: "file-nonempty", with: { path: "review.md", min_bytes: 1 } }], pass: { require: "all", human_confirm: true }, on_fail: "block" }] },
@@ -70,6 +73,46 @@ afterEach(async () => {
 });
 
 describe("workspace agent lease", () => {
+  it("真实双 server 进程的 HTTP 冲突无启动事实，释放后可交付 Draft", async () => {
+    let child: ChildProcess | undefined;
+    try {
+      child = spawn(process.execPath, ["--conditions=development", "--import", "tsx", server_fixture, root], { stdio: ["ignore", "ignore", "pipe", "ipc"] });
+      let timeout: NodeJS.Timeout | undefined;
+      let receipt: { base: string };
+      try {
+        const [message] = await Promise.race([once(child, "message"), new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => reject(new Error("第二个 server 未就绪")), 5000);
+        })]);
+        receipt = message as { base: string };
+      } finally { clearTimeout(timeout); }
+      let seq = 0;
+      const http = async (method: string, route: string, payload?: unknown) => {
+        const response = await fetch(receipt.base + "/api/v1" + route, { method,
+          headers: { "content-type": "application/json", "idempotency-key": "cross-http-" + seq++ },
+          ...(payload === undefined ? {} : { body: JSON.stringify(payload) }) });
+        return { status: response.status, body: await response.json() };
+      };
+      const first = await inject("POST", "/requirements/REQ-A/runs", { sdlc_id: "lease-flow" });
+      expect(first.status).toBe(202);
+      const rejected = await http("POST", "/requirements/REQ-B/runs", { sdlc_id: "lease-flow" });
+      expect(rejected.status).toBe(409);
+      expect((await http("GET", "/requirements/REQ-B/events")).body.events.some((event: { type: string }) => event.type === "workflow.run.started")).toBe(false);
+      await inject("POST", `/runs/${first.body.run.run_id}/cancel`, { reason: "foreign release" });
+      expect((await http("POST", "/requirements/REQ-B/runs", { sdlc_id: "lease-flow" })).status).toBe(202);
+      await waitFor(async () => (await http("GET", "/requirements/REQ-B/approvals")).body.approvals.length === 1);
+      const facts = (await http("GET", "/requirements/REQ-B/events")).body.events as Array<{ type: string }>;
+      expect(facts.filter(event => event.type === "agent.task.started")).toHaveLength(1);
+      expect(facts.filter(event => event.type === "human.decision.recorded" || event.type === "workflow.node.exited")).toHaveLength(0);
+    } finally {
+      if (child !== undefined && child.exitCode === null && child.signalCode === null) {
+        const stopped = once(child, "exit");
+        child.send({ action: "close" });
+        const kill = setTimeout(() => child!.kill("SIGKILL"), 5000);
+        try { await stopped; } finally { clearTimeout(kill); }
+      }
+    }
+  });
+
   it("关闭发生在启动校验期间，不登记或派发新 run，重启后没有遗留占位", async () => {
     let release!: () => void;
     let entered!: () => void;
@@ -236,6 +279,58 @@ describe("workspace agent lease", () => {
       if (other !== undefined) { await other.app.close(); other.index.close(); }
       await rm(otherRoot, { recursive: true, force: true });
     }
+  });
+
+  it("同一 root 的两个 server 实例共享 SQLite lease", async () => {
+    let other: BuiltServer | undefined;
+    try {
+      other = await buildApp({ root });
+      const created = await other.app.inject({ method: "POST", url: "/api/v1/requirements", payload: { req_id: "REQ-C", title: "cross server" }, headers: { "idempotency-key": "cross-create" } });
+      expect(created.statusCode).toBe(201);
+      const first = await inject("POST", "/requirements/REQ-A/runs", { sdlc_id: "lease-flow" });
+      expect(first.status).toBe(202);
+      const conflict_response = await other.app.inject({ method: "POST", url: "/api/v1/requirements/REQ-C/runs", payload: { sdlc_id: "lease-flow" }, headers: { "idempotency-key": "cross-start-1" } });
+      expect(conflict_response.statusCode).toBe(409);
+      const other_facts = await (await other.sessions.open("REQ-C")).events.readOrdered();
+      expect(other_facts.filter(event => event.type === "workflow.run.started")).toHaveLength(0);
+      await inject("POST", `/runs/${first.body.run.run_id}/cancel`, { reason: "cross server release" });
+      await waitFor(async () => !server.runs.isActive("REQ-A"));
+      const second = await other.app.inject({ method: "POST", url: "/api/v1/requirements/REQ-C/runs", payload: { sdlc_id: "lease-flow" }, headers: { "idempotency-key": "cross-start-2" } });
+      expect(second.statusCode).toBe(202);
+      await other.app.inject({ method: "POST", url: `/api/v1/runs/${second.json().run.run_id}/cancel`, payload: {}, headers: { "idempotency-key": "cross-cancel" } });
+    } finally {
+      if (other !== undefined) { await other.app.close(); other.index.close(); }
+    }
+  });
+
+  it("另一 server 释放锁后，原授权恢复通过定时重检自动继续", async () => {
+    let other: BuiltServer | undefined;
+    const first = await inject("POST", "/requirements/REQ-A/runs", { sdlc_id: "lease-flow" });
+    await waitFor(async () => (await inject("GET", "/requirements/REQ-A/approvals")).body.approvals.length === 1);
+    const original = await recordInterruptedRun("REQ-B");
+    try {
+      other = await buildApp({ root });
+      expect(other.runs.isActive("REQ-B")).toBe(false);
+      expect((await other.runs.getRun(original)).status).toBe("running");
+      await inject("POST", `/runs/${first.body.run.run_id}/cancel`, { reason: "foreign release" });
+      await waitFor(async () => other!.runs.isActive("REQ-B") && (await other!.sessions.listApprovals("REQ-B")).length === 1);
+      expect(other.runs.activeRunId("REQ-B")).toBe(original);
+      const facts = await (await other.sessions.open("REQ-B")).events.readOrdered();
+      expect(facts.filter(event => event.type === "workflow.run.started")).toHaveLength(1);
+      expect(facts.filter(event => event.type === "agent.task.started")).toHaveLength(1);
+    } finally { if (other !== undefined) { await other.app.close(); other.index.close(); } }
+  });
+
+  it("锁文件损坏返回 500，不记录启动事实，修复后可用", async () => {
+    const file = join(root, "cord/.index/workspace-lease.sqlite");
+    await writeFile(file, "BAD_SQLITE_LOCK");
+    const rejected = await inject("POST", "/requirements/REQ-A/runs", { sdlc_id: "lease-flow" });
+    expect(rejected.status).toBe(500);
+    expect(rejected.body.message).toContain("执行锁不可读取");
+    expect((await (await server.sessions.open("REQ-A")).events.readOrdered()).some(event => event.type === "workflow.run.started")).toBe(false);
+    expect(server.runs.listRuns("REQ-A")).toHaveLength(0);
+    await rm(file);
+    expect((await inject("POST", "/requirements/REQ-A/runs", { sdlc_id: "lease-flow" })).status).toBe(202);
   });
 
   it("worker 启动失败形成终态后释放 lease", async () => {

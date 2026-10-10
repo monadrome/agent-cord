@@ -49,6 +49,7 @@ import { runRowToInfo, type IndexStore, type RunRow } from "./index-store.js";
 import { decodeApprovalId, scanPendingApprovals, type SessionService } from "./session-service.js";
 import { DEFAULT_SDLC_ID, type SdlcService } from "./sdlc-service.js";
 import { readVerificationSource, verificationSourceInputs, VerificationInputError } from "./verification-inputs.js";
+import { WorkspaceLease, WorkspaceLeaseBusy } from "./workspace-lease.js";
 
 interface PendingAsk {
   req_id: string;
@@ -127,10 +128,11 @@ export class RunService {
   private readonly decision_queue = new Map<string, Promise<unknown>>();
   private recovery_queue: Promise<unknown> = Promise.resolve();
   private readonly goal_recovering = new Map<string, { input_hash: string; promise: Promise<RunInfo> }>();
-  /** ADR-0069：同一 server workspace 内的 agent run 不能并发写共享源码。 */
-  private readonly workspace_leases = new Map<string, { req_id: string; run_id: string }>();
+  /** ADR-0069/0070：同一 workspace 内的 agent run 不能并发写共享源码。 */
+  private readonly workspace_lease: WorkspaceLease;
   /** 只保存已授权、可由启动事实重建的恢复引用，不创建新的排队 run。 */
   private readonly deferred_recoveries = new Set<string>();
+  private workspace_recovery_timer: NodeJS.Timeout | undefined;
   private closing = false;
 
   constructor(sessions: SessionService, sdlcs: SdlcService, index: IndexStore, options: RunServiceOptions = {}) {
@@ -138,6 +140,7 @@ export class RunService {
     this.sdlcs = sdlcs;
     this.index = index;
     this.options = options;
+    this.workspace_lease = new WorkspaceLease(options.workspaceRoot);
   }
 
   setGoalBlockedHandler(handler: (context: GoalBlockedContext) => Promise<void>): void {
@@ -155,11 +158,15 @@ export class RunService {
   /** 关闭仅收束执行体，不改变用户取消/人工决定事实，终态由重启恢复判定。 */
   async close(): Promise<void> {
     this.closing = true;
+    if (this.workspace_recovery_timer !== undefined) clearTimeout(this.workspace_recovery_timer);
+    this.workspace_recovery_timer = undefined;
+    this.deferred_recoveries.clear();
     const active = [...this.active.values()];
     for (const run of active) run.controller.abort();
     await Promise.all(active.map((run) => run.promise));
     await Promise.all([...this.goal_recovering.values()].map(operation => operation.promise.catch(() => undefined)));
     await this.recovery_queue.catch(() => undefined);
+    this.workspace_lease.close();
   }
 
   /** 验证事实只唤醒引用它的 gate；重启后的等待恢复原 run，不另建身份。 */
@@ -594,7 +601,13 @@ export class RunService {
       const latest = await this.latestRun(run.req_id);
       if (latest?.run_id !== run.run_id || (latest.status !== "running" && latest.status !== "waiting_human" && !explicit_retry_recovery) || this.active.has(run.req_id)) continue;
       try { this.reserveWorkspace(run.req_id, run.run_id, versioned.def); }
-      catch { this.deferred_recoveries.add(run.run_id); continue; }
+      catch (error) {
+        if (error instanceof WorkspaceLeaseBusy) {
+          this.deferred_recoveries.add(run.run_id);
+          this.scheduleWorkspaceRecovery();
+        } else this.index.finishRun(run.run_id, "failed", new Date().toISOString(), error instanceof Error ? error.message : "工作区执行锁不可验证");
+        continue;
+      }
       try {
         this.index.setRunStatus(run.run_id, "running");
         this.launch(session, run, versioned.def, new AbortController(), driverResolver);
@@ -980,22 +993,22 @@ export class RunService {
 
   private reserveWorkspace(req_id: string, run_id: string, def: WorkflowDef): void {
     if (this.closing) throw conflict("服务正在关闭，不能占用工作区");
-    const workspace = this.options.workspaceRoot;
-    if (workspace === undefined || !def.spec.nodes.some(node => node.run !== undefined)) return;
-    const prior = this.workspace_leases.get(workspace);
-    if (prior !== undefined && (prior.run_id !== run_id || prior.req_id !== req_id)) {
-      throw conflict(`当前工作区已被需求 ${prior.req_id} 的 run ${prior.run_id} 占用，请等待其收束`);
-    }
-    this.workspace_leases.set(workspace, { req_id, run_id });
+    if (this.options.workspaceRoot === undefined || !def.spec.nodes.some(node => node.run !== undefined)) return;
+    this.workspace_lease.acquire(req_id, run_id);
   }
 
   private releaseWorkspace(req_id: string, run_id: string): void {
-    const workspace = this.options.workspaceRoot;
-    if (workspace === undefined) return;
-    const lease = this.workspace_leases.get(workspace);
-    if (lease?.req_id !== req_id || lease.run_id !== run_id) return;
-    this.workspace_leases.delete(workspace);
+    if (!this.workspace_lease.release(req_id, run_id)) return;
     if (!this.closing) for (const deferred of this.deferred_recoveries) void this.recover(deferred).catch(() => undefined);
+  }
+
+  private scheduleWorkspaceRecovery(): void {
+    if (this.closing || this.workspace_recovery_timer !== undefined || this.deferred_recoveries.size === 0) return;
+    this.workspace_recovery_timer = setTimeout(() => {
+      this.workspace_recovery_timer = undefined;
+      if (!this.closing) for (const run_id of this.deferred_recoveries) void this.recover(run_id).catch(() => undefined);
+    }, 1_000);
+    this.workspace_recovery_timer.unref();
   }
 }
 

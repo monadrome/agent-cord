@@ -333,3 +333,10 @@
 - `RunService` 原来只按 `req_id` 限制在途 run；同一 server root 下的两个需求仍可同时启动 worker，共享源码、测试临时文件和自定义 artifact，和文档中的 worktree/隔离安全基线不一致。
 - 本阶段用进程内 workspace lease fail-closed：单 RunService 内只允许一个含 `node.run` 的活动 executor；新请求冲突 409 不落事实，启动失败无条件释放，已派发等 finally 收束。冷恢复冲突保留原 run/预算，释放后自动重检，取消不复活；无 agent 流程兼容。
 - lease 不是 git worktree、OS sandbox 或跨进程分布式锁；它先防止当前 server 内部的并发污染，后续仍需独立 worktree/容器与跨 daemon 锁契约。
+
+## 实现校准（2026-10-09，跨实例 workspace lease）
+
+- Node 内置 SQLite 可以通过独立 lock DB 的 `BEGIN IMMEDIATE` 提供本地多连接/进程互斥；主索引 DB 不宜持有长事务，否则所有 REST 写命令也会被阻断。
+- 锁是运行能力，不是授权或执行事实；只有 busy 可以等待，损坏/访问失败必须分别报告并禁止派发。另需 fsync owner 标记记录未确认释放，正常收束才清除；这不是 Goal 预算或审批事实。
+- 跨进程释放没有事件通知，需要只对既有授权恢复做有界间隔的锁重检；新启动保持 409，不创建隐式授权队列。
+- SQLite 锁在持有进程退出时释放，但真实强杀反例证明 detached 子进程仍活着；最终新增异常标记阻断自动接管，先核验遗留进程/副作用再修复，不用 PID/mtime 推断，不声称全服务多副本事件写入安全。
