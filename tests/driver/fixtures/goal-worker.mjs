@@ -33,14 +33,27 @@ if (!acp) {
     usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens }, total_cost_usd: usage.cost,
   }) });
 } else {
+  const launch_options = [
+    { id: "llm", name: "Model", type: "select", currentValue: "small", options: [{ value: "small", name: "Small" }, { value: "large", name: "Large" }] },
+    { id: "thinking", name: "Effort", type: "select", currentValue: "low", options: [{ value: "low", name: "Low" }, { value: "high", name: "High" }] },
+    { id: "workflow", name: "Mode", type: "select", currentValue: "plan", options: [{ value: "plan", name: "Plan" }, { value: "code", name: "Code" }] },
+  ];
   const lines = createInterface({ input: process.stdin });
   lines.on("line", line => {
     const { id, method, params } = JSON.parse(line);
     const respond = result => send({ jsonrpc: "2.0", id, result });
     if (method === "initialize") respond({ protocolVersion: 1, agentCapabilities: {}, agentInfo: { name: "goal-fixture", version: "1" } });
-    else if (method === "session/new") { cwd = params.cwd; respond({ sessionId: "goal-acp" }); }
+    else if (method === "session/new") { cwd = params.cwd; respond({ sessionId: "goal-acp", ...(process.argv.includes("--launch-config") ? { configOptions: launch_options } : {}) }); }
+    else if (method === "session/set_config_option") {
+      launch_options.find(option => option.id === params.configId).currentValue = params.value;
+      respond({ configOptions: launch_options });
+    }
     else if (method === "session/prompt") {
       const text = work(params.prompt[0].text);
+      if (process.argv.includes("--drift-model")) {
+        launch_options[0].currentValue = "small";
+        send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "goal-acp", update: { sessionUpdate: "config_option_update", configOptions: launch_options } } });
+      }
       send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "goal-acp", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } } });
       respond({ stopReason: "end_turn", ...(usage === undefined ? {} : { usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, totalTokens: usage.inputTokens + usage.outputTokens } }) });
     }

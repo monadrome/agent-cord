@@ -24,6 +24,7 @@ export type DriverErrorKind =
   | "spawn"
   | "agent"
   | "permission"
+  | "configuration"
   | "protocol";
 
 export interface TextEventData {

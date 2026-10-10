@@ -1,5 +1,14 @@
 # 调研发现
 
+## 阶段 61（2026-10-10）：ACP 启动状态漂移
+
+- set_config_option 要返回完整配置，config_option_update 可动态修改选项；现有驱动只验证设置响应，忽略更新，所以后续模型/effort/mode 漂移仍可成功。
+- ACP 文档明确 category 仅 UX，新 configOptions 优先于旧 modes；需明确 option_ids.mode 支持纯 config-only agent，不猜 category。旧 set_mode 成功回执为空，没有必需 currentModeId，不要求虚构通知。
+- 配置后的模式更新可重置模型或替换选项，不能用 new/load 原始列表验证后续请求；当前 session 新状态必须共同核验。只有明确启动选择需要冻结，未选择默认值仍由 agent 自适应。
+- 新 mode 可能解锁原 plan 列表没有的模型，不能先用初始列表验证全部选项；必须 mode 后逐步验证。扩展键序应排序，保证同一canonical配置身份对应相同实际设置顺序。
+- SDK异步通知可能晚于prompt请求发出才被观察，正确保证是立即取消并拒绝成功交付，不是回滚副作用或声称没有模型消耗。在途权限裁决也需在返回允许前重查是否已收束。
+- 实时run登记可仍为running而需求事件投影已waiting_human；验收应以审批/ready事实与需求投影核对，冷恢复再核验run登记，不用固定延迟等待一个不会自动变化的索引值。
+
 ## 阶段 60（2026-10-10）：能力查询消费缺口
 
 - Agent 页尚未展示 capabilities/inspect，注册清单的绿色 Check 会误导为安装/协议验证已通过。

@@ -344,7 +344,7 @@ function createTaskNodeRunner(def: WorkflowDef, options: CoordinatorOptions): No
     let agentSessionId: string | null = null;
     let usage: ResultEventData["usage"] = null;
     let cancelled = false;
-    let permission_denied = false;
+    let nonretryable_failure = false;
     let failure: { status: NodeRunStatus; message: string; retryable?: boolean } | null = null;
     try {
       const task = {
@@ -380,19 +380,19 @@ function createTaskNodeRunner(def: WorkflowDef, options: CoordinatorOptions): No
             const name = typeof data.name === "string" ? data.name : null;
             const violation = readonlyToolViolation(name, data.input);
             if (violation !== null) {
-              permission_denied = true;
+              nonretryable_failure = true;
               failure = { status: "failed", message: violation, retryable: false };
               break;
             }
           } else if (event.type === "error") {
             const data = event.data as ErrorEventData;
-            if (data.kind === "permission") permission_denied = true;
+            if (data.kind === "permission" || data.kind === "configuration") nonretryable_failure = true;
             agentSessionId = data.session_id ?? agentSessionId;
             // 取最后一个 error 为准（超时后可能还有 agent 错误余波）
             failure = {
               status: data.kind === "timeout" ? "timeout" : "failed",
               message: data.message,
-              retryable: data.kind !== "permission",
+              retryable: data.kind !== "permission" && data.kind !== "configuration",
             };
           }
         }
@@ -420,7 +420,7 @@ function createTaskNodeRunner(def: WorkflowDef, options: CoordinatorOptions): No
         agent_session_id: agentSessionId,
         usage: usage ?? null,
         failure_stage: "driver",
-        retryable: !permission_denied && failure.retryable !== false,
+        retryable: !nonretryable_failure && failure.retryable !== false,
       });
     }
 

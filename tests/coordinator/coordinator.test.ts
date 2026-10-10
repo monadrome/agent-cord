@@ -189,9 +189,9 @@ describe("coordinator（NodeRunner）", () => {
     expect(await readFile(join(session.dir, "plan.md"), "utf8")).toBe(old);
   });
 
-  it("权限拒绝后再收到普通错误也不重新授予自动重试", async () => {
+  it.each(["permission", "configuration"])("%s 错误后再收到普通错误也不重新授予自动重试", async kind => {
     const driver = fakeDriver([
-      { type: "error", data: { kind: "permission", message: "需要新的授权" } },
+      { type: "error", data: { kind, message: "需要修正授权或配置" } },
       { type: "error", data: { kind: "agent", message: "agent 后续回执失败" } },
     ]);
     const runner = createNodeRunner(DEF_RETRY, { resolveDriver: () => driver, workspaceRoot: root });

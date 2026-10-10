@@ -152,8 +152,8 @@ describe("工作区 agent registry", () => {
     const record = join(root, "inspection.jsonl");
     const acp_fixture = join(dirname(fileURLToPath(import.meta.url)), "../../../tests/driver/fixtures/fake-acp-agent.mjs");
     await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: { negotiator: { kind: "acp", bin: process.execPath,
-      args: [acp_fixture, "--config", "--record", record], env: { PRIVATE_ENV: "PRIVATE_ENV_MARKER" },
-      launch: { model: "large", effort: "high", option_ids: { model: "llm", effort: "thinking" } } } } }));
+      args: [acp_fixture, "--config", "--config-only", "--config-mode", "--record", record], env: { PRIVATE_ENV: "PRIVATE_ENV_MARKER" },
+      launch: { model: "large", effort: "high", mode: "code", option_ids: { model: "llm", effort: "thinking", mode: "workflow" } } } } }));
     await server.agents.reload();
     const address = await server.app.listen({ port: 0, host: "127.0.0.1" }); const client = createClient(address);
     const catalog = await client.listAgents();
@@ -165,6 +165,8 @@ describe("工作区 agent registry", () => {
     const recorded = (await readFile(record, "utf8")).trim().split("\n").map(line => JSON.parse(line));
     expect(recorded.filter(entry => entry.event === "session/new")).toHaveLength(1);
     expect(recorded.some(entry => entry.event === "prompt")).toBe(false);
+    expect(recorded.some(entry => entry.event === "session/set_mode")).toBe(false);
+    expect(first.observation!.config_options.find(option => option.id === "workflow")).toMatchObject({ category: null, values: ["plan", "code"] });
     expect(JSON.stringify(first)).not.toContain("PRIVATE_ENV_MARKER"); expect(JSON.stringify(first)).not.toContain(acp_fixture);
     expect((await client.inspectAgent("headless:codex")).observation).toBeNull();
     await expect(client.inspectAgent("unknown")).rejects.toMatchObject({ status: 404 });

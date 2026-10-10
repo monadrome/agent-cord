@@ -35,7 +35,7 @@ agents:
     launch:
       model: your-model-id
       effort: high
-      option_ids: {model: llm, effort: thinking}
+      option_ids: {model: llm, effort: thinking, mode: workflow}
       mode: code
       config_options: {extended: true}
   custom:
@@ -47,6 +47,8 @@ agents:
 ```
 
 ACP 的 ID、mode 和值均为示例，必须以实际 session 协商为准。`launch.bare: true` 仅当前 Claude 模板支持，明确承担上下文/认证加载差异后再开启。旧顶层模板旋钮仍接受；与 launch 重复且值不一致时拒绝。自定义参数只能使用已映射的占位符，完整 resume_args 不继承 args。参数直接传给 subprocess，不经 shell；替换一次，不展开 prompt 内的占位文本。
+
+ACP `option_ids.mode` 走新 configOptions；省略映射时使用旧 modes/set_mode。模式改变候选后再按最新列表设置 model/effort。明确选择在当前 session 更新时持续核验，漂移/类型变化/选项缺失立即取消并形成不可重试配置错误，不能产出 ready/成功提议；未显式参数保留 agent 自适应。详细边界和人审见 [配置一致性指南](./2026-10-10-acp-launch-state-consistency.md)。
 
 Goal 在 SDLC 的 `run.goal` 中声明，包含宿主检查、输入、review 产物和预算。不要将 `launch.auto` 当作 Goal 开关。ACP auto 类行为必须选择实际协商的 mode 或配置；文件预授权仍使用已有 permission_policy。
 

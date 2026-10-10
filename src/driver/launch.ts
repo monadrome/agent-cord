@@ -13,7 +13,7 @@ export const AgentLaunchSchema = z.strictObject({
   bare: z.boolean().optional(),
   auto: z.boolean().optional(),
   mode: identifier.optional(),
-  option_ids: z.strictObject({ model: identifier.optional(), effort: identifier.optional() }).optional(),
+  option_ids: z.strictObject({ model: identifier.optional(), effort: identifier.optional(), mode: identifier.optional() }).optional(),
   config_options: z.record(identifier, z.union([identifier, z.boolean()])).optional(),
 });
 export type AgentLaunch = z.infer<typeof AgentLaunchSchema>;

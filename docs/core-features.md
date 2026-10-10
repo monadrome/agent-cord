@@ -131,4 +131,6 @@ flowchart LR
 
 控制台 Agent 页提供能力筛选、逐 Agent 声明与显式 ACP 查询。协议观察与静态声明分别呈现；查询后的最新清单核对、失败/重试、过期及移除后的历史材料已接通，不将注册状态表示成验证通过。查询返回时和消费时都核对配置身份，协议协商仍不证明模型访问或额度可用（[ADR-0074](./adr/ADR-0074-agent-capability-console.md)）。
 
+ACP 启动选择持续一致性已接通：`option_ids.mode` 支持仅提供新 configOptions 的 agent，按 mode 后的实际候选选择模型；当前 session 明确选择被更新、移除或改变类型时，以不可重试配置错误取消，不形成 Goal ready 或协调提议。旧 set_mode 兼容空成功回执，同值/未显式选项/外部 session 更新不误冻结（[ADR-0075](./adr/ADR-0075-acp-launch-state-consistency.md)）。
+
 待扩展维度包括 provider 路由、MCP/工具集、网络与沙箱、隔离 worktree、CLI 精确版本探测、原生 fork/turn checkpoint；应按厂商真实能力逐项映射。任意历史 workflow rewind、跨 agent 的原生 session 迁移不在当前保证内，不能通过清除已退出节点事实实现。

@@ -24,6 +24,7 @@
 | 想修改跨模块协议 | [protocol.md](./protocol.md) → [adr/](./adr/) → 源码和测试 |
 | 想配置 Agent 启动/模型/恢复 | [启动能力与人审指南](./research/2026-10-10-agent-launch-capabilities.md) → [ADR-0073](./adr/ADR-0073-agent-launch-capabilities.md) |
 | 想查询 Agent 当前协议能力 | [能力工作台与人审指南](./research/2026-10-10-agent-capability-console.md) → [ADR-0074](./adr/ADR-0074-agent-capability-console.md) |
+| 想核验 ACP 启动选择与模式 | [配置一致性与人审指南](./research/2026-10-10-acp-launch-state-consistency.md) → [ADR-0075](./adr/ADR-0075-acp-launch-state-consistency.md) |
 | 想了解未来设计或风险 | [10-roadmap.md](./10-roadmap.md) → 旧章节 → [research/](./research/) |
 
 如果时间只够读一份技术文档，读 [current-architecture.md](./current-architecture.md)。它描述的是当前代码，而不是未来设计。

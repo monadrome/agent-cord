@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AcpDriver, HeadlessDriver, createAgentRegistry, parseAgentsYaml, type AgentEvent, type AgentLaunch } from "../../src/index.js";
 import { custom_headless_template } from "../../src/driver/custom-template.js";
+import { canonicalJson, sha256Hex } from "../../src/core/hash.js";
 
 const cli = fileURLToPath(new URL("./fixtures/fake-cli.mjs", import.meta.url));
 const acp = fileURLToPath(new URL("./fixtures/fake-acp-agent.mjs", import.meta.url));
@@ -92,10 +93,30 @@ describe("严格 agent 启动与能力识别", () => {
     expect(() => driver({ model: "large" })).toThrow(/option_ids/);
     expect(() => driver({ ...launch, option_ids: { model: "llm", effort: "llm" } })).toThrow(/相同/);
     expect(() => driver({ ...launch, config_options: { llm: "small" } })).toThrow(/重复/);
+    expect(() => driver({ ...launch, mode: "code", option_ids: { ...launch.option_ids, mode: "llm" } })).toThrow(/相同/);
     for (const profile of [{ mode: "code" }, { config_options: { extended: true } }]) {
       expect((await collect(driver(profile).run({ prompt: "review", cwd, readonly: true }))).some(event => event.type === "error")).toBe(true);
     }
     expect((await messages()).some(fact => fact.event === "prompt")).toBe(false);
+  });
+
+  it("配置状态核验策略改变显式 launch 身份，未声明 launch 的默认配置兼容", () => {
+    const hash = driver().configuration_hash;
+    expect(hash).toBe(driver().configuration_hash);
+    const legacy_hash = sha256Hex(canonicalJson({ domain: "cord.agent-config.acp.v4", launch,
+      name: `acp:${process.execPath}`, bin: process.execPath, args: [acp, "--config", "--record", record] }));
+    expect(hash).not.toBe(legacy_hash);
+    const default_hash = new AcpDriver({ bin: "test-agent", args: ["acp"] }).configuration_hash;
+    expect(new AcpDriver({ bin: "test-agent", args: ["acp"], launch: {} }).configuration_hash).toBe(default_hash);
+    expect(driver({ ...launch, mode: "code", option_ids: { ...launch.option_ids, mode: "workflow" } }).configuration_hash).not.toBe(hash);
+  });
+
+  it("相同扩展配置的 YAML 键序不改变实际设置顺序或配置身份", async () => {
+    const first = driver({ config_options: { extra: true, extended: true } }, ["--extra-config", "--no-tools"]);
+    const second = driver({ config_options: { extended: true, extra: true } }, ["--extra-config", "--no-tools"]);
+    expect(first.configuration_hash).toBe(second.configuration_hash);
+    for (const worker of [first, second]) expect((await collect(worker.run({ prompt: "work", cwd }))).some(event => event.type === "result")).toBe(true);
+    expect((await messages()).filter(fact => fact.event === "session/set_config_option").map(fact => fact.configId)).toEqual(["extended", "extra", "extended", "extra"]);
   });
 
   it("ACP session resume 必须协商 loadSession，恢复后重新应用所需模型", async () => {
@@ -113,6 +134,82 @@ describe("严格 agent 启动与能力识别", () => {
     expect(observation.config_options.map(option => option.id)).toEqual(["llm", "thinking", "extended"]);
     expect(observation.config_options[0]).toMatchObject({ category: "model", values: ["small", "large"], omitted_values: 0 });
     expect((await messages()).some(fact => fact.event === "prompt")).toBe(false);
+  });
+
+  it.each(["drift-model", "drift-effort", "drift-restored", "remove-option", "change-type", "invalid-default"])("ACP 执行中 %s 不能返回成功结果", async scenario => {
+    const events = await collect(driver(launch, ["--mode", scenario, "--no-tools"]).run({ prompt: "work", cwd }));
+    expect(events.some(event => event.type === "error" && (event.data as any).kind === "configuration")).toBe(true);
+    expect(events.some(event => event.type === "result")).toBe(false);
+  });
+
+  it.each(["same-update", "foreign-update", "unselected-update", "mode-reconfig-default"])("ACP %s 保持明确选择，不误阻断", async scenario => {
+    const events = await collect(driver({ ...launch, ...(scenario === "mode-reconfig-default" ? { mode: "code" } : {}) }, ["--mode", scenario, "--no-tools"]).run({ prompt: "work", cwd }));
+    expect(events.some(event => event.type === "error")).toBe(false); expect(events.some(event => event.type === "result")).toBe(true);
+  });
+
+  it.each([false, true])("纯 configOptions mode 以精确 ID 选择，不依赖 category（resume=%s）", async resume => {
+    const profile = { ...launch, mode: "code", option_ids: { ...launch.option_ids, mode: "workflow" } };
+    const worker = driver(profile, ["--config-only", "--config-mode", "--no-tools"]);
+    const events = await collect(resume ? worker.resume("specific-session", { prompt: "work", cwd }) : worker.run({ prompt: "work", cwd }));
+    expect(events.some(event => event.type === "error")).toBe(false); expect(events.some(event => event.type === "result")).toBe(true);
+    const facts = await messages(); expect(facts.some(fact => fact.event === "session/set_mode")).toBe(false);
+    expect(facts.find(fact => fact.event === "session/set_config_option")).toMatchObject({ configId: "workflow", value: "code" });
+  });
+
+  it("mode 改变模型候选后使用最新回执，不能用初始 plan 选项误拒绝 code 模型", async () => {
+    const events = await collect(driver({ ...launch, mode: "code", option_ids: { ...launch.option_ids, mode: "workflow" } },
+      ["--mode", "mode-dependent-model", "--config-mode", "--config-only", "--no-tools"]).run({ prompt: "work", cwd }));
+    expect(events.some(event => event.type === "error")).toBe(false); expect(events.some(event => event.type === "result")).toBe(true);
+    expect((await messages()).filter(fact => fact.event === "session/set_config_option").map(fact => fact.configId)).toEqual(["workflow", "llm", "thinking"]);
+  });
+
+  it.each(["drift-mode", "drift-config-mode"])("ACP %s 阻断明确模式漂移", async scenario => {
+    const profile = { ...launch, mode: "code", ...(scenario === "drift-config-mode" ? { option_ids: { ...launch.option_ids, mode: "workflow" } } : {}) };
+    const events = await collect(driver(profile, ["--mode", scenario, "--config-mode", "--no-tools"]).run({ prompt: "work", cwd }));
+    expect(events.some(event => event.type === "error" && (event.data as any).kind === "configuration")).toBe(true);
+    expect(events.some(event => event.type === "result")).toBe(false);
+  });
+
+  it("同一 driver 每次 session 独立，失败后新调用正常；readonly mode 映射仍拒绝 code", async () => {
+    const worker = driver({ mode: "code", option_ids: { mode: "workflow" } }, ["--config-mode", "--config-only", "--no-tools"]);
+    const rejected = await collect(worker.run({ prompt: "review", cwd, readonly: true }));
+    expect(rejected.some(event => event.type === "error")).toBe(true); expect((await messages()).some(fact => fact.event === "prompt")).toBe(false);
+    const recovered = await collect(worker.run({ prompt: "work", cwd }));
+    expect(recovered.some(event => event.type === "error")).toBe(false); expect(recovered.some(event => event.type === "result")).toBe(true);
+  });
+
+  it("配置漂移后权限请求不会调用预授权裁决器，子进程取消并收束", async () => {
+    let asked = false; const pid_file = join(cwd, "pid");
+    const worker = new AcpDriver({ bin: process.execPath, args: [acp, "--config", "--record", record, "--mode", "drift-permission", "--pid-file", pid_file], launch,
+      decidePermission: () => { asked = true; return { optionId: "allow-once" }; } });
+    expect((await collect(worker.run({ prompt: "work", cwd }))).some(event => event.type === "error")).toBe(true);
+    expect(asked).toBe(false);
+    const pid = Number(await readFile(pid_file, "utf8")); expect(() => process.kill(pid, 0)).toThrow();
+    expect((await messages()).some(fact => fact.event === "session/cancel")).toBe(true);
+  });
+
+  it("已在途权限裁决遇到配置漂移，迟到允许返回取消而不授予工具", async () => {
+    let asked = false;
+    let release!: () => void; const decision = new Promise<void>(resolve => { release = resolve; });
+    const worker = new AcpDriver({ bin: process.execPath, args: [acp, "--config", "--record", record, "--mode", "pending-permission-drift"], launch,
+      decidePermission: async () => { asked = true; await decision; return { optionId: "allow-once" }; } });
+    const events: AgentEvent[] = [];
+    for await (const event of worker.run({ prompt: "work", cwd })) { events.push(event); if (event.type === "error") release(); }
+    expect(asked).toBe(true); expect(events.some(event => event.type === "error")).toBe(true); expect(events.some(event => event.type === "result")).toBe(false);
+    expect((await messages()).find(fact => fact.event === "permission_response").outcome).toEqual({ outcome: "cancelled" });
+  });
+
+  it.each(["wrong-mode", "mode-reconfig", "duplicate-option", "duplicate-value"])("ACP %s 在 prompt 前 fail-closed", async scenario => {
+    const events = await collect(driver({ ...launch, mode: "code" }, ["--mode", scenario, "--no-tools"]).run({ prompt: "work", cwd }));
+    expect(events.some(event => event.type === "error")).toBe(true);
+    expect((await messages()).some(fact => fact.event === "prompt")).toBe(false);
+  });
+
+  it("设置回执后的异步漂移一经观察就取消，不以迟到更新继续返回成功", async () => {
+    const events = await collect(driver(launch, ["--mode", "post-set-drift", "--no-tools"]).run({ prompt: "work", cwd }));
+    expect(events.some(event => event.type === "error" && (event.data as any).kind === "configuration")).toBe(true);
+    expect(events.some(event => event.type === "result")).toBe(false);
+    expect((await messages()).some(fact => fact.event === "session/cancel")).toBe(true);
   });
 
   it("ACP 大能力列表限制输出并明确省略数，不把样本当全集", async () => {

@@ -810,6 +810,15 @@
 - [x] 全量 1193 项 / 82 文件、typecheck/build:all/diff、105 本地链接通过；9 截图/8 显式查询、无 pageerror/页面横向溢出，窄屏候选与列表局部滚动
 - [x] 功能提交 9a60c70，HTTP/1.1 push 成功，独立 ls-remote 核验 9a60c70842a2132f1be816bb546a5e077904c717；原真实 Draft 未操作，完整持续优化目标保持 active
 
+## 阶段 61：ACP 启动配置持续一致性（已实现并验证，提交同步中）
+
+- [x] 核验 d75489b 干净、上一轮为已验证进展；公开 ACP 配置/模式协议与本地 SDK 调研，ADR-0075 先行
+- [x] mode 精确 ID 映射、new/load/回执/当前 session 更新一致性与 v5 配置身份；mode→排序扩展→model→effort确定顺序
+- [x] 执行中漂移不可重试失败、取消收束、在途权限迟到允许改取消；产物/Goal/协调闭环
+- [x] 46项launch实际子进程、真实TCP HTTP/config-only/恢复/失败修复回归；研究与 human review 指南
+- [x] 最终全量1221项/82文件、typecheck/build:all/diff、110本地链接通过；实际HTTP worker2/协调2/审批1/人工决定0/节点退出0/doctor=true
+- [ ] 小步提交、推送与独立远端核验；原真实Draft未操作，完整持续优化目标保持active
+
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
 - [x] 核验当前分支与阶段 10；上一轮实现和远端同步属于已验证进展

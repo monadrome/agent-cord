@@ -1,5 +1,15 @@
 # 工作进度
 
+## 2026-10-10（阶段 61）
+
+- d75489b 工作树干净/本地tracking同步，上一轮能力工作台与1193项验证为实际进展。
+- 使用既有 agent-optimizer 与 Firecrawl 调研 ACP session-modes/config-options；本地SDK核验设置回执和更新类型。确定 option_ids.mode/config更新忽略缺口，ADR-0075 先行，沿用现有 Goal/协调失败生命周期，不调用付费模型。
+- 反例首先复现8个配置/模式更新忽略问题。实现每session独立完整状态、精确mode映射、确定设置顺序、v5策略身份、sealed后漂移不可重试取消；模式依赖模型新增候选正常，未显式/同值/外部更新不误冻结。
+- 新集成测试最初漏一个对象闭括号、假设driver失败总有written_by、失败协调current=false与live run自动waiting_human，已按实际契约/事件来源纠正；异步post-set更新不保证prompt尚未发送，改验收取消/无成功结果，保留实际边界。
+- 新增在途权限反例，等待观察到配置错误后再释放允许结果，确定性证明返回cancelled，避免延迟窗口依赖。最终46项launch/15项ACP、Goal冷恢复/修复/人审、最新PRD独立协调、真实HTTP inspect通过。
+- 全量npm test最终1221项/82文件，typecheck/build:all/diff、110本地文档链接通过；/tmp/cord-stage61-final-tests.json。没有付费模型调用，没有操作7306真实Draft。
+- 实际TCP HTTP隔离脚本已通过：第一次漂移worker调用1/无验证或审批，冷恢复不重发；修复后的新run worker总2/宿主测试/审批1/人工决定0/节点退出0/doctor=true。协调总2，失败提议null，修复后的prompt含最新PRD；config-only mode精确候选通过。证据 /tmp/cord-stage61-real-result.json，脚本/日志/数据不入仓库，最终代码预览重载不重复worker。
+
 ## 2026-10-10（阶段 60）
 
 - 起点 9251ed0 工作树干净且本地 tracking 同步；上一轮实现与1181项验证属于实际进展。

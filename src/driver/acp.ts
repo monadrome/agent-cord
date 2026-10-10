@@ -27,7 +27,7 @@ import { execa } from "execa";
 import type { AgentDriver, AgentEvent, AgentTask } from "../core/ports.js";
 import { canonicalJson, sha256Hex } from "../core/hash.js";
 import { validate_agent_launch, type AgentCapabilities, type AgentLaunch } from "./launch.js";
-import { AcpConfigResponseSchema, type AcpCapabilityObservation } from "./acp-launch.js";
+import { ACP_LAUNCH_STATE_POLICY, AcpConfigResponseSchema, AcpLaunchConfigurationError, AcpLaunchState, type AcpCapabilityObservation } from "./acp-launch.js";
 import { AcpPermissionPolicySchema, decideAcpWorkspacePermission, type AcpPermissionPolicy, type AcpPermissionPolicyInput } from "./acp-permissions.js";
 import {
   AsyncQueue,
@@ -203,11 +203,12 @@ export class AcpDriver implements AgentDriver {
       if (this.launch[key] !== undefined && this.launch.option_ids?.[key] === undefined) throw new Error(`ACP ${key} 必须声明 option_ids.${key}`);
     }
     const ids = Object.values(this.launch.option_ids ?? {});
-    if (new Set(ids).size !== ids.length) throw new Error("ACP model/effort 不能映射到相同配置 ID");
-    if (ids.some(id => Object.hasOwn(this.launch.config_options ?? {}, id))) throw new Error("ACP 配置 ID 与 model/effort 映射重复");
+    if (new Set(ids).size !== ids.length) throw new Error("ACP 启动选项不能映射到相同配置 ID");
+    if (ids.some(id => Object.hasOwn(this.launch.config_options ?? {}, id))) throw new Error("ACP 配置 ID 与启动选项映射重复");
     if (options.permission_policy !== undefined && options.decidePermission !== undefined) throw new Error("permission_policy 与 decidePermission 不能同时声明");
     this.permission_policy = options.permission_policy === undefined ? undefined : AcpPermissionPolicySchema.parse(options.permission_policy);
-    this.configuration_hash = sha256Hex(canonicalJson({ domain: Object.keys(this.launch).length > 0 ? "cord.agent-config.acp.v4" : this.permission_policy !== undefined ? "cord.agent-config.acp.v3" : options.context_revision === undefined ? "cord.agent-config.acp.v1" : "cord.agent-config.acp.v2",
+    this.configuration_hash = sha256Hex(canonicalJson({ domain: Object.keys(this.launch).length > 0 ? "cord.agent-config.acp.v5" : this.permission_policy !== undefined ? "cord.agent-config.acp.v3" : options.context_revision === undefined ? "cord.agent-config.acp.v1" : "cord.agent-config.acp.v2",
+      ...(Object.keys(this.launch).length === 0 ? {} : { launch_state_policy: ACP_LAUNCH_STATE_POLICY }),
       ...(Object.keys(this.launch).length === 0 ? {} : { launch: this.launch }),
       ...(this.permission_policy === undefined ? {} : { permission_policy: this.permission_policy }),
       ...(options.context_revision === undefined ? {} : { context_revision: options.context_revision }), name: this.name, bin: this.bin, args: this.args }));
@@ -251,6 +252,12 @@ export class AcpDriver implements AgentDriver {
     let activeSessionId: string | undefined = resumeSessionId;
     let timedOut = false;
     let agentText = "";
+    let launch_state: AcpLaunchState | undefined;
+    let launch_failure: AcpLaunchConfigurationError | undefined;
+    const assert_running = (): void => {
+      if (launch_failure !== undefined) throw launch_failure;
+      if (shutdown_promise !== undefined || task.signal?.aborted) throw new Error("ACP 执行已收束");
+    };
 
     /** ACP 通知与终态统一回填会话回执，供恢复与宿主审计使用。 */
     const push = (events: AgentEvent[]): void => {
@@ -285,6 +292,17 @@ export class AcpDriver implements AgentDriver {
     const app = client({ name: CLIENT_INFO.name });
     app.onNotification("session/update", ({ params }) => {
       if (activeSessionId !== undefined && params.sessionId !== activeSessionId) return;
+      if (launch_failure !== undefined) return;
+      if (launch_state !== undefined) {
+        try {
+          if (params.update.sessionUpdate === "config_option_update") launch_state.replace_options(params.update.configOptions);
+          if (params.update.sessionUpdate === "current_mode_update") launch_state.update_mode(params.update.currentModeId);
+        } catch {
+          launch_failure = new AcpLaunchConfigurationError("ACP session 配置违反显式启动选择，停止执行");
+          shutdown(launch_failure.message, "configuration");
+          return;
+        }
+      }
       for (const event of mapSessionUpdate(params.update)) {
         if (event.type === "text") {
           const data = event.data as { text?: unknown };
@@ -296,11 +314,13 @@ export class AcpDriver implements AgentDriver {
       }
     });
     app.onRequest("session/request_permission", ({ params }) => {
+      if (launch_failure !== undefined || shutdown_promise !== undefined) return { outcome: { outcome: "cancelled" as const } };
       if (inspect_only) {
         push([errorEvent("ACP 能力查询不允许工具权限请求", "permission")]);
         return { outcome: { outcome: "cancelled" as const } };
       }
-      return this.answerPermission(params, { readonly, push, cwd: task.cwd });
+      return this.answerPermission(params, { readonly, push, cwd: task.cwd,
+        can_approve: () => launch_failure === undefined && shutdown_promise === undefined && !task.signal?.aborted });
     });
 
     const connection = app.connect(ndJsonStream(toAgent.writable, fromAgent.readable));
@@ -309,7 +329,7 @@ export class AcpDriver implements AgentDriver {
     let sigkillTimer: NodeJS.Timeout | undefined;
     let shutdown_promise: Promise<void> | undefined;
     /** 收束序列（超时与外部取消共用）：error 落流 → 先 session/cancel 打完招呼 → 杀进程树 → 关流 */
-    const shutdown = (reason: string, kind: "timeout" | "agent"): void => {
+    const shutdown = (reason: string, kind: "timeout" | "agent" | "configuration"): void => {
       if (shutdown_promise !== undefined) return;
       push([
         errorEvent(reason, kind, {
@@ -394,7 +414,13 @@ export class AcpDriver implements AgentDriver {
         }
         activeSessionId = sessionId;
         this.onSession?.(sessionId);
-        const configured = await this.configure_session(ctx, sessionId, state, readonly);
+        assert_running();
+        launch_state = new AcpLaunchState(this.launch, readonly);
+        launch_state.initialize(state);
+        await this.configure_session(ctx, sessionId, launch_state, assert_running);
+        assert_running();
+        launch_state.seal();
+        const configured = launch_state.configuration();
         if (inspect_only) {
           const modes = (state.modes?.availableModes ?? []).filter(mode => mode.id.length <= 200).map(mode => mode.id).slice(0, 128);
           const options = configured.filter(option => option.id.length <= 200).slice(0, 128).map(option => {
@@ -417,6 +443,8 @@ export class AcpDriver implements AgentDriver {
           sessionId,
           prompt: [{ type: "text", text: task.prompt }],
         });
+        assert_running();
+        launch_state.assert_ready();
 
         push([
           resultEvent(agentText.length > 0 ? agentText : null, sessionId, {
@@ -426,10 +454,10 @@ export class AcpDriver implements AgentDriver {
           }, mapAcpUsage(response.usage)),
         ]);
       } catch (error) {
-        if (!timedOut) {
+        if (!timedOut && shutdown_promise === undefined) {
           const message = error instanceof Error ? error.message : String(error);
           push([
-            errorEvent(message, error instanceof RequestError ? "agent" : "protocol", {
+            errorEvent(message, error instanceof AcpLaunchConfigurationError ? "configuration" : error instanceof RequestError ? "agent" : "protocol", {
               session_id: activeSessionId ?? null,
             }),
           ]);
@@ -468,48 +496,31 @@ export class AcpDriver implements AgentDriver {
     }
   }
 
-  private async configure_session(ctx: ClientContext, session_id: string, state: { modes?: SessionModeState | null; configOptions?: SessionConfigOption[] | null }, readonly: boolean): Promise<SessionConfigOption[]> {
-    if (readonly && Object.keys(this.launch.config_options ?? {}).length > 0) throw new Error("只读 ACP 任务不接受未知扩展配置");
-    const mode = this.launch.mode;
-    if (mode !== undefined) {
-      if (readonly && mode !== "plan") throw new Error("只读 ACP 任务不能选择非 plan mode");
-      if (!state.modes?.availableModes.some(value => value.id === mode)) throw new Error("ACP 不支持请求的 session mode");
-      await ctx.request("session/set_mode", { sessionId: session_id, modeId: mode });
+  private async configure_session(ctx: ClientContext, session_id: string, state: AcpLaunchState, assert_running: () => void): Promise<void> {
+    if (state.legacy_mode !== undefined) {
+      state.assert_legacy_mode();
+      const version = state.mode_version();
+      try { await ctx.request("session/set_mode", { sessionId: session_id, modeId: state.legacy_mode }); }
+      catch { assert_running(); throw new AcpLaunchConfigurationError("ACP 拒绝请求的 session mode"); }
+      assert_running(); state.acknowledge_legacy_mode(version);
     }
-    const selections: Record<string, string | boolean> = { ...this.launch.config_options };
-    for (const key of ["model", "effort"] as const) {
-      const value = this.launch[key];
-      if (value !== undefined) selections[this.launch.option_ids![key]!] = value;
+    for (const [id, value] of state.entries()) {
+      assert_running(); state.assert_supported(id, value);
+      let response: unknown;
+      try { response = await ctx.request("session/set_config_option", { sessionId: session_id, configId: id,
+        ...(typeof value === "boolean" ? { type: "boolean" } : {}), value }); }
+      catch { assert_running(); throw new AcpLaunchConfigurationError("ACP 拒绝请求的启动配置"); }
+      assert_running();
+      const parsed = AcpConfigResponseSchema.safeParse(response);
+      if (!parsed.success) throw new AcpLaunchConfigurationError("ACP 配置回执结构不可验证");
+      state.replace_options(parsed.data.configOptions);
+      state.assert_selected(id, value);
     }
-    let options = state.configOptions ?? [];
-    const supported = (option: SessionConfigOption, value: string | boolean): boolean => option.type === "boolean"
-      ? typeof value === "boolean"
-      : typeof value === "string" && option.options.some(entry => "group" in entry ? entry.options.some(item => item.value === value) : entry.value === value);
-    const assert_selection = (id: string, value: string | boolean) => {
-      const candidates = options.filter(option => option.id === id);
-      if (candidates.length !== 1 || !supported(candidates[0]!, value)) throw new Error("ACP 不支持请求的配置 ID/值");
-      if (readonly && candidates[0]!.category === "mode" && value !== "plan") throw new Error("只读 ACP 任务不能通过配置选择非 plan mode");
-    };
-    for (const [id, value] of Object.entries(selections)) assert_selection(id, value);
-    for (const [id, value] of Object.entries(selections)) {
-      assert_selection(id, value);
-      const response = await ctx.request("session/set_config_option", { sessionId: session_id, configId: id,
-        ...(typeof value === "boolean" ? { type: "boolean" } : {}), value });
-      options = AcpConfigResponseSchema.parse(response).configOptions;
-      const selected = options.filter(option => option.id === id);
-      if (selected.length !== 1 || selected[0]!.currentValue !== value) throw new Error("ACP 未应用请求的配置值");
-    }
-    // 后续设置可能重置先前选择；只有最终状态一致才能发送 prompt。
-    for (const [id, value] of Object.entries(selections)) {
-      const selected = options.filter(option => option.id === id);
-      if (selected.length !== 1 || selected[0]!.currentValue !== value) throw new Error("ACP 最终配置与启动请求不一致");
-    }
-    return options;
   }
 
   private async answerPermission(
     request: RequestPermissionRequest,
-    state: { readonly: boolean; push: (events: AgentEvent[]) => void; cwd: string },
+    state: { readonly: boolean; push: (events: AgentEvent[]) => void; cwd: string; can_approve: () => boolean },
   ): Promise<RequestPermissionResponse> {
     const title = request.toolCall.title ?? request.toolCall.toolCallId;
     const cancelled: RequestPermissionResponse = { outcome: { outcome: "cancelled" } };
@@ -528,6 +539,7 @@ export class AcpDriver implements AgentDriver {
       })(),
       this.permissionTimeoutMs,
     );
+    if (!state.can_approve()) return cancelled;
 
     if (decision === TIMED_OUT) {
       state.push([

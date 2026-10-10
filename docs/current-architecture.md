@@ -135,6 +135,8 @@ ACP 的 permission_policy 支持可写 worker read/edit 范围预授权。普通
 
 worker agent 的来源：内置驱动清单（claude / codex / kimi 直连，ACP 按声明选择）+ `cord/agents.yaml` 自定义注册（ACP 子进程 / headless 模板定制 / 自定义 args 模板三种形态）。统一 `launch` 支持模板声明的模型、effort、角色与预算；Claude 增 bare/auto，readonly 强制 plan。ACP model/effort 通过明确 option_ids 映射，并在 prompt 前协商允许值和设置回执；config_options 提供 select/boolean 扩展。自定义 argv 用明确占位符与完整 resume_args，不能静默开新会话。显式不支持的旋钮现在拒绝注册；旧顶层模板旋钮仍兼容。宿主 Goal 生命周期、CLI 权限模式和通信通道分别控制（[ADR-0073](./adr/ADR-0073-agent-launch-capabilities.md)）。默认 SDLC 不挂执行体（开箱可跑零依赖）；挂执行体的流程从模板库「Agent 协作」档起步。
 
+ACP `launch.option_ids.mode` 可将 mode 绑定新配置 ID，兼容无 category/纯 configOptions；否则走旧 modes/set_mode，空回执仅为协议确认。每次 session 独立记录完整配置/模式更新，按 mode、排序扩展、model、effort 设置并核验最新候选，最终冻结显式选择。执行中漂移为不可重试 configuration error，取消/收束并阻止成功产物/Goal ready/协调提议；已发生副作用不回滚，未选默认值不冻结。显式 launch 使用 v5 配置域绑定状态核验策略，旧默认无 launch 保留身份（[ADR-0075](./adr/ADR-0075-acp-launch-state-consistency.md)）。
+
 普通 `readonly` worker 还经过 coordinator 的跨 driver 工具审计：明确读工具与受限无副作用命令通过，写工具、未知工具和不可核验命令形成不可自动重试的 driver failure；不保存工具输入。它是事件级 fail-closed 兜底，不能撤销已经发生的副作用，也不取代 ACP permission 或 OS sandbox（ADR-0068）。
 
 RunService 维护进程内 agent lease：新 start/Goal 授权/显式恢复遇到含 `node.run` 的活动执行器返回 409，不写额外请求事实。冷恢复冲突保留原 run，lease 释放后经既有恢复器自动重检续跑；原启动事实支持重启/索引删除重建。启动失败无条件释放，已派发 executor 等 finally 收束后释放；无 agent 流程和无活动 executor 的冷人审不占 lease，未来恢复重新获取（ADR-0069）。这是单实例冲突保护，不冻结 review 版本，不代替 worktree、容器或跨进程锁。

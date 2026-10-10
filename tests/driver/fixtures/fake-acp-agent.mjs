@@ -33,29 +33,55 @@ const respondError = (id, code, message) => send({ jsonrpc: "2.0", id, error: { 
 const notify = (method, params) => send({ jsonrpc: "2.0", method, params });
 
 const sessionId = "acp-session-1";
+let updateSessionId = sessionId;
 const configOptions = [
   { id: "llm", name: "LLM", category: "model", type: "select", currentValue: "small", options: [{ group: "models", name: "Models", options: [{ value: "small", name: "Small" }, { value: "large", name: "Large" }] }] },
   { id: "thinking", name: "Effort", category: "thought_level", type: "select", currentValue: "low", options: [{ value: "low", name: "Low" }, { value: "high", name: "High" }] },
   { id: "extended", name: "Extension", type: "boolean", currentValue: false },
 ];
 const availableModes = [{ id: "plan", name: "Plan" }, { id: "code", name: "Code" }];
+if (mode === "mode-dependent-model") configOptions.find(value => value.id === "llm").options = [{ value: "small", name: "Small" }];
+let currentModeId = "plan";
+if (argv.includes("--config-mode")) configOptions.unshift({ id: "workflow", name: "Mode", type: "select", currentValue: "plan", options: [{ value: "plan", name: "Plan" }, { value: "code", name: "Code" }] });
+if (argv.includes("--extra-config")) configOptions.push({ id: "extra", name: "Extra", type: "boolean", currentValue: false });
 if (argv.includes("--large-capabilities")) {
   configOptions[0].options = [{ group: "models", name: "Models", options: Array.from({ length: 140 }, (_, index) => ({ value: `model-${index}`, name: `Model ${index}` })) }];
+  configOptions[0].currentValue = "model-0";
   availableModes.push(...Array.from({ length: 140 }, (_, index) => ({ id: `mode-${index}`, name: `Mode ${index}` })));
   configOptions.push(...Array.from({ length: 140 }, (_, index) => ({ id: `option-${index}`, name: `Option ${index}`, type: "boolean", currentValue: false })));
 }
-const sessionState = () => argv.includes("--config") ? { modes: { currentModeId: "plan", availableModes }, configOptions } : {};
+const sessionState = () => argv.includes("--config") ? { ...(argv.includes("--config-only") ? {} : { modes: { currentModeId, availableModes } }), configOptions } : {};
 let permissionRequestId = 0;
 // 挂起的 prompt 请求 id：permission 应答后决定是否作答（模拟挂死）
 let pendingPromptId = undefined;
 let promptText = "";
 
-const update = (value) => notify("session/update", { sessionId, update: value });
+const update = (value) => notify("session/update", { sessionId: updateSessionId, update: value });
 const textChunk = (text) => update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
 
 function handlePrompt(params) {
   record({ event: "prompt", sessionId: params.sessionId, text: params.prompt?.[0]?.text ?? null });
   promptText = params.prompt?.[0]?.text ?? "";
+  if (mode === "pending-permission-drift") {
+    send({ jsonrpc: "2.0", id: "perm-1", method: "session/request_permission", params: { sessionId: params.sessionId,
+      toolCall: { toolCallId: "pending-edit", title: "edit", kind: "edit" }, options: [{ optionId: "allow-once", name: "Allow", kind: "allow_once" }] } });
+    const changed = structuredClone(configOptions); changed.find(value => value.id === "llm").currentValue = "small";
+    update({ sessionUpdate: "config_option_update", configOptions: changed });
+    return;
+  }
+  if (["drift-model", "drift-effort", "drift-config-mode", "drift-restored", "drift-permission", "same-update", "foreign-update", "remove-option", "change-type", "invalid-default", "unselected-update"].includes(mode)) {
+    const options = structuredClone(configOptions);
+    const option = options.find(value => value.id === (mode === "drift-effort" ? "thinking" : mode === "drift-config-mode" ? "workflow" : mode === "unselected-update" ? "extended" : "llm"));
+    if (mode !== "same-update") option.currentValue = mode === "invalid-default" ? "invalid" : mode === "unselected-update" ? true : mode === "drift-effort" ? "low" : mode === "drift-config-mode" ? "plan" : "small";
+    if (mode === "remove-option") options.splice(options.findIndex(value => value.id === "llm"), 1);
+    if (mode === "change-type") Object.assign(option, { type: "boolean", currentValue: false });
+    notify("session/update", { sessionId: mode === "foreign-update" ? "foreign-session" : params.sessionId,
+      update: { sessionUpdate: "config_option_update", configOptions: options } });
+    if (mode === "drift-restored") update({ sessionUpdate: "config_option_update", configOptions });
+    if (mode === "drift-permission") send({ jsonrpc: "2.0", id: "perm-1", method: "session/request_permission", params: {
+      sessionId: params.sessionId, toolCall: { toolCallId: "call-drift", title: "edit", kind: "edit" }, options: [{ optionId: "allow-once", name: "Allow", kind: "allow_once" }] } });
+  }
+  if (mode === "drift-mode") notify("session/update", { sessionId: params.sessionId, update: { sessionUpdate: "current_mode_update", currentModeId: "plan" } });
 
   if (resultText === undefined) textChunk("hello ");
   if (!argv.includes("--no-tools")) update({
@@ -127,6 +153,7 @@ function handleMessage(message) {
   }
 
   if (method === "session/load") {
+    updateSessionId = params.sessionId;
     record({ event: "session/load", sessionId: params.sessionId, cwd: params.cwd });
     if (mode === "fail-load") {
       respondError(id, -32601, "session/load not supported");
@@ -138,6 +165,13 @@ function handleMessage(message) {
 
   if (method === "session/set_mode") {
     record({ event: method, ...params });
+    currentModeId = mode === "wrong-mode" ? "plan" : params.modeId;
+    if (["wrong-mode", "mode-reconfig", "mode-reconfig-default"].includes(mode)) update({ sessionUpdate: "current_mode_update", currentModeId });
+    if (["mode-reconfig", "mode-reconfig-default"].includes(mode)) {
+      const llm = configOptions.find(value => value.id === "llm");
+      if (mode === "mode-reconfig") llm.options = [{ value: "small", name: "Small" }]; llm.currentValue = "small";
+      update({ sessionUpdate: "config_option_update", configOptions });
+    }
     respond(id, {}); return;
   }
   if (method === "session/set_config_option") {
@@ -145,8 +179,16 @@ function handleMessage(message) {
     if (mode === "reject-config") { respondError(id, -32000, "configuration rejected"); return; }
     const option = configOptions.find(value => value.id === params.configId);
     if (option && mode !== "ignore-config") option.currentValue = params.value;
-    if (mode === "reset-config" && params.configId === "thinking") configOptions[0].currentValue = "small";
-    respond(id, { configOptions }); return;
+    if (mode === "reset-config" && params.configId === "thinking") configOptions.find(value => value.id === "llm").currentValue = "small";
+    if (mode === "duplicate-option") configOptions.push(structuredClone(option));
+    if (mode === "duplicate-value") configOptions.find(value => value.id === "thinking").options.push({ value: "high", name: "Duplicated" });
+    if (mode === "mode-dependent-model" && params.configId === "workflow") configOptions.find(value => value.id === "llm").options.push({ value: "large", name: "Large" });
+    respond(id, { configOptions });
+    if (mode === "post-set-drift" && params.configId === "thinking") {
+      const changed = structuredClone(configOptions); changed.find(value => value.id === "llm").currentValue = "small";
+      update({ sessionUpdate: "config_option_update", configOptions: changed });
+    }
+    return;
   }
 
   if (method === "session/prompt") {

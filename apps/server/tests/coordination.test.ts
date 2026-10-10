@@ -103,6 +103,26 @@ async function source_round(key = ulid()): Promise<CoordinationRoundView> {
 }
 
 describe("协调人工澄清", () => {
+  it("ACP 独立协调的显式模型漂移使提议失败，修复后新快照轮次正常", async () => {
+    const record = join(root, "launch-rounds.jsonl");
+    const configure = async (drift: boolean) => {
+      await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: { coordinator: { kind: "acp", bin: process.execPath,
+        args: [acp_fixture, "--config", "--no-tools", "--record", record, "--mode", drift ? "drift-model" : "default", "--result-text", JSON.stringify(proposal)],
+        launch: { model: "large", effort: "high", option_ids: { model: "llm", effort: "thinking" } } } } }));
+      await server.agents.reload();
+    };
+    await configure(true);
+    const first = await start("drift-round"); expect(first.status).toBe(202);
+    expect(await done(first.body.round.round_id)).toMatchObject({ status: "failed", proposal: null, current: null });
+    await restart(); expect(await server.coordination.get("REQ-CONTEXT", first.body.round.round_id)).toMatchObject({ status: "failed", proposal: null });
+    await request("PUT", "/api/v1/requirements/REQ-CONTEXT/docs/prd", { content: "# PRD\nNEW_CONTEXT_AFTER_CONFIG_REPAIR" }, "latest-repair-input");
+    await configure(false); const second = await valid_round(); expect(second).toMatchObject({ current: true, proposal });
+    const prompts = (await readFile(record, "utf8")).trim().split("\n").map(line => JSON.parse(line)).filter(entry => entry.event === "prompt");
+    expect(prompts).toHaveLength(2); expect(prompts[1].text).toContain("NEW_CONTEXT_AFTER_CONFIG_REPAIR");
+    expect((await server.sessions.readEvents("REQ-CONTEXT")).filter(event => event.type === "human.decision.recorded" || event.type === "workflow.node.exited")).toHaveLength(0);
+    expect(server.runs.listRuns("REQ-CONTEXT")).toHaveLength(0);
+  });
+
   const asking = { ...proposal, next_action: { kind: "ask_human", question: "上线的平台范围？", options: ["ONLY_MOBILE", "DESKTOP_AND_MOBILE"], reason: "需要澄清", evidence: proposal.next_action.evidence } };
   async function question() { await config(JSON.stringify(asking)); await server.agents.reload(); return valid_round(); }
   const answer = (id: string, choice = "ONLY_MOBILE", key = ulid()) => request("POST", `/api/v1/requirements/REQ-CONTEXT/coordination/${id}/answer`, { choice }, key);

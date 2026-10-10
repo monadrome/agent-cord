@@ -28,10 +28,13 @@ async function waitFor(test: () => Promise<boolean>) {
 async function events() { return (await server.sessions.open("REQ-GOAL")).events.readOrdered(); }
 async function calls() { return Number(await readFile(join(root, ".goal-worker-calls"), "utf8")); }
 
-async function prepare(protocol: "headless" | "acp", always_fail = false, acceptance = false, source_changes = false) {
+async function prepare(protocol: "headless" | "acp", always_fail = false, acceptance = false, source_changes = false, launch_scenario?: "stable" | "drift") {
   if (source_changes) { await mkdir(join(root, "src")); await writeFile(join(root, "src/deleted.ts"), "export const deleted = true;\n"); }
   await writeFile(join(root, "cord", "agents.yaml"), stringify({ agents: { worker: { kind: protocol, bin: process.execPath,
-    args: [fixture, ...(protocol === "acp" ? ["--acp"] : []), ...(always_fail ? ["--always-fail"] : []), ...(source_changes ? ["--source-changes"] : []), ...(protocol === "headless" ? ["{{prompt}}"] : [])] } } }));
+    args: [fixture, ...(protocol === "acp" ? ["--acp"] : []), ...(always_fail ? ["--always-fail"] : []), ...(source_changes ? ["--source-changes"] : []), ...(protocol === "headless" ? ["{{prompt}}"] : []),
+      ...(launch_scenario === undefined ? [] : ["--launch-config"]), ...(launch_scenario === "drift" ? ["--drift-model"] : [])],
+    ...(launch_scenario === undefined ? {} : { launch: { model: "large", effort: "high", mode: "code", option_ids: { model: "llm", effort: "thinking", mode: "workflow" } } }),
+  } } }));
   server = await buildApp({ root });
   const yaml = stringify({ apiVersion: "agent-cord.dev/v1alpha1", kind: "Workflow", metadata: { id: "goal-http" }, spec: { nodes: [
     { id: "deliver", artifact: "review.md", run: { agent: "worker", goal: { inputs: source_changes ? ["value.txt", "src"] : ["value.txt"], max_attempts: 4, no_progress_limit: 2,
@@ -52,6 +55,30 @@ async function prepare(protocol: "headless" | "acp", always_fail = false, accept
 }
 
 describe("Goal server 交付闭环", () => {
+  it("ACP 模型漂移不自测/重试/交付，冷恢复保留失败；修复配置后重新生成有效 Draft", async () => {
+    const run_id = await prepare("acp", false, false, false, "drift");
+    await waitFor(async () => !server.runs.isActive("REQ-GOAL"));
+    expect((await server.runs.getRun(run_id)).status).toBe("failed"); expect(await calls()).toBe(1);
+    const before = await events();
+    expect(before.find(event => event.type === "agent.task.completed")!.payload).toMatchObject({ status: "failed", failure_stage: "driver", retryable: false });
+    expect(before.filter(event => event.type === "verification.completed" || event.type === "gate.waiting" || event.type === "workflow.node.exited")).toHaveLength(0);
+    expect(before.find(event => event.type === "goal.attempt.completed")!.payload).toMatchObject({ status: "blocked", attempt: 1 });
+    await expect(readFile(join(root, "cord", "REQ-GOAL", "review.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    await server.app.close(); server.index.close(); server = await buildApp({ root });
+    expect(await calls()).toBe(1); expect((await server.runs.getRun(run_id)).status).toBe("failed");
+    await writeFile(join(root, "cord", "agents.yaml"), stringify({ agents: { worker: { kind: "acp", bin: process.execPath,
+      args: [fixture, "--acp", "--launch-config"], launch: { model: "large", effort: "high", mode: "code", option_ids: { model: "llm", effort: "thinking", mode: "workflow" } } } } }));
+    await server.agents.reload();
+    const repaired = await api("POST", "/requirements/REQ-GOAL/runs", { sdlc_id: "goal-http" }); expect(repaired.status).toBe(202);
+    await waitFor(async () => (await server.sessions.listApprovals("REQ-GOAL")).length === 1);
+    expect(await calls()).toBe(2);
+    expect((await api("GET", "/requirements/REQ-GOAL")).body.requirement.status).toBe("waiting_human");
+    expect(await readFile(join(root, "cord", "REQ-GOAL", "review.md"), "utf8")).toContain("宿主验证证据");
+    expect((await events()).filter(event => event.type === "human.decision.recorded" || event.type === "workflow.node.exited")).toHaveLength(0);
+    await server.app.close(); server.index.close(); server = await buildApp({ root });
+    expect((await server.runs.getRun(repaired.body.run.run_id)).status).toBe("waiting_human"); expect(await calls()).toBe(2);
+  });
+
   it("冷人审缺失首次源码基线时不消费旧 ready，不重建基线或重复 worker", async () => {
     const run_id = await prepare("headless");
     await waitFor(async () => (await server.sessions.listApprovals("REQ-GOAL")).length === 1);
