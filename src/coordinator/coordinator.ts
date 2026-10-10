@@ -30,6 +30,7 @@ import { readSessionDocument, SessionFileConflictError, SessionFileError, writeS
 import { executionInputHash } from "./checkpoint.js";
 import { nodeProducesArtifact } from "./artifact-policy.js";
 import { withGoalDelivery } from "./goal.js";
+import { readonlyToolViolation } from "./readonly-tool-policy.js";
 
 const ADAPTER = "coordinator";
 const PROMPT_EXCERPT_CHARS = 4_096;
@@ -374,6 +375,15 @@ function createTaskNodeRunner(def: WorkflowDef, options: CoordinatorOptions): No
             resultText = data.text;
             agentSessionId = data.session_id ?? agentSessionId;
             usage = data.usage ?? usage;
+          } else if (event.type === "tool_use" && node.run?.readonly === true) {
+            const data = event.data as { name?: unknown; input?: unknown };
+            const name = typeof data.name === "string" ? data.name : null;
+            const violation = readonlyToolViolation(name, data.input);
+            if (violation !== null) {
+              permission_denied = true;
+              failure = { status: "failed", message: violation, retryable: false };
+              break;
+            }
           } else if (event.type === "error") {
             const data = event.data as ErrorEventData;
             if (data.kind === "permission") permission_denied = true;

@@ -8,6 +8,7 @@ import { ulid } from "ulid";
 import { sha256Hex } from "../../src/core/hash.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentDriver, AgentEvent, SessionHandle } from "../../src/core/ports.js";
 import { initSession } from "../../src/core/session.js";
@@ -16,10 +17,14 @@ import { createNodeRunner } from "../../src/coordinator/coordinator.js";
 import { buildContextPack } from "../../src/coordinator/context-pack.js";
 import { readSnapshot } from "../../src/coordinator/snapshot.js";
 import { createExecutor } from "../../src/workflow/executor.js";
+import { AcpDriver } from "../../src/driver/acp.js";
+import { HeadlessDriver } from "../../src/driver/headless.js";
 
 let root: string;
 let cordRoot: string;
 let session: SessionHandle;
+const headless_fixture = fileURLToPath(new URL("../driver/fixtures/fake-cli.mjs", import.meta.url));
+const acp_fixture = fileURLToPath(new URL("../driver/fixtures/fake-acp-agent.mjs", import.meta.url));
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "cord-coord-"));
@@ -142,6 +147,48 @@ function asPayload(event: { payload: unknown }): Record<string, unknown> {
 // ---------------------------------------------------------------------------
 
 describe("coordinator（NodeRunner）", () => {
+  it("readonly worker 的未知/写工具事实 fail-closed 且不自动重试", async () => {
+    const old = "# REVIEW_SOURCE";
+    await writeFile(join(session.dir, "plan.md"), old);
+    const driver = fakeDriver([
+      { type: "tool_use", data: { name: "Write", input: { file_path: "src/a.ts" } } },
+      { type: "result", data: { text: "不应作为报告通过" } },
+    ]);
+    const node = { ...DEF.spec.nodes[1]!, run: { agent: "fake-agent", readonly: true } };
+    const runner = createNodeRunner(DEF, { resolveDriver: () => driver, workspaceRoot: root });
+    expect((await runner.runNode(node, session, { workflow_id: DEF.metadata.id, node_id: "plan" })).status).toBe("failed");
+    expect(driver.prompts).toHaveLength(1);
+    expect(await readFile(join(session.dir, "plan.md"), "utf8")).toBe(old);
+    const completed = (await session.events.readOrdered()).find(event => event.type === "agent.task.completed");
+    expect(asPayload(completed!)).toMatchObject({ failure_stage: "driver", retryable: false });
+    expect(String(asPayload(completed!).error)).toContain("写工具");
+  });
+
+  it("readonly worker 的安全读命令通过，仍不写回 artifact", async () => {
+    const old = "# REVIEW_SOURCE";
+    await writeFile(join(session.dir, "plan.md"), old);
+    const driver = fakeDriver([
+      { type: "tool_use", data: { name: "command_execution", input: { command: "git diff -- src/a.ts" } } },
+      { type: "result", data: { text: "报告" } },
+    ]);
+    const node = { ...DEF.spec.nodes[1]!, run: { agent: "fake-agent", readonly: true } };
+    const runner = createNodeRunner(DEF, { resolveDriver: () => driver, workspaceRoot: root });
+    expect((await runner.runNode(node, session, { workflow_id: DEF.metadata.id, node_id: "plan" })).status).toBe("ok");
+    expect(await readFile(join(session.dir, "plan.md"), "utf8")).toBe(old);
+  });
+
+  it.each(["headless", "acp"] as const)("真实 %s driver 的只读工具事件通过宿主审计", async protocol => {
+    const old = "# REVIEW_SOURCE";
+    await writeFile(join(session.dir, "plan.md"), old);
+    const driver: AgentDriver = protocol === "headless"
+      ? new HeadlessDriver({ cli: "claude", bin: process.execPath, prefixArgs: [headless_fixture, "--mode", "claude"], name: "headless:test" })
+      : new AcpDriver({ bin: process.execPath, args: [acp_fixture, "--mode", "default"], name: "acp:test" });
+    const node = { ...DEF.spec.nodes[1]!, run: { agent: "fixture", readonly: true } };
+    const runner = createNodeRunner(DEF, { resolveDriver: () => driver, workspaceRoot: root });
+    expect((await runner.runNode(node, session, { workflow_id: DEF.metadata.id, node_id: "plan" })).status).toBe("ok");
+    expect(await readFile(join(session.dir, "plan.md"), "utf8")).toBe(old);
+  });
+
   it("权限拒绝后再收到普通错误也不重新授予自动重试", async () => {
     const driver = fakeDriver([
       { type: "error", data: { kind: "permission", message: "需要新的授权" } },

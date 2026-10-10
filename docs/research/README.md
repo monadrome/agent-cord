@@ -44,6 +44,8 @@ agent 外部行为：[2026-10-09 上下文版本](./2026-10-09-agent-context-rev
 
 ACP 自主权限：[2026-10-09 文件范围预授权](./2026-10-09-acp-workspace-permissions.md)，记录结构化位置、一次授权、越界取消、固定配置与真实子进程/HTTP/浏览器验收。
 
+跨 driver 只读审计：[2026-10-09 只读工具审计](./2026-10-09-readonly-tool-audit.md)，记录公开 SDK 的 pre-tool/guardrail 模式与宿主 fail-closed 工具事实边界。
+
 就绪一致性：[2026-10-09 Goal ready 来源](./2026-10-09-goal-readiness-evidence.md)，记录共享完成证据、过期/不可读/取消、冷恢复与协调来源验收。
 
 | # | 文件 | 主题 | 核心结论 |

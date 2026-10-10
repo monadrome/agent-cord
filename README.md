@@ -233,6 +233,8 @@ curl -X POST http://127.0.0.1:7250/api/v1/requirements/REQ-001/coordination \
 
 独立协调遵守无工具策略：driver 报告任何工具事件时，宿主立即中止并拒绝提议，记录 `failed/driver`，不保存工具参数。只读工具也不能补入快照之外的材料。旧策略提议须重新协调；该检测不替代外部 CLI 的 OS 沙箱或回滚已有副作用，普通 worker 的工具通道保持原行为。详见 [ADR-0050](./docs/adr/ADR-0050-coordination-tool-boundary.md)。
 
+普通 `readonly` worker 也有跨 driver 的事件级审计：明确读工具和受限无副作用命令允许，写工具、未知工具或危险命令形成 `agent.task.completed{failure_stage: driver, retryable: false}`，不自动重试且不保存工具输入。该兜底不冒充执行前拦截或 OS 沙箱，详见 [ADR-0068](./docs/adr/ADR-0068-readonly-tool-audit.md)。
+
 协调者提出 `ask_human` 时，控制台可选择既有选项并记录答复。答复成为绑定原问题的事实，进入同版本的下一轮协调、worker 与审批上下文；可追溯、可重放，过期问题不能提交。澄清不会批准 gate、采用提议或启动 worker；每轮只记录一次，新的有效轮次可重新澄清同题。详见 [ADR-0052](./docs/adr/ADR-0052-coordination-clarifications.md)。
 
 记录错误选择后，可用答复区的撤回工具明确取消当前同题选择。原答复和撤回均保留审计，最新快照标为未确定，不回退旧选择；需要新协调轮次重新澄清，不自动回滚产物或流程。详见 [ADR-0053](./docs/adr/ADR-0053-clarification-revocation.md)。

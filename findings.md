@@ -320,3 +320,10 @@
 - 最终 round 重试必须有 server 当前 token；父 round、完成事件、配置 hash 和 blocker 是同一输入的一部分，不能只允许 `goal_blocked` 开关绕过来源校验。
 - 首版重试遗漏 `stale` 和父来源，已补齐最新轮次、三字段 token、human actor、fixed resolver、request/dispatch 双重重检、冷中断和单子请求。
 - 最终覆盖 request fsync/后续中断、记录前输入/配置变化、父子伪造、旧 token、并发重放、超时/取消/归档/答复、冷恢复和最终 Goal 授权；坏来源只隔离对应需求。
+
+## 调研校准（2026-10-09，跨 driver 只读工具审计）
+
+- Claude Agent SDK 的 `PreToolUse` hook 可在工具执行前 deny/modify，OpenAI Agents SDK 将 input/output guardrail 作为独立验证层；这些能力是厂商特性，不能直接假设所有 headless/ACP 都提供同样拦截点。
+- 当前 `AgentDriver` 已统一归一化 `tool_use`，但 coordinator 对可写/只读节点没有跨 driver 的工具事实审计；`readonly=true` 主要依赖 CLI 参数，未知自定义 wrapper 可能仍执行工具。
+- 新策略只在宿主能判断时放行：明确读工具和无副作用的 argv 命令允许，写工具、未知工具、缺少命令输入或含 shell 控制语法均拒绝。违规落现有 `agent.task.completed` driver failure，`retryable=false`，不自动反复尝试。
+- 该策略是 fail-closed 审计，不是执行前拦截或 OS 沙箱；ACP permission policy、Codex read-only sandbox 和最终源码/产物验证仍是独立边界。

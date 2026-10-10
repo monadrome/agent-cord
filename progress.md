@@ -10,6 +10,12 @@
 - 最终全量 1097 项 / 76 文件、typecheck/build:all/diff 通过；补充 `docs/research/2026-10-09-goal-usage-observation.md`，阶段 53 实现与验证完成，准备独立小步提交。
 - 已提交 `ab7d2a1`（`feat: project observable goal usage resources`）；HTTP/2 push 成功，`git ls-remote` 核验 `exp/impl` 为 `ab7d2a1ca54ebb4543aec1207d6db51b11d721f1`。
 
+## 2026-10-09（阶段 54）
+
+- 公开调研确认 Claude Agent SDK 的 `PreToolUse` 和 OpenAI Agents SDK guardrails 都把工具/结果策略放在宿主控制面；ACP/headless 没有共同的执行前 hook，当前只读 worker 仅依赖 CLI 参数会留下自定义 wrapper 缺口。
+- 新增 `readonly-tool-policy`：明确读工具与受限无副作用命令通过，写工具、`file_change`、未知工具、危险 git 参数、shell 控制语法或缺少命令输入 fail-closed；coordinator 记录 driver failure、`retryable=false`，不保存工具参数，当前迭代立即收束。
+- 真实 headless 与 ACP fixture 回归覆盖 `Read`、ACP `read file`、Codex `command_execution` 安全命令及越权路径；该审计明确不替代 ACP permission、CLI/OS sandbox 或副作用回滚。
+
 ## 2026-10-09（阶段 52）
 
 - 当前 8c330ac 已同步远端且工作树干净；阶段 51 为已验证进展。审查发现 ACP/headless 已有规范化 usage，但 Goal 只保存 task usage，不累计也不限制目标资源。

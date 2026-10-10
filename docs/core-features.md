@@ -98,11 +98,12 @@ flowchart LR
 | 人工卡点处理后的续跑 | 原型已实现；有效答复后独立授权原发布预算与当前输入，新 run 重新自测；授权绑定实际 worker 配置，冷漂移拒绝，配置还原后显式恢复原 run/预算，保留旧失败和最终 review（[ADR-0062](./adr/ADR-0062-goal-retry-agent-identity.md)） |
 | 原授权 Goal 恢复 | 原型已实现；GET/POST 恢复依据绑定原授权、checkpoint、当前输入和配置身份，持久化请求后恢复同一 run；保留原 deadline/次数，幂等/冷恢复 fail-closed（[ADR-0063](./adr/ADR-0063-goal-recovery-command.md)） |
 | ACP 文件操作范围预授权 | 已实现可写任务 read/edit 的结构化位置核验与 allow_once；未知/越界拒绝，只读不变 |
-| 全部 PRD 语义覆盖判定、跨 driver 权限策略、费用/token 预算与动态额度调整 | 待完善；显式矩阵只证明声明条件到检查事件的关联，ACP 文件策略不覆盖 execute/网络或替代 OS 沙箱 |
+| 全部 PRD 语义覆盖判定、跨 driver execute/网络权限、费用/token 动态额度调整 | 待完善；显式矩阵只证明声明条件到检查事件的关联，readonly 工具审计与 ACP read/edit 策略不覆盖 execute/网络或替代 OS 沙箱 |
 | blocked Goal 自动协调升级 | 原型已实现；显式 supervisor_agent 触发一次 ask_human/wait Draft，重启/并发去重 |
 | Goal 升级协调重试 | 原型已实现；修复配置/事实后按最新 token 重试同 blocker，持久父子来源/单子请求、冷恢复不重放，未答复问题仍可进入独立 Goal 授权（[ADR-0065](./adr/ADR-0065-goal-coordination-retry.md)） |
 | Goal 可观测 usage 预算 | 原型已实现；可选 input/output token 与 cost 上限，宿主累计 task usage，超限或声明预算下 usage 未知时保留 budget 证据并 fail-closed，不把未知 usage 当零（[ADR-0066](./adr/ADR-0066-goal-usage-budget.md)） |
 | 当前 Goal 资源观察 | 原型已实现；server 提供当前 run 的逐指标 totals/budget/unknown/exceeded/invalid，协调模型与控制台消费同一投影，冷恢复和来源跳转保持绑定（[ADR-0067](./adr/ADR-0067-goal-usage-observation.md)） |
+| 跨 driver 只读 worker 审计 | 原型已实现；readonly worker 的明确读工具/安全命令通过，写入/未知/危险工具 fail-closed 为不可重试 driver failure，不保存工具输入；不替代 OS 沙箱（[ADR-0068](./adr/ADR-0068-readonly-tool-audit.md)） |
 | 独立 Context Session Agent | 已实现最新快照提议、人工采用与受限 Goal 观察；声明 supervisor 后自动解释 blocker 并生成人工卡点，完整监督续跑仍待完善 |
 
 真实 agent 开发流程的设计默认是 Goal；“Agent 协作 · Goal”模板与 [goal-sdlc.yaml](../examples/goal-sdlc.yaml) 提供当前原型。零外部依赖的离线 `simple-sdlc` 继续用于验证平台内核，既有发布版本与人工 gate 保留原语义。后续按 [路线图](./10-roadmap.md) 继续完善，跨模块协议先更新 ADR。

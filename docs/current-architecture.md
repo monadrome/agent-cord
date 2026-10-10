@@ -133,6 +133,8 @@ ACP 的 permission_policy 支持可写 worker read/edit 范围预授权。普通
 
 worker agent 的来源：内置驱动清单（claude / codex / kimi 直连，ACP 优先探测）+ `cord/agents.yaml` 自定义注册（ACP 子进程 / headless 模板定制 / 自定义 args 模板三种形态）。模板定制形态支持旋钮：`model`（三家通用）、`effort`（claude/codex）、`max_turns`/`budget_usd`/`system_prompt`/`agent`/`agents_json`（claude）。角色封装分软硬两档：`system_prompt` 追加系统提示，`agents_json` + `agent` 走 `--agents` / `--agent` 让会话整体以该 subagent 身份运行（工具面与权限一并继承）——把「资深评审」「架构师」这类 persona 注册成命名 agent。模板不支持的旋钮在注册期降级为 warning。默认 SDLC 不挂执行体（开箱可跑零依赖）；挂执行体的流程从模板库「Agent 协作」档起步。
 
+普通 `readonly` worker 还经过 coordinator 的跨 driver 工具审计：明确读工具与受限无副作用命令通过，写工具、未知工具和不可核验命令形成不可自动重试的 driver failure；不保存工具输入。它是事件级 fail-closed 兜底，不能撤销已经发生的副作用，也不取代 ACP permission 或 OS sandbox（ADR-0068）。
+
 工作区配置编译为独立 resolver，不写全局模板表；driver 固定构造时的参数。`AgentService` 提供公开清单与串行显式重载，成功后原子替换配置，文件整体错误时保留旧配置。新 run 固定当前 resolver；在途 run 不受重载影响，重启恢复使用当前文件。配置无效的别名不能退回同名内置 agent（ADR-0027）。
 
 内置 driver 的 configuration_hash 从有效普通/只读/resume 启动参数派生（ACP 为 bin/args），全部 env 不参与；任务事件记录 agent_configuration_hash 并纳入 execution_input_hash，审批上下文也覆盖该身份。重启时同名 agent 参数变化导致旧任务与审批失效，在途 run 仍固定原身份（ADR-0031）。
