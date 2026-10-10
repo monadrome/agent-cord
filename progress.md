@@ -9,6 +9,7 @@
 - 浏览器最初引用旧 1208 缺失 Chromium，改用本机已存在 1243；第二轮复用静态 reload 幂等键正确重放旧结果导致等待超时，验收脚本改每轮独立 UUID 后通过。成功/失败重试/显式重载/503 清单恢复/配置过期/切换迟到结果/移除/大列表/长名字均已核验。
 - 桌面 1440、手机390/320截图确认无页面横向溢出，9张截图与8次显式协议查询、pageerror=[]。窄屏配置行纵向布局，模式与候选局部滚动、省略数独立显示。证据 /tmp/cord-stage60-browser-result.json；最终测试 /tmp/cord-stage60-final-tests.json。
 - 隔离预览 PID 80238，http://127.0.0.1:57468/#/agents，健康200；/tmp/cord-stage60-preview-result.json定位临时root。原7306真实Draft未操作，临时脚本/截图不入仓库。准备小步功能提交与有界推送，完整目标仍 active。
+- 功能提交 9a60c70（feat: add agent capability workbench），HTTP/1.1 push 成功，独立 ls-remote 核验 9a60c70842a2132f1be816bb546a5e077904c717。最终截图已查看，预览健康200、清单200/16个agent；完整持续优化目标保持 active。
 
 ## 2026-10-10（阶段 58）
 
