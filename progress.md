@@ -8,6 +8,7 @@
 - 新集成测试最初漏一个对象闭括号、假设driver失败总有written_by、失败协调current=false与live run自动waiting_human，已按实际契约/事件来源纠正；异步post-set更新不保证prompt尚未发送，改验收取消/无成功结果，保留实际边界。
 - 新增在途权限反例，等待观察到配置错误后再释放允许结果，确定性证明返回cancelled，避免延迟窗口依赖。最终46项launch/15项ACP、Goal冷恢复/修复/人审、最新PRD独立协调、真实HTTP inspect通过。
 - 全量npm test最终1221项/82文件，typecheck/build:all/diff、110本地文档链接通过；/tmp/cord-stage61-final-tests.json。没有付费模型调用，没有操作7306真实Draft。
+- 最终代码预览PID8602，http://127.0.0.1:60957/#/requirements/REQ-LAUNCH-GOAL/docs；重载后worker仍2、审批1、人工决定0/节点退出0、健康200。功能提交0a0ffef（fix: enforce acp launch state consistency）HTTP/1.1推送成功，独立ls-remote核验0a0ffef25a710cd07362a43a87c2b582d3364942；完整目标保持active。
 - 实际TCP HTTP隔离脚本已通过：第一次漂移worker调用1/无验证或审批，冷恢复不重发；修复后的新run worker总2/宿主测试/审批1/人工决定0/节点退出0/doctor=true。协调总2，失败提议null，修复后的prompt含最新PRD；config-only mode精确候选通过。证据 /tmp/cord-stage61-real-result.json，脚本/日志/数据不入仓库，最终代码预览重载不重复worker。
 
 ## 2026-10-10（阶段 60）
