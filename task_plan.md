@@ -838,14 +838,15 @@
 - [x] 功能提交78842a3，验证与全部证据保留，工作树收尾后干净；持续完整目标active，原真实Draft未操作
 - [ ] 远端同步：HTTP/1.1 push达30秒上限，HTTP/2达25秒上限；两种协议独立ls-remote各达15秒上限，exit124，不能确认已同步
 
-## 阶段64：协调流程Agent身份与能力（已实现并验证，提交同步中）
+## 阶段64：协调流程Agent身份与能力（已实现并验证，本地已提交，远端未确认）
 
 - [x] 核验5f84234干净/ahead2，上一轮实际进展；远端查询15秒超时，ADR-0078先行
 - [x] 有界完整流程Agent上下文、prompt/hash/摘要与不可推进配置约束；库无hook域兼容
 - [x] server查询/采用/retry重检，固定真实run resolver防A/B/A；冷恢复完成来源/顺序/节点/身份核验
 - [x] 8项声明+4项hook+9项真实server回归；实际HTTP协调2/worker1/审批1/人工决定0/节点退出0/doctor=true，最终代码冷预览不重发
 - [x] 最终全量1290项/87文件、typecheck/build:all/diff、123本地链接，1440/390/320浏览器无溢出/pageerror；研究与human review指南同步
-- [ ] 小步提交与有界远端同步；完整持续目标active，原真实Draft未操作
+- [x] 功能提交39aa980，完整实现和验收保留，本地小步完成；完整持续目标active，原真实Draft未操作
+- [ ] 远端同步：HTTP/1.1 push30秒/ls-remote15秒，HTTP/2 push20秒/ls-remote10秒均达上限exit124，实际远端hash未确认
 
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
