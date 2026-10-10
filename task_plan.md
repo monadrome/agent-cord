@@ -762,7 +762,7 @@
 - [x] 覆盖同 workspace 并发、不同 workspace 并发、启动失败/取消/恢复释放与索引重建边界
 - [x] ADR/研究/架构/协议及 human review 指南同步；14 项 lease 与 2 项 Goal 占用回归、隔离 ACP/headless 真实 HTTP 通过
 - [x] 全量 1120 项 / 78 文件、typecheck/build:all/diff 通过
-- [ ] 小步功能提交与有界推送，独立核验远端 hash
+- [x] 小步功能提交 `9d8b755`；HTTP/2/HTTP1.1 推送因 GitHub 低速失败，独立远端 hash 未核验，提交保留本地
 
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
