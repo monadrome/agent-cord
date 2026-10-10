@@ -28,6 +28,7 @@
 
 - 增加 AgentService 同配置在途 slot、不同 timeout 冲突、不缓存完成结果、AbortSignal 和 preClose 关闭收束；20项 registry/16项 probe 通过。
 - 首次关闭测试显式关 index 后 afterEach 重复关闭，修正测试生命周期；Headless取消错误归一为503。完整回归、实际HTTP和CLI预览待最终收尾。
+- 完整npm test 1293项/87文件、typecheck/build:all/diff、123本地链接通过；20项registry slot/关闭测试、16项headless probe通过。功能提交f56ad07（fix: coordinate agent inspection lifecycle）。HTTP/1.1 push30秒、HTTP/2 push25秒和独立ls-remote15秒均exit124，远端hash未确认，本地提交/证据保留。
 - 最终完整回归 `npm test` 1293项/87文件，typecheck/build:all/diff、123本地链接通过；新增slot/关闭回归与既有Goal、协调、ACP/headless测试全部通过，证据/tmp/cord-stage65-tests.json。
 - 实现inspection_profile、version/task/resume固定命令，128KiB/流与全步骤deadline；有限semver/帮助hash/flag三态，无prompt/模型/角色入argv，结果不改变执行身份。成功组长已退出也清理同进程组后代，超时另有有界grace。
 - server新cli_observation独立于ACP，current/固定snapshot和幂等兼容；consoleCLI显式查询/步骤/已配置与帮助展示/缺CLI/未知/历史错误，原始args无probe不猜命令。

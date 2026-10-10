@@ -6,4 +6,6 @@
 
 人审重点：`AgentService.inspect/close` 的 slot key、共享结果副本、冲突和关闭归一化；`HeadlessDriver.inspect`/`AcpDriver.inspect` 的 AbortSignal、timeout、进程/连接清理；`app.ts` 的 preClose 顺序。离线与真实 HTTP 回归覆盖同配置不同幂等键只探测一次、不同 timeout 冲突、失败/超时释放、关闭 503 和正常 run 不受影响。
 
+最终验证：`npm test` 1293项/87文件、`npm run typecheck`、`npm run build:all`、`git diff --check`和123项本地文档链接通过。推送因GitHub连接低速超时未确认远端，提交保留本地。
+
 最终验证：`npm test` 1293项/87文件、`npm run typecheck`、`npm run build:all`、`git diff --check`和123项本地文档链接通过；原真实Draft未操作。
