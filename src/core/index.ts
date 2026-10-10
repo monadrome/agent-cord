@@ -123,6 +123,7 @@ export type {
   SessionHandle,
   WorkflowExecutor,
 } from "./ports.js";
+export { CoordinationAgentsSchema, CoordinationAgentCapabilitiesSchema, type CoordinationAgents } from "./schema.js";
 
 export {
   canonicalJson,

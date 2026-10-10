@@ -29,4 +29,5 @@ export { readonlyToolViolation } from "./readonly-tool-policy.js";
 export { source_manifest_hash, goal_change_evidence, goal_changes_are_complete, goal_change_summary, render_goal_changes } from "./goal-changes.js";
 export { createContextSessionAgent, buildCoordinationPrompt, parseCoordinationProposal, coordinationInputHash, type ContextSessionAgentOptions } from "./session-agent.js";
 export { readCoordinationSnapshot } from "./coordination-context.js";
+export { workflow_agent_names, read_coordination_agents, validate_coordination_agents } from "./agent-context.js";
 export { readClarificationAnswers, currentClarificationAnswers, projectClarifications, MAX_CLARIFICATION_QUESTIONS, type SnapshotClarification, type ClarificationAnswer } from "./clarifications.js";

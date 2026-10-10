@@ -18,6 +18,7 @@ import {
   sha256Hex,
   CoordinatorRoundAdoptedPayloadSchema,
   CoordinatorRoundRequestedPayloadSchema,
+  CoordinatorRoundCompletedPayloadSchema,
   WorkflowRunStartedPayloadSchema,
   VerificationCompletedPayloadSchema,
   matchesWorkflowScope,
@@ -35,6 +36,7 @@ import {
   usageBudgetExceeded,
   readSessionDocument,
   readSessionEvents,
+  read_coordination_agents,
   type AgentDriver,
   type Anchor,
   type EventEnvelope,
@@ -527,6 +529,21 @@ export class RunService {
         if (adoption === undefined || request === undefined) {
           this.index.finishRun(run.run_id, "failed", new Date().toISOString(), "协调采用事实缺失或版本不匹配，未恢复派发");
           continue;
+        }
+        if (is_current) {
+          const completion = events.filter(event => event.type === "coordinator.round.completed" && asRecord(event.payload)?.["round_id"] === run.coordination_round_id).at(-1);
+          const proof = CoordinatorRoundCompletedPayloadSchema.safeParse(completion?.payload);
+          const adopted = CoordinatorRoundAdoptedPayloadSchema.parse(adoption.payload);
+          const current_agents = read_coordination_agents(versioned.def, driverResolver ?? (() => { throw new Error("无driver配置"); }));
+          if (!proof.success || proof.data.status !== "ok" || proof.data.input_hash !== adopted.input_hash
+            || proof.data.error !== null || proof.data.failure_stage !== undefined || proof.data.proposal?.next_action.kind !== "advance"
+            || proof.data.proposal.next_action.node_id !== adopted.node_id || completion?.correlation_id !== run.coordination_round_id
+            || completion.actor.kind !== "agent" || completion.actor.id !== "context-session-agent" || completion.source.adapter !== "context-session-agent"
+            || completion.seq <= request.seq || adoption.seq <= completion.seq
+            || !matchesWorkflowScope(proof.data, scope) || proof.data.agent_context_hash !== sha256Hex(canonicalJson(current_agents))) {
+            this.index.finishRun(run.run_id, "failed", new Date().toISOString(), "协调采用的流程Agent身份已变化或来源缺失，拒绝冷恢复派发");
+            continue;
+          }
         }
       }
       if (run.goal_retry_round_id != null) {

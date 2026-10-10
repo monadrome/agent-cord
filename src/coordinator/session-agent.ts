@@ -4,13 +4,14 @@ import { ulid } from "ulid";
 import { canonicalJson, sha256Hex } from "../core/hash.js";
 import type { AgentDriver, ContextSessionAgent, CoordinationInput, CoordinationResult, SessionHandle } from "../core/ports.js";
 import { AgentUsagePayloadSchema, CoordinationProposalSchema, CoordinationVerificationsSchema, CoordinationExecutionContextSchema,
-  GoalBlockerTriggerSchema, type GoalBlockerTrigger, type CoordinationExecutionContext, type CoordinationExecutionContextInput, type CoordinationVerification, type CoordinationProposal, type CoordinationStatus, type WorkflowDef } from "../core/schema.js";
+  GoalBlockerTriggerSchema, type CoordinationAgents, type GoalBlockerTrigger, type CoordinationExecutionContext, type CoordinationExecutionContextInput, type CoordinationVerification, type CoordinationProposal, type CoordinationStatus, type WorkflowDef } from "../core/schema.js";
 import { DEFAULT_TASK_TIMEOUT_MS } from "../driver/headless.js";
 import { topologicalOrder } from "../workflow/executor.js";
 import type { RequirementSnapshot } from "./snapshot.js";
 import { buildCoordinationDocuments, COORDINATION_CONTEXT_POLICY, readCoordinationSnapshot } from "./coordination-context.js";
 import { goalAcceptanceIsComplete } from "./goal-acceptance.js";
 import { usageBudgetExceeded } from "./goal-usage.js";
+import { validate_coordination_agents } from "./agent-context.js";
 
 function assertGoalAcceptance(def: WorkflowDef, execution_context?: CoordinationExecutionContext): void {
   for (const observation of execution_context?.goals ?? []) {
@@ -48,18 +49,21 @@ export interface ContextSessionAgentOptions {
   read_verifications?: (def: WorkflowDef, session: SessionHandle, workflow_revision?: string) => Promise<CoordinationVerification[]>;
   /** ADR-0048：当前 run 与 worker 状态，不携带任务正文或错误日志。 */
   read_execution_context?: (def: WorkflowDef, session: SessionHandle, workflow_revision?: string) => Promise<CoordinationExecutionContextInput>;
+  /** ADR-0078：完整流程Agent公开身份与能力，不进行运行时探测。 */
+  read_agents?: (def: WorkflowDef) => Promise<CoordinationAgents>;
 }
 
 /** 轮次自己的事件不会改变输入；文档、账本、进度与人工等待会改变。 */
-export function coordinationInputHash(def: WorkflowDef, snapshot: RequirementSnapshot, configuration_hash: string | null, max_prompt_chars = DEFAULT_MAX_PROMPT_CHARS, source_hash: string | null = null, verifications: readonly CoordinationVerification[] = [], execution_context?: CoordinationExecutionContext, goal_blocker?: GoalBlockerTrigger): string {
+export function coordinationInputHash(def: WorkflowDef, snapshot: RequirementSnapshot, configuration_hash: string | null, max_prompt_chars = DEFAULT_MAX_PROMPT_CHARS, source_hash: string | null = null, verifications: readonly CoordinationVerification[] = [], execution_context?: CoordinationExecutionContext, goal_blocker?: GoalBlockerTrigger, agents?: CoordinationAgents): string {
   const clarifications = snapshot.clarifications ?? [];
   const has_changes = execution_context?.goals?.some(goal => goal.change_summary !== undefined) === true;
   return sha256Hex(canonicalJson({
-    domain: has_changes ? (clarifications.length === 0 ? "cord.coordination-input.v9" : "cord.coordination-input.v10")
+    domain: agents !== undefined ? (clarifications.length === 0 ? "cord.coordination-input.v11" : "cord.coordination-input.v12") : has_changes ? (clarifications.length === 0 ? "cord.coordination-input.v9" : "cord.coordination-input.v10")
       : execution_context === undefined ? (clarifications.length === 0 ? "cord.coordination-input.v5" : "cord.coordination-input.v6") : (clarifications.length === 0 ? "cord.coordination-input.v7" : "cord.coordination-input.v8"), context_policy: COORDINATION_CONTEXT_POLICY,
     ...(clarifications.length === 0 ? {} : { clarifications }),
     tool_policy: COORDINATION_TOOL_POLICY, workflow: def, configuration_hash, max_prompt_chars,
     ...(execution_context === undefined ? {} : { execution_context }),
+    ...(agents === undefined ? {} : { agents: validate_coordination_agents(def, agents) }),
     ...(goal_blocker === undefined ? {} : { goal_blocker }),
     ...(source_hash === null ? {} : { source_hash }),
     ...(verifications.length === 0 ? {} : { verifications }),
@@ -71,12 +75,13 @@ export function coordinationInputHash(def: WorkflowDef, snapshot: RequirementSna
   }));
 }
 
-function eligibleNodes(def: WorkflowDef, snapshot: RequirementSnapshot, execution_context?: CoordinationExecutionContext): string[] {
+function eligibleNodes(def: WorkflowDef, snapshot: RequirementSnapshot, execution_context?: CoordinationExecutionContext, agents?: CoordinationAgents): string[] {
   if ((snapshot.workflow.waiting?.length ?? 0) > 0 || execution_context?.run?.active === true) return [];
   if (execution_context?.goals?.some((goal) => ["blocked", "invalid", "cancelled"].includes(goal.status))) return [];
   const exited = new Set(snapshot.workflow.exited);
   const next_id = topologicalOrder(def).find((id) => !exited.has(id));
   const node = def.spec.nodes.find((item) => item.id === next_id);
+  if (node?.run !== undefined && agents !== undefined && !agents.some(agent => agent.agent === node.run!.agent && agent.resolution === "resolved" && agent.configuration_hash !== null)) return [];
   return node !== undefined && node.depends_on.every((id) => exited.has(id)) ? [node.id] : [];
 }
 
@@ -86,15 +91,16 @@ function assertGoalBlocker(execution_context: CoordinationExecutionContext | und
 }
 
 /** 只接受完整 JSON；来源存在性与 workflow 依赖是宿主判定，不能由模型自报。 */
-export function parseCoordinationProposal(text: string, def: WorkflowDef, snapshot: RequirementSnapshot, verifications: readonly CoordinationVerification[] = [], execution_context?: CoordinationExecutionContext, goal_blocker?: GoalBlockerTrigger): CoordinationProposal {
+export function parseCoordinationProposal(text: string, def: WorkflowDef, snapshot: RequirementSnapshot, verifications: readonly CoordinationVerification[] = [], execution_context?: CoordinationExecutionContext, goal_blocker?: GoalBlockerTrigger, agents?: CoordinationAgents): CoordinationProposal {
   assertGoalAcceptance(def, execution_context);
+  if (agents !== undefined) agents = validate_coordination_agents(def, agents);
   let value: unknown;
   try { value = JSON.parse(text); } catch { throw new Error("协调结果必须是完整 JSON 对象"); }
   const parsed = CoordinationProposalSchema.safeParse(value);
   if (!parsed.success) throw new Error(`协调提议不符合契约：${parsed.error.issues.map((issue) => issue.path.join(".") || "<root>").join("、")}`);
   const proposal = parsed.data;
   const action = proposal.next_action;
-  if (action.kind === "advance" && !eligibleNodes(def, snapshot, execution_context).includes(action.node_id)) throw new Error("协调提议引用了不可推进的节点（依赖、进度、人工 gate 或活动 run 未满足）");
+  if (action.kind === "advance" && !eligibleNodes(def, snapshot, execution_context, agents).includes(action.node_id)) throw new Error("协调提议引用了不可推进的节点（依赖、进度、人工 gate、活动 run 或Agent配置未满足）");
   if (action.kind === "complete" && (execution_context?.run?.active === true || (snapshot.workflow.waiting?.length ?? 0) > 0 || !def.spec.nodes.every((node) => snapshot.workflow.exited.includes(node.id)))) throw new Error("工作流尚未完成，不能提议 complete");
   if (action.kind === "ask_human" && new Set(action.options).size !== action.options.length) throw new Error("人工选择题选项必须互不相同");
   if (goal_blocker !== undefined) {
@@ -115,8 +121,9 @@ export function parseCoordinationProposal(text: string, def: WorkflowDef, snapsh
   return proposal;
 }
 
-export function buildCoordinationPrompt(def: WorkflowDef, snapshot: RequirementSnapshot, max_chars = DEFAULT_MAX_PROMPT_CHARS, source_hash: string | null = null, verifications: readonly CoordinationVerification[] = [], execution_context?: CoordinationExecutionContext, goal_blocker?: GoalBlockerTrigger): string {
+export function buildCoordinationPrompt(def: WorkflowDef, snapshot: RequirementSnapshot, max_chars = DEFAULT_MAX_PROMPT_CHARS, source_hash: string | null = null, verifications: readonly CoordinationVerification[] = [], execution_context?: CoordinationExecutionContext, goal_blocker?: GoalBlockerTrigger, agents?: CoordinationAgents): string {
   assertGoalAcceptance(def, execution_context);
+  if (agents !== undefined) agents = validate_coordination_agents(def, agents);
   if (!Number.isSafeInteger(max_chars) || max_chars < 0) throw new Error("协调上下文预算必须是非负安全整数");
   topologicalOrder(def);
   if (goal_blocker !== undefined) assertGoalBlocker(execution_context, goal_blocker);
@@ -131,12 +138,13 @@ export function buildCoordinationPrompt(def: WorkflowDef, snapshot: RequirementS
     `req_id: ${snapshot.req_id}\ntitle: ${snapshot.title ?? "（未命名）"}`,
     ...(goal_blocker === undefined ? [] : [`goal_blocker: ${JSON.stringify(goal_blocker)}\n这是宿主自动发起的阻塞解释。只可返回 ask_human 或 wait，必须引用此 goal_event_id；说明已尝试的自动修复、缺少的事实或权限以及最小人工决定，不自动扩充预算、回答问题或恢复 run。`]),
     `workflow: ${JSON.stringify(def)}`,
+    ...(agents === undefined ? [] : [`workflow_agents: ${JSON.stringify(agents)}\n这是本轮固定配置快照的完整流程worker/supervisor身份与适配器声明。resolved只证明能解析启动定义，installation=unchecked，不证明CLI安装、模型权限/额度或实际执行。unavailable或configuration_hash=null时不能推进对应worker节点；请依据workflow节点提出wait/ask_human。不能自行换Agent、选择LLM/effort、扩权限或批准gate，不把能力声明当运行时证据。`]),
     ...(snapshot.workflow_revision !== undefined ? [`workflow_revision: ${snapshot.workflow_revision}`] : []),
     ...(source_hash === null ? [] : [`source_hash: ${source_hash}\n源码摘要仅标识当前声明范围，不代表测试通过或内容已被核验。`]),
     ...(verifications.length === 0 ? [] : [`verifications: ${JSON.stringify(verifications)}\n机器观察由宿主核验输入身份。missing、invalid、current=false/null 均不能认作当前通过；当前 failed/timeout/cancelled 也不是通过。验证证据不能代替人工 gate。`]),
     ...(execution_context === undefined ? [] : [`execution_context: ${JSON.stringify(!execution_context.goals?.length ? { run: execution_context.run, tasks: execution_context.tasks } : execution_context)}\nactive 仅标识宿主当前运行槽位，active=true 时不得推进新 run。started 只证明启动已记录，active=false 时不能声称进程仍活着。reused 表示当前 run 复用原完成事件 completion_event_id，没有新的 worker 调用；来源仍用当前复用 event_id。任务事实不保证对应修改后的输入，ok/reused 也不等于测试或 gate 通过；missing/invalid 不能引用，agent_task 来源只用这里的合法 event_id。Goal ready 只有 current=true 才是当前有效交付，current=false/null 表示过期或不可读取，不能作为 ready 来源；历史状态保留，freshness_reason 说明当前核验结果。Goal status=blocked/invalid/cancelled 时不能 advance，应使用当前 goal event 作为证据提出 ask_human 或 wait。`]),
     `progress: ${JSON.stringify(snapshot.workflow)}`,
-    `eligible_nodes: ${JSON.stringify(eligibleNodes(def, snapshot, execution_context))}`,
+    `eligible_nodes: ${JSON.stringify(eligibleNodes(def, snapshot, execution_context, agents))}`,
     ...(execution_context?.goals?.some(goal => goal.change_summary !== undefined) !== true ? [] : ["Goal change_summary 是宿主核验完整基线和 delta 后投影的源码变化：计数覆盖声明范围，sample 最多 16 条按路径排序，omitted_changes 表示未展示数量；evidence_hash 绑定完整证据。样本不是全部清单，没有源码正文，不推断作者归属或范围外改动，不证明业务正确或测试充分。current=false/null 时只是历史摘要，不能引用为当前就绪；未展示的路径/内容不能声称已逐项查看或核验。完整材料在基线/ready 事件与 review 指南，最终 review/gate 仍人工控制。"]),
     `ledger: ${JSON.stringify(snapshot.ledger)}`,
     ...((snapshot.clarifications?.length ?? 0) === 0 ? [] : [`clarifications: ${JSON.stringify(snapshot.clarifications)}\n人工澄清只说明原问题的选择，不是测试、gate 或执行授权；status=revoked/choice=null 表示未确定，不能沿用已撤回选项。与最新材料矛盾时需重新询问，来源使用当前答复或撤回 event_id。`]),
@@ -185,6 +193,9 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
     if (hash !== null && (typeof hash !== "string" || !/^[0-9a-f]{64}$/.test(hash))) throw new Error("协调源码摘要必须是小写 SHA-256 或 null");
     return hash;
   }
+  async function read_agents(def: WorkflowDef): Promise<CoordinationAgents | undefined> {
+    return options.read_agents === undefined ? undefined : validate_coordination_agents(def, await options.read_agents(def));
+  }
 
   async function read_verifications(def: WorkflowDef, session: SessionHandle, workflow_revision?: string): Promise<CoordinationVerification[]> {
     if (options.read_verifications === undefined) return [];
@@ -222,6 +233,7 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
     let source_hash: string | null = null;
     let verifications: CoordinationVerification[] = [];
     let execution_context: CoordinationExecutionContext | undefined;
+    let agents: CoordinationAgents | undefined;
     try {
       snapshot = await readCoordinationSnapshot(def, session, input.workflow_revision);
       Object.assign(base, { snapshot_id: snapshot.snapshot_id, snapshot_event_seq: snapshot.event_seq, snapshot_event_chain_hash: snapshot.event_chain_hash });
@@ -231,8 +243,10 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
       if (verifications.length > 0) base["verification_context_hash"] = sha256Hex(canonicalJson(verifications));
       execution_context = await read_execution_context(def, session, input.workflow_revision);
       if (execution_context !== undefined) base["execution_context_hash"] = sha256Hex(canonicalJson(execution_context));
+      agents = await read_agents(def);
+      if (agents !== undefined) base["agent_context_hash"] = sha256Hex(canonicalJson(agents));
       if (input.goal_blocker !== undefined) GoalBlockerTriggerSchema.parse(input.goal_blocker);
-      prompt = buildCoordinationPrompt(def, snapshot, max_prompt_chars, source_hash, verifications, execution_context, input.goal_blocker);
+      prompt = buildCoordinationPrompt(def, snapshot, max_prompt_chars, source_hash, verifications, execution_context, input.goal_blocker, agents);
     } catch (error) {
       await append("coordinator.round.started", base);
       return complete("failed", null, error instanceof Error ? error.message : "协调快照准备失败", { failure_stage: "snapshot" });
@@ -243,7 +257,7 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
       if (typeof driver.name !== "string" || driver.name.length === 0 || (driver.configuration_hash !== undefined && !/^[0-9a-f]{64}$/.test(driver.configuration_hash))) throw new Error("协调 driver 身份不符合契约");
       base["driver"] = driver.name;
       if (driver.configuration_hash !== undefined) base["agent_configuration_hash"] = driver.configuration_hash;
-      base["input_hash"] = coordinationInputHash(def, snapshot, driver.configuration_hash ?? null, max_prompt_chars, source_hash, verifications, execution_context, input.goal_blocker);
+      base["input_hash"] = coordinationInputHash(def, snapshot, driver.configuration_hash ?? null, max_prompt_chars, source_hash, verifications, execution_context, input.goal_blocker, agents);
       base["prompt_hash"] = sha256Hex(prompt);
     } catch (error) {
       await append("coordinator.round.started", base);
@@ -321,15 +335,16 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
     const text = result_text ?? chunks;
     extra["response_hash"] = sha256Hex(text);
     let proposal: CoordinationProposal;
-    try { proposal = parseCoordinationProposal(text, def, snapshot, verifications, execution_context, input.goal_blocker); }
+    try { proposal = parseCoordinationProposal(text, def, snapshot, verifications, execution_context, input.goal_blocker, agents); }
     catch (error) { return complete("failed", null, error instanceof Error ? error.message : "协调输出校验失败", { ...extra, failure_stage: "output" }); }
     try {
       const current = await readCoordinationSnapshot(def, session, input.workflow_revision);
       const current_source = await read_source_hash(def);
       const current_verifications = await read_verifications(def, session, input.workflow_revision);
       const current_execution = await read_execution_context(def, session, input.workflow_revision);
+      const current_agents = await read_agents(def);
       if (input.signal?.aborted) return complete("cancelled", null, "协调轮次已取消", extra);
-      if (coordinationInputHash(def, current, driver.configuration_hash ?? null, max_prompt_chars, current_source, current_verifications, current_execution, input.goal_blocker) !== base["input_hash"]) {
+      if (coordinationInputHash(def, current, driver.configuration_hash ?? null, max_prompt_chars, current_source, current_verifications, current_execution, input.goal_blocker, current_agents) !== base["input_hash"]) {
         return complete("stale", null, "协调期间需求、源码、验证、账本或 workflow 进度已变化，请重新协调", { ...extra, failure_stage: "freshness" });
       }
     } catch (error) {

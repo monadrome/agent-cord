@@ -1,5 +1,17 @@
 # 工作进度
 
+## 2026-10-10（阶段64）
+
+- 5f84234干净/ahead2；阶段63为已实现验证进展，独立HTTP/1.1 ls-remote15秒上限退出124，本地提交保留。
+- 审查协调输入/采用发现未派发worker配置缺少绑定，切换LLM/角色不使旧提议失效。ADR-0078先行，接流程声明Agent上下文与固定采用resolver，沿用planning-with-files/agent-optimizer，不调用付费模型。
+- 完整CoordinationAgents/read_agents/prompt/v11-v12输入、agent_context_hash事件/REST摘要和next-worker配置检查实现；首schema修改前ADR已创建，无hook库模式保持原域，不自动探测。
+- 采用固定真实resolver并比对原/最新摘要，A/B/A捕获B而当前A拒绝，记录后重载仍执行授权A。冷恢复验证context-session-agent来源/correlation/节点/输入/顺序/完整摘要，同配置续跑、变更或缺摘要/来源/节点拒绝自动派发。
+- 首类型检查修正unknown payload窄化；手工patch定位adopt旧签名失败后按实际代码重读修正。测试先错误模拟外部替换整个guard而非真实A/B/Agetter，改为真实resolver快照序列；摘要缺失反例同时去掉started/completed，避免started fallback保留摘要。旧活动测试删掉worker定义导致新检查拒绝，补回定义后通过。
+- 8项声明、4项hook、9项真实server回归通过；最终npm test1290项/87文件、typecheck/build:all/diff、123本地链接通过，证据/tmp/cord-stage64-final-tests.json。
+- 实际TCP HTTP只换writer使旧current=false/采用409/无run，新轮次coordinator hash不变而Agent摘要不同，产物DRAFT_B；协调2/worker1/审批1/人工决定0/节点退出0/doctor=true，无付费模型调用、原7306真实Draft未操作。
+- 浏览器最初在异步加载完成前点记录信息导致折叠状态重置，脚本等待刷新按钮ready并检查open状态后通过。1440/390/320三截图已查看，流程Agent完整摘要可见，无pageerror/横向溢出。证据/tmp/cord-stage64-browser-result.json。
+- 最终代码预览PID75854/http://127.0.0.1:50976/#/requirements/REQ-AGENT-CONTEXT/coordination，合法冷恢复保留审批1且worker仍1；/tmp/cord-stage64-real-result.json定位隔离root，临时脚本/截图/数据不入仓库。完整目标active，准备小步提交与有界同步。
+
 ## 2026-10-10（阶段63）
 
 - 起点7f659db干净/本地tracking同步；上一轮等待投影为已验证进展。

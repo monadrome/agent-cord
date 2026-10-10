@@ -857,10 +857,24 @@ const coordination_round_fields = {
   verification_context_hash: z.string().length(64).optional(),
   /** ADR-0048：run/worker 受限执行观察摘要。 */
   execution_context_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  /** ADR-0078：流程worker/supervisor配置与能力摘要，不保存完整定义。 */
+  agent_context_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   snapshot_id: z.string().length(64).optional(),
   snapshot_event_seq: z.number().int().nonnegative().optional(),
   snapshot_event_chain_hash: z.string().length(64).optional(),
 };
+export const CoordinationAgentCapabilitiesSchema = z.strictObject({
+  transport: z.enum(["headless", "acp"]), evidence: z.literal("adapter"), installation: z.literal("unchecked"),
+  inspection: z.enum(["acp_handshake", "cli_help", "unsupported"]).optional(),
+  launch_options: z.array(z.string().min(1).max(64)).max(32).refine(values => new Set(values).size === values.length, "启动选项必须唯一"),
+  native_resume: z.enum(["supported", "unsupported", "negotiated"]), goal: z.literal("host"), workflow_resume: z.literal("authorized_unexited_goal"),
+});
+export const CoordinationAgentsSchema = z.array(z.strictObject({
+  agent: z.string().min(1).max(200), resolution: z.enum(["resolved", "unavailable"]),
+  configuration_hash: z.string().regex(/^[0-9a-f]{64}$/).nullable(), capabilities: CoordinationAgentCapabilitiesSchema.nullable(),
+}).refine(value => value.resolution !== "unavailable" || (value.configuration_hash === null && value.capabilities === null), "不可解析Agent不能声明配置身份或能力"))
+  .max(128).refine(values => new Set(values.map(value => value.agent)).size === values.length, "流程Agent必须唯一");
+export type CoordinationAgents = z.infer<typeof CoordinationAgentsSchema>;
 export const CoordinatorRoundStartedPayloadSchema = z.looseObject(coordination_round_fields);
 export const CoordinatorRoundRequestedPayloadSchema = z.looseObject({
   round_id: z.string().regex(ULID_RE), workflow_id: z.string().min(1), driver: z.string().min(1),

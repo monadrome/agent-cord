@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ulid } from "ulid";
 import type { AgentDriver, AgentEvent, AgentTask, SessionHandle } from "../../src/core/ports.js";
 import { initSession } from "../../src/core/session.js";
-import { EVENT_PAYLOAD_SCHEMAS, type CoordinationProposal, type CoordinationVerification, type EventType, type WorkflowDef } from "../../src/core/schema.js";
+import { EVENT_PAYLOAD_SCHEMAS, type CoordinationAgents, type CoordinationProposal, type CoordinationVerification, type EventType, type WorkflowDef } from "../../src/core/schema.js";
 import { buildCoordinationPrompt, coordinationInputHash, createContextSessionAgent, parseCoordinationProposal } from "../../src/coordinator/session-agent.js";
 import { readSnapshot } from "../../src/coordinator/snapshot.js";
 import { canonicalJson, sha256Hex } from "../../src/core/hash.js";
@@ -50,6 +50,40 @@ function coordinate(worker: AgentDriver, input: { signal?: AbortSignal; timeout_
 }
 
 describe("独立协调轮次", () => {
+  it("流程worker身份/能力进入prompt和输入hash，事件只保存摘要", async () => {
+    const workflow = structuredClone(def); workflow.spec.nodes[0]!.run = { agent: "worker", readonly: false };
+    const agents: CoordinationAgents = [{ agent: "worker", resolution: "resolved", configuration_hash: "b".repeat(64), capabilities: null }];
+    const worker = driver(); const observer = createContextSessionAgent({ resolveDriver: () => worker, workspaceRoot: root, read_agents: async () => agents });
+    expect(await observer.coordinate(workflow, session, { round_id: ulid(), agent: "coordinator" })).toMatchObject({ status: "ok", proposal });
+    expect(worker.tasks[0]!.prompt).toContain(`workflow_agents: ${JSON.stringify(agents)}`);
+    const completed = (await session.events.readOrdered()).find(event => event.type === "coordinator.round.completed")!;
+    expect((completed.payload as any).agent_context_hash).toMatch(/^[0-9a-f]{64}$/); expect(completed.payload).not.toHaveProperty("agents");
+    const snapshot = await readSnapshot(session, { workflow_id: workflow.metadata.id, files: ["design/plan.md"] });
+    expect(coordinationInputHash(workflow, snapshot, worker.configuration_hash!, undefined, null, [], undefined, undefined, agents)).not.toBe(coordinationInputHash(workflow, snapshot, worker.configuration_hash!));
+  });
+
+  it.each(["unavailable", "unverifiable"])("%s next worker不能advance，合法wait仍可解释配置问题", async kind => {
+    const workflow = structuredClone(def); workflow.spec.nodes[0]!.run = { agent: "worker", readonly: false };
+    const agents: CoordinationAgents = [{ agent: "worker", resolution: kind === "unavailable" ? "unavailable" : "resolved", configuration_hash: null, capabilities: null }];
+    const rejected = driver(); const observer = createContextSessionAgent({ resolveDriver: () => rejected, workspaceRoot: root, read_agents: async () => agents });
+    expect(await observer.coordinate(workflow, session, { round_id: ulid(), agent: "coordinator" })).toMatchObject({ status: "failed", proposal: null });
+    expect(rejected.tasks[0]!.prompt).toContain("eligible_nodes: []");
+    const waiting = { ...proposal, next_action: { kind: "wait", reason: "需要修复worker定义", evidence: [{ source: "workflow", id: "intake" }] } };
+    const worker = driver([{ type: "result", data: { text: JSON.stringify(waiting) } }]);
+    expect(await createContextSessionAgent({ resolveDriver: () => worker, workspaceRoot: root, read_agents: async () => agents }).coordinate(workflow, session, { round_id: ulid(), agent: "coordinator" })).toMatchObject({ status: "ok", proposal: waiting });
+  });
+
+  it("hook漏项拒绝模型，执行中身份变化使结果stale，下一轮重新读取可恢复", async () => {
+    const workflow = structuredClone(def); workflow.spec.nodes[0]!.run = { agent: "worker", readonly: false };
+    const worker = driver(); const missing = createContextSessionAgent({ resolveDriver: () => worker, workspaceRoot: root, read_agents: async () => [] });
+    expect(await missing.coordinate(workflow, session, { round_id: ulid(), agent: "coordinator" })).toMatchObject({ status: "failed" }); expect(worker.tasks).toHaveLength(0);
+    let reads = 0;
+    const current = createContextSessionAgent({ resolveDriver: () => worker, workspaceRoot: root,
+      read_agents: async () => [{ agent: "worker", resolution: "resolved", configuration_hash: ++reads === 1 ? "b".repeat(64) : "c".repeat(64), capabilities: null }] });
+    expect(await current.coordinate(workflow, session, { round_id: ulid(), agent: "coordinator" })).toMatchObject({ status: "stale", proposal: null });
+    expect(await current.coordinate(workflow, session, { round_id: ulid(), agent: "coordinator" })).toMatchObject({ status: "ok", proposal });
+  });
+
   it.each([
     { label: "只读工具", data: { name: "Read", input: { path: "PRIVATE_TOOL_INPUT" } }, result_first: false, cleanup_error: false },
     { label: "未知工具负载", data: null, result_first: false, cleanup_error: false },

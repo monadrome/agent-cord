@@ -27,6 +27,7 @@
 | 想查询本机CLI版本与帮助能力 | [CLI查询与人审指南](./research/2026-10-10-headless-cli-inspection.md) → [ADR-0077](./adr/ADR-0077-headless-cli-inspection.md) |
 | 想核验 ACP 启动选择与模式 | [配置一致性与人审指南](./research/2026-10-10-acp-launch-state-consistency.md) → [ADR-0075](./adr/ADR-0075-acp-launch-state-consistency.md) |
 | 想核验活动 run 人工等待状态 | [等待投影与人审指南](./research/2026-10-10-active-run-wait-projection.md) → [ADR-0076](./adr/ADR-0076-active-run-wait-projection.md) |
+| 想核验协调分析过的worker配置 | [流程Agent上下文与人审指南](./research/2026-10-10-coordination-agent-context.md) → [ADR-0078](./adr/ADR-0078-coordination-agent-context.md) |
 | 想了解未来设计或风险 | [10-roadmap.md](./10-roadmap.md) → 旧章节 → [research/](./research/) |
 
 如果时间只够读一份技术文档，读 [current-architecture.md](./current-architecture.md)。它描述的是当前代码，而不是未来设计。

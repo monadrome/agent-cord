@@ -7,7 +7,7 @@ import {
   GoalAttemptCompletedPayloadSchema, GoalBlockerTriggerSchema, type GoalBlockerTrigger, matchesWorkflowScope,
   GoalRetryAuthorizedPayloadSchema, readGoalRetryAuthorization, readGoalCoordinationRequest, canonicalJson, sha256Hex,
   readSessionEvents, SessionEventReadError, CoordinatorRoundAnsweredPayloadSchema, CoordinatorRoundAnswerRevokedPayloadSchema, readClarificationAnswers, currentClarificationAnswers, projectClarifications, MAX_CLARIFICATION_QUESTIONS,
-  type AgentDriver, type EventEnvelope, type SessionHandle, type WorkflowDef,
+  read_coordination_agents, type AgentDriver, type EventEnvelope, type SessionHandle, type WorkflowDef,
 } from "agent-cord";
 import type { AnswerCoordinationInput, RevokeCoordinationAnswerInput, CoordinationRoundView, RunInfo, StartCoordinationInput, RetryGoalInput, GoalRetryView, CoordinationRetryView } from "../contracts.js";
 import { ApiError, badRequest, conflict, internalError, notFound } from "../errors.js";
@@ -63,7 +63,7 @@ function projectRounds(events: readonly EventEnvelope[], req_id: string): Coordi
         workflow_id: payload.workflow_id, driver: payload.driver, agent: payload.driver, status: "pending",
         workflow_revision: payload.workflow_revision ?? null,
         requested_at: event.timestamp, started_at: null, finished_at: null,
-        snapshot_id: null, input_hash: null, agent_configuration_hash: null, source_hash: null, verification_context_hash: null, execution_context_hash: null,
+        snapshot_id: null, input_hash: null, agent_configuration_hash: null, source_hash: null, verification_context_hash: null, execution_context_hash: null, agent_context_hash: null,
         proposal: null, error: null, failure_stage: null,
         current: null, adoptable: false, adoption_reason: null, adopted_run_id: null, adopted_at: null,
         answer: null, answerable: false, answer_reason: null, answer_revocable: false,
@@ -80,7 +80,7 @@ function projectRounds(events: readonly EventEnvelope[], req_id: string): Coordi
       Object.assign(round, { driver: payload.driver, snapshot_id: payload.snapshot_id ?? round.snapshot_id,
         input_hash: payload.input_hash ?? round.input_hash, agent_configuration_hash: payload.agent_configuration_hash ?? round.agent_configuration_hash,
         source_hash: payload.source_hash ?? round.source_hash, verification_context_hash: payload.verification_context_hash ?? round.verification_context_hash,
-        execution_context_hash: payload.execution_context_hash ?? round.execution_context_hash });
+        execution_context_hash: payload.execution_context_hash ?? round.execution_context_hash, agent_context_hash: payload.agent_context_hash ?? round.agent_context_hash });
       if (event.type === "coordinator.round.started") {
         round.status = "running";
         round.started_at = event.timestamp;
@@ -167,6 +167,7 @@ export class CoordinationService {
         read_source_hash: (def) => this.read_source_hash(def),
         read_verifications: (def, session, revision) => readCoordinationVerifications(def, session, revision, this.options.runs),
         read_execution_context: (def, session, revision) => readCoordinationExecutionContext(def, session, revision, this.options.runs),
+        read_agents: async def => read_coordination_agents(def, resolver),
       }).coordinate(versioned.def, session, {
         round_id: active.round_id, agent: input.agent, signal: active.controller.signal,
         workflow_revision: versioned.workflow_revision,
@@ -238,7 +239,7 @@ export class CoordinationService {
     }
   }
 
-  private async inspect(round: CoordinationRoundView, def?: WorkflowDef, workflow_revision?: string): Promise<Pick<CoordinationRoundView, "current" | "adoptable" | "adoption_reason" | "answerable" | "answer_reason">> {
+  private async inspect(round: CoordinationRoundView, def?: WorkflowDef, workflow_revision?: string, fixed_resolver?: (name: string) => AgentDriver): Promise<Pick<CoordinationRoundView, "current" | "adoptable" | "adoption_reason" | "answerable" | "answer_reason">> {
     const result = { current: null as boolean | null, adoptable: false, adoption_reason: null as string | null, answerable: false, answer_reason: null as string | null };
     if (round.status !== "ok" || round.proposal === null) return result;
     try {
@@ -247,7 +248,8 @@ export class CoordinationService {
       if (round.workflow_revision === null) { result.adoption_reason = "该轮次缺少执行版本，请重新协调"; return result; }
       if (round.workflow_revision !== versioned.workflow_revision) { result.current = false; result.adoption_reason = "绑定的工作流定义已变化，请发布新版本并重新协调"; return result; }
       if (workflow.metadata.id !== round.workflow_id) throw new Error("workflow 不匹配");
-      const configuration_hash = this.options.resolver()(round.agent).configuration_hash;
+      const resolver = fixed_resolver ?? this.options.resolver();
+      const configuration_hash = resolver(round.agent).configuration_hash;
       if (round.agent_configuration_hash === null || configuration_hash === undefined) {
         result.adoption_reason = "无法验证 Agent 配置身份，请重新协调";
         return result;
@@ -258,13 +260,15 @@ export class CoordinationService {
       const verifications = await readCoordinationVerifications(workflow, session, round.workflow_revision, this.options.runs);
       const execution_context = await readCoordinationExecutionContext(workflow, session, round.workflow_revision, this.options.runs);
       const goal_blocker = roundGoalBlocker(round);
-      result.current = round.source_hash === source_hash && coordinationInputHash(workflow, snapshot, configuration_hash, undefined, source_hash, verifications, execution_context, goal_blocker) === round.input_hash;
+      const agents = read_coordination_agents(workflow, resolver);
+      result.current = round.source_hash === source_hash && round.agent_context_hash === sha256Hex(canonicalJson(agents))
+        && coordinationInputHash(workflow, snapshot, configuration_hash, undefined, source_hash, verifications, execution_context, goal_blocker, agents) === round.input_hash;
       if (!result.current) result.adoption_reason = "需求、源码、验证、进度或 Agent 配置已变化，请重新协调";
       else if (this.sdlcs.isArchived(round.sdlc_id, round.sdlc_version)) result.adoption_reason = "绑定的 SDLC 版本已归档";
       else if (round.adopted_run_id !== null) result.adoption_reason = "提议已采用";
       else if (round.proposal.next_action.kind !== "advance") result.adoption_reason = "当前提议不启动 SDLC";
       else {
-        parseCoordinationProposal(JSON.stringify(round.proposal), workflow, snapshot, verifications, execution_context, goal_blocker);
+        parseCoordinationProposal(JSON.stringify(round.proposal), workflow, snapshot, verifications, execution_context, goal_blocker, agents);
         result.adoptable = true;
       }
       const action = round.proposal.next_action;
@@ -273,7 +277,7 @@ export class CoordinationService {
         else if (round.answer_reason != null) result.answer_reason = round.answer_reason;
         else if (!result.current || this.sdlcs.isArchived(round.sdlc_id, round.sdlc_version)) result.answer_reason = result.adoption_reason;
         else if ((snapshot.clarifications?.length ?? 0) >= MAX_CLARIFICATION_QUESTIONS && !snapshot.clarifications?.some((answer) => answer.question === action.question)) result.answer_reason = "当前澄清问题已达到容量上限";
-        else { parseCoordinationProposal(JSON.stringify(round.proposal), workflow, snapshot, verifications, execution_context, goal_blocker); result.answerable = true; result.answer_reason = null; }
+        else { parseCoordinationProposal(JSON.stringify(round.proposal), workflow, snapshot, verifications, execution_context, goal_blocker, agents); result.answerable = true; result.answer_reason = null; }
       }
     } catch { result.adoption_reason = "无法验证当前协调依据，请刷新或重新协调"; }
     return result;
@@ -516,7 +520,8 @@ export class CoordinationService {
     const verifications = await readCoordinationVerifications(versioned.def, session, versioned.workflow_revision, this.options.runs);
     const execution = await readCoordinationExecutionContext(versioned.def, session, versioned.workflow_revision, this.options.runs);
     const timeout_ms = versioned.def.spec.nodes.find(node => node.id === round.node_id)?.run?.goal?.supervisor_timeout_ms;
-    const coordination_input_hash = coordinationInputHash(versioned.def, snapshot, configuration_hash, undefined, source_hash, verifications, execution, trigger);
+    const agents = read_coordination_agents(versioned.def, resolver);
+    const coordination_input_hash = coordinationInputHash(versioned.def, snapshot, configuration_hash, undefined, source_hash, verifications, execution, trigger, agents);
     const input_hash = sha256Hex(canonicalJson({ domain: "cord.coordination-retry-input.v1", parent_round_id: round.round_id, completion_event_id: completion.event_id,
       coordination_input_hash, timeout_ms: timeout_ms ?? null }));
     if (!request_recorded && this.options.resolver()(round.agent).configuration_hash !== configuration_hash) throw conflict("协调配置已变化，请刷新后重试");
@@ -650,14 +655,26 @@ export class CoordinationService {
     if (round.adopted_run_id !== null) return this.options.runs.getRun(round.adopted_run_id);
     if (!round.adoptable || round.proposal?.next_action.kind !== "advance" || round.input_hash === null) throw conflict(round.adoption_reason ?? "协调提议不可采用");
     const node_id = round.proposal.next_action.node_id;
+    const resolver = this.options.resolver();
+    let workflow: WorkflowDef | undefined;
+    const assert_agents = (def: WorkflowDef) => {
+      const captured = sha256Hex(canonicalJson(read_coordination_agents(def, resolver)));
+      const latest = sha256Hex(canonicalJson(read_coordination_agents(def, this.options.resolver())));
+      if (captured !== round.agent_context_hash || latest !== captured) throw conflict("流程Agent配置已变化，请重新协调");
+    };
     return this.options.runs.start(req_id, round.sdlc_id, round.sdlc_version, {
       coordination_round_id: round_id,
+      driverResolver: resolver,
       validate: async (_session, def, workflow_revision) => {
+        workflow = def; assert_agents(def);
         const current = await this.readRound(req_id, round_id);
-        const inspected = await this.inspect(current, def, workflow_revision);
+        const inspected = await this.inspect(current, def, workflow_revision, resolver);
         if (!inspected.adoptable || current.input_hash !== round.input_hash) throw conflict(inspected.adoption_reason ?? "协调提议已变化，请重新协调");
+        assert_agents(def);
       },
       record: async (session, run_id) => {
+        if (workflow === undefined) throw conflict("采用缺少已核验流程");
+        assert_agents(workflow);
         await session.events.append({ event_id: ulid(), session_id: req_id, type: "coordinator.round.adopted", schema_version: "1",
           actor: { kind: "human", id: "local-human" }, correlation_id: round_id,
           payload: { round_id, workflow_id: round.workflow_id, workflow_revision: round.workflow_revision, node_id, input_hash: round.input_hash, run_id }, source: { adapter: "console-server" } });

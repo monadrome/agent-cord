@@ -1,5 +1,13 @@
 # 调研发现
 
+## 阶段64（2026-10-10）：协调漏绑worker配置
+
+- 尚未派发worker时执行观察只有missing或空run，当前coordinationInputHash仅绑定协调者配置。worker换模型/角色/context_revision不改变旧提议current，可能在人工采用后执行未分析配置。
+- 协调需要流程声明worker/supervisor的受限能力/解析状态与配置身份，不自动调用探测。完整覆盖/有界元信息必须进入hash，事件只存摘要。
+- 采用RunService.start会在首await前固定resolver；guard若只读live resolver，存在A/B/A校验与派发错配。需由采用逻辑显式传固定resolver并校验提议/最新上下文。
+- adopted run冷恢复不仅要hash匹配，还需合法context-session-agent完成、请求→完成→采用顺序、同节点advance与输入。缺证据或配置漂移要拒绝自动派发；同配置继续，人审/历史事实保留。
+- 旧活动run测试重配coordinator时删除了worker定义；新的next-worker检查正确拒绝，测试补回真实worker定义后才验证停止后可推进。没有用忽略上下文维持旧断言。
+
 ## 阶段63（2026-10-10）：Headless运行时能力
 
 - 当前headless inspect仅返回静态声明，不能确认实际CLI存在/版本/参数入口。固定版本与帮助命令可以不发送prompt取得本机证据。

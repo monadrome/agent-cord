@@ -479,6 +479,10 @@ describe("协调执行观察", () => {
     await config(JSON.stringify(proposal)); await server.agents.reload();
     expect(await coordinate()).toMatchObject({ status: "failed", proposal: null, failure_stage: "output" });
     await server.runs.cancel(run_id);
+    await writeFile(join(root, "cord", "agents.yaml"), YAML.stringify({ agents: {
+      coordinator: { kind: "headless", bin: process.execPath, args: [fixture, "--mode", "claude", "--no-tools", "--result-text", JSON.stringify(proposal), "{{prompt}}"] },
+      worker: { kind: "headless", bin: process.execPath, args: [fixture, "--mode", "claude", "{{prompt}}"] },
+    } })); await server.agents.reload();
     expect(await coordinate()).toMatchObject({ status: "ok", current: true, adoptable: true });
   });
 });

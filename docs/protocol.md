@@ -257,6 +257,10 @@ ADR-0076：当前活动run的running/waiting_human由同批gate事实补充投�
 
 server 执行观察进入 prompt、输入身份与完成/查询/采用重检，任务终态或 event_id 替换、run 变更、active 变化都使旧轮次失效。轮次/REST view 只新增 execution_context_hash，不注入 error/text/prompt_excerpt/raw。该阶段使用 v5，后续复用与工具扩展分别升级至 v6/v7。当前合法任务可作为 agent_task 来源，控制台打开并展开对应事件；活动绑定 run 时 eligible_nodes=[]，模型只能提出 wait/ask_human。failed/cancelled 且 inactive 可提出重试方向，仍由人工采用和现有 runner 核验。采用写失败后产生的新 run 事实也改变执行观察，需重新协调，不能继续采用旧提议。
 
+ADR-0078增CoordinationAgentsSchema和read_agents hook，完整覆盖声明worker/supervisor唯一名，最多128项；agent/resolution/configuration_hash/capabilities严格白名单，能力launch_options最多32项，唯一并排序归一化。不自动探测/改配置。上下文进入workflow_agents与v11/v12输入域（有/无澄清），无hook库调用保留原域；started/completed及REST仅新增可选agent_context_hash。next worker无法解析或无稳定hash则eligible_nodes=[]，只能以workflow节点解释wait/ask_human，不声称已安装/模型可用。
+
+查询/采用/retry token重算流程Agent摘要，worker换模型/角色/通道/context_revision会使旧提议过期；env未纳入身份，需要外部行为声明版本。采用明确传固定driverResolver，在校验和记录前核对原提议与最新身份；记录后热重载不替换实际worker。采用run冷恢复需context-session-agent完成来源、请求→完成→采用顺序、同节点advance/输入与当前完整Agent摘要，缺失/改变拒绝自动执行，历史/已终态不回写。旧服务器成功提议和未完成采用run缺该证据时必须重新协调/明确授权，不能自动迁移。控制台记录信息显示流程Agent指纹。
+
 复用任务投影为 reused，event_id 是当前复用事实，completion_event_id 是更早的原始 ok 完成；缺省非复用字段归一化为 null，hook 输入类型 CoordinationExecutionContextInput 允许旧实现省略此字段。严格校验原完成的同 session/流程版本/节点、类型/状态/correlation、重试编号不超过上限、摘要一致及中间没有覆盖它的 started/completed。缺失、未来、自引用、另一复用或坏最新引用为 invalid，不回退旧成功。reused 不声明新的重试编号，不等于新执行、当前输入永远有效或 gate 通过。该阶段 server 使用 v6 域，无 hook 为 v4；后续策略升级仍要求旧轮次重新协调。提议来源用当前 reused event_id，事件视图可继续跳到已加载的原完成，前端只导航、不复制复用判定。
 
 ADR-0050 的 tool_policy=none.v1 绑定当前独立协调策略：server 域 v7，无执行观察 hook 的库模式 v5。消费到任意 tool_use（含只读、空/未知负载或 result 后工具）立即 abort、关闭迭代器并保存 failed/driver，提议为 null，不保存工具名称/参数/raw；已确认失败不被清理错误覆盖。用户实际取消仍为 cancelled，宿主策略中止不写 cancel_requested。ACP 清理等待单次启动、有界发送的 session/cancel 序列后回收进程，避免提前 return 丢失通知。旧 v6/v4 提议保留历史但不可视为符合新策略，须重新协调。检测不撤销通知前副作用，不认证 driver 的报告完整性，也不改变普通 worker 工具通道。
