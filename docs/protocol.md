@@ -149,6 +149,8 @@ ADR-0065：`POST .../coordination/:round_id/retry` 接收 `{input_hash}` 与 Ide
 
 ADR-0066：Goal 可选 `usage_budget`（`max_input_tokens`/`max_output_tokens`/`max_cost_usd` 至少一项）。宿主累计同一 run/node 的合法 `agent.task.completed.usage`，缓存 token 不重复计入 input；超限或声明预算下 usage 未知，在当前 task 终态后写 Goal blocked/budget 与 `usage_totals`，停止后续自动 worker，不扩额度。未声明预算保持兼容。预算进入 Goal 输入身份/ready 审计，不能替代业务验收、厂商费用结算或 OS 隔离。
 
+ADR-0067：`GET /requirements/:req_id/goal-usage` 和协调 view 的 `goal_usage` 只显示 server 从当前 run 事件重算的配对任务 totals。每个声明上限的指标缺失或未结束任务是 unknown；来源、workflow revision、session、输入/配置身份不匹配使状态 invalid。ready/恢复重新计算并拒绝伪造 totals，历史 round 的 resources 仍绑定当前 run 并显示来源，不把旧 run 跨越。控制台资源表只展示 projection，支持 loading/empty/error/retry、source navigation 和响应式长值换行。
+
 Goal 问题记录当前有效人工答复后，view.goal_retry 提供 available/reason、当前 input_hash 与已发布 max_attempts/timeout_ms；不复用答复前协调 hash。`POST .../:round_id/retry-goal` 要求幂等键、answer_event_id 和该输入 token，是独立执行授权。宿主运行槽位内与授权落盘前再次核验，先写 workflow.run.started.goal_retry_round_id，再写人工 goal.retry.authorized，最后派发。授权记录 round、新/旧 run、node、blocker、答复、input_hash 和预算；新 run 使用原发布额度，旧 Goal 失败与已退出节点保留。worker 使用固定 resolver；代码/事实/配置变化时旧 token 409，刷新后可授权当前版本。
 
 ADR-0062 要求在首次校验前捕获 resolver，校验、授权和实际派发使用同一快照，并在授权前核对当前 worker/supervisor 身份。新 goal.retry.authorized 完整保存 agent_configuration_hash、supervisor_configuration_hash、node_input_hash；旧事件可三者全缺省，部分字段声明无效，聚合 input_hash 域仍为 v1。冷恢复与人工审批核验授权 worker 身份，漂移 failed/409；首次 worker 派发前还须节点输入相同。旧授权仅从首条合法、因果后续的 worker 任务归因，缺来源或坏来源拒绝。还原原配置后显式恢复同 run，保留原次数/时长；旧审批失效只重检原授权 run，不能借普通 start 新建预算。有效已开始 Goal 的正常输出不被视为首次派发输入篡改。

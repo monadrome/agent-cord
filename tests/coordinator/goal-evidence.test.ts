@@ -8,6 +8,7 @@ import { sha256Hex } from "../../src/core/hash.js";
 import { WorkflowDefSchema, type EventEnvelope } from "../../src/core/schema.js";
 import { createNodeRunner } from "../../src/coordinator/coordinator.js";
 import { resolveGoalReadiness } from "../../src/coordinator/goal-evidence.js";
+import { accumulateGoalUsage } from "../../src/coordinator/goal-usage.js";
 
 const def = WorkflowDefSchema.parse({ apiVersion: "agent-cord.dev/v1alpha1", kind: "Workflow", metadata: { id: "goal-evidence" }, spec: { nodes: [{ id: "deliver", artifact: "review.md",
   run: { agent: "fake", goal: { inputs: ["value.txt"], checks: [{ id: "test", bin: process.execPath, args: ["-e", "process.exit(0)"] }],
@@ -36,10 +37,17 @@ describe("共享 Goal ready 证据", () => {
   it("ready 的 usage 预算缺失、篡改或超限不能复用", () => {
     const budget_node = structuredClone(node);
     budget_node.run!.goal!.usage_budget = { max_input_tokens: 10 };
-    for (const fields of [{}, { usage_budget: { max_input_tokens: 11 }, usage_totals: { input_tokens: 10, output_tokens: null, cost_usd: null, observed_tasks: 1, unknown_tasks: 0 } },
-      { usage_budget: { max_input_tokens: 10 }, usage_totals: { input_tokens: 11, output_tokens: null, cost_usd: null, observed_tasks: 1, unknown_tasks: 0 } }]) {
-      expect(resolveGoalReadiness({ ...ready(), payload: { ...ready().payload, ...fields } }, fields === undefined ? events : events, budget_node, scope)).toBeNull();
+    const tasks = patch("agent.task.completed", {}, { usage: { input_tokens: 3, output_tokens: 0, cost_usd: 0.1 } });
+    const totals = accumulateGoalUsage(tasks, scope.run_id, node.id, { ...scope, session_id: "REQ-EVIDENCE", driver: "fake" });
+    const valid = tasks.map(event => event.event_id === ready().event_id ? { ...event, payload: { ...event.payload, usage_budget: { max_input_tokens: 10 }, usage_totals: totals } } : event);
+    expect(resolveGoalReadiness(ready(valid), valid, budget_node, scope)).not.toBeNull();
+    for (const fields of [{ usage_totals: undefined }, { usage_budget: { max_input_tokens: 11 } }, { usage_totals: { ...totals, input_tokens: 0 } },
+      { usage_totals: { ...totals, input_tokens: 11 } }, { usage_totals: { ...totals, unknown_input_tasks: 1 } }]) {
+      const facts = valid.map(event => event.event_id === ready().event_id ? { ...event, payload: { ...event.payload, ...fields } } : event);
+      expect(resolveGoalReadiness(ready(facts), facts, budget_node, scope)).toBeNull();
     }
+    const facts = valid.map(event => event.type === "agent.task.completed" ? { ...event, payload: { ...event.payload, usage: { input_tokens: 11 } } } : event);
+    expect(resolveGoalReadiness(ready(facts), facts, budget_node, scope)).toBeNull();
   });
   it("宿主生成完整条件映射，无清单历史兼容，不允许凭空声明覆盖", () => {
     const ready_event = ready(); const result = events.find(event => event.type === "verification.completed")!;

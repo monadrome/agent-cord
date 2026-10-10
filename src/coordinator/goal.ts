@@ -3,7 +3,7 @@ import { ulid } from "ulid";
 import { canonicalJson, sha256Hex } from "../core/hash.js";
 import { readSessionEvents } from "../core/session-events.js";
 import { readSessionDocument, writeSessionDocument } from "../core/session-files.js";
-import type { EventEnvelope, EventType, GoalCommand, WorkflowDef } from "../core/schema.js";
+import type { EventEnvelope, EventType, GoalCommand, GoalUsageTotals, WorkflowDef } from "../core/schema.js";
 import { AgentTaskCompletedPayloadSchema, GoalAttemptCompletedPayloadSchema, GoalAttemptStartedPayloadSchema, VerificationCompletedPayloadSchema } from "../core/schema.js";
 import type { NodeRunContext, NodeRunner, SessionHandle } from "../core/ports.js";
 import type { WorkflowNode } from "../workflow/executor.js";
@@ -77,14 +77,40 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
       const deadline = (started[0] === undefined ? Date.now() : Date.parse(started[0].timestamp)) + goal.timeout_ms;
       if (!Number.isFinite(deadline)) throw new Error("Goal 尝试起点时间非法");
       let attempt = Math.max(1, attempt_count + 1);
+      let usage_totals: GoalUsageTotals | undefined;
       const finish = async (status: "ready" | "retrying" | "blocked" | "cancelled", reason: string, fields: Record<string, unknown> = {}) => {
-        const payload = GoalAttemptCompletedPayloadSchema.parse({ ...base(ctx, Math.min(attempt, goal.max_attempts)), max_attempts: goal.max_attempts, status, reason: reason.slice(0, 2000), ...fields });
+        const payload = GoalAttemptCompletedPayloadSchema.parse({ ...base(ctx, Math.min(attempt, goal.max_attempts)), max_attempts: goal.max_attempts, status, reason: reason.slice(0, 2000),
+          ...(goal.usage_budget === undefined ? {} : { usage_budget: goal.usage_budget, ...(usage_totals === undefined ? {} : { usage_totals }) }), ...fields });
         await append(session, ctx, "goal.attempt.completed", payload);
+      };
+      const check_usage = async (): Promise<boolean> => {
+        if (goal.usage_budget === undefined) return true;
+        try {
+          usage_totals = accumulateGoalUsage(await readSessionEvents(session), ctx.run_id!, node.id, { session_id: session.req_id,
+            workflow_id: ctx.workflow_id, workflow_revision: ctx.workflow_revision, driver: node.run!.agent });
+        } catch {
+          usage_totals = undefined;
+          await finish("blocked", "Goal 计量任务来源不可验证，停止自动尝试", { failure_kind: "budget" }); return false;
+        }
+        const limit = usageBudgetExceeded(goal.usage_budget, usage_totals);
+        if (limit === null) return true;
+        await finish("blocked", limit === "unknown_usage" ? "Goal 受限指标计量未知，停止自动尝试并需要人工处理"
+          : `Goal usage 预算已超过 ${limit} 上限，停止自动尝试并需要人工处理`, { failure_kind: "budget" });
+        return false;
       };
       if (options.read_verification_input === undefined || node.artifact === undefined || node.run.readonly || node.run.retry !== undefined) {
         await finish("blocked", "Goal 需要可写 worker、review artifact、宿主输入能力且不能同时使用 run.retry", { failure_kind: "configuration" });
         return { status: "failed" };
       }
+      if (ctx.signal?.aborted) {
+        if (goal.usage_budget !== undefined) {
+          try { usage_totals = accumulateGoalUsage(await readSessionEvents(session), ctx.run_id, node.id, { session_id: session.req_id,
+            workflow_id: ctx.workflow_id, workflow_revision: ctx.workflow_revision, driver: node.run.agent }); }
+          catch { usage_totals = undefined; }
+        }
+        await finish("cancelled", "Goal 已明确取消，不新增自动尝试", { failure_kind: "cancelled" }); return { status: "cancelled" };
+      }
+      if (!await check_usage()) return { status: "failed" };
       if (attempt > goal.max_attempts || Date.now() >= deadline) {
         await finish("blocked", "Goal 已消耗声明的尝试或总时长预算，需要显式新 run", { failure_kind: "budget" });
         return { status: "timeout" };
@@ -108,19 +134,18 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
           let current: Identity;
           try { current = await identity(node, session, ctx); }
           catch { await finish("blocked", "无法读取 Goal 的当前需求、源码或配置身份", { failure_kind: "environment" }); return { status: "failed" }; }
+          if (!await check_usage()) return { status: "failed" };
           await append(session, ctx, "goal.attempt.started", GoalAttemptStartedPayloadSchema.parse(base(ctx, attempt)));
           const instructions = `## Goal 交付契约\n自主实现当前需求的代码 Draft。宿主将实际运行声明检查；一次回复结束不代表目标完成。\n源码范围：${JSON.stringify(goal.inputs)}\n检查：${JSON.stringify(goal.checks)}\n${goal.usage_budget === undefined ? "" : `宿主 usage 预算：${JSON.stringify(goal.usage_budget)}；只按实际 task usage 计量，未知 usage 不等于零。\n`}${goal.acceptance === undefined ? "" : `发布验收条件：${JSON.stringify(goal.acceptance)}\n逐项实现验收条件；宿主生成真实证据矩阵，不以模型自报通过放行。\n`}最终指南必须含非空的二级标题：变更、验收、风险，写明变更定位、验收依据与未覆盖项。不要合入、发布或批准 gate。\n${feedback}`;
           const outcome = await task_runner(instructions).runNode(node, session, { ...ctx, signal });
           const task = (await readSessionEvents(session)).filter(event => event.type === "agent.task.completed" && scoped(event, ctx)).at(-1);
           const task_result = task === undefined ? null : AgentTaskCompletedPayloadSchema.safeParse(task.payload);
-          const usage_totals = accumulateGoalUsage(await readSessionEvents(session), ctx.run_id, ctx.node_id);
-          const usage_limit = usageBudgetExceeded(goal.usage_budget, usage_totals);
-          if (usage_limit !== null) {
-            await finish("blocked", `Goal usage 预算已超过 ${usage_limit} 上限，停止自动尝试并需要人工处理`, {
-              failure_kind: "budget", usage_budget: goal.usage_budget, usage_totals,
-            });
-            return { status: "failed" };
+          if (signal.aborted && goal.usage_budget !== undefined) {
+            try { usage_totals = accumulateGoalUsage(await readSessionEvents(session), ctx.run_id, node.id, { session_id: session.req_id,
+              workflow_id: ctx.workflow_id, workflow_revision: ctx.workflow_revision, driver: node.run.agent }); }
+            catch { usage_totals = undefined; }
           }
+          if (!signal.aborted && !await check_usage()) return { status: "failed" };
           let kind: FailureKind = "driver";
           let reason = "worker 未完成，依据任务失败事实修复";
           let raw_feedback = "";

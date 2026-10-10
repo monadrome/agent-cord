@@ -43,6 +43,7 @@ import { AgentService } from "./services/agent-service.js";
 import { CoordinationService } from "./services/coordination-service.js";
 import { installIdempotency } from "./services/idempotency.js";
 import { VerificationInputError } from "./services/verification-inputs.js";
+import { readCoordinationExecutionContext, goalUsageViews } from "./services/execution-context.js";
 
 export interface ServerOptions {
   /** 工作区根（内含 cord/；缺省自动初始化 cord/） */
@@ -300,6 +301,13 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
   app.get("/api/v1/requirements/:req_id/coordination", async (req) => {
     const { req_id } = req.params as { req_id: string };
     return { request_id: requestId(req), rounds: await coordination.list(req_id) };
+  });
+  app.get("/api/v1/requirements/:req_id/goal-usage", async req => {
+    const { req_id } = req.params as { req_id: string };
+    const binding = await defFor(req_id);
+    const session = await sessions.open(req_id);
+    const goals = binding === null ? [] : goalUsageViews(await readCoordinationExecutionContext(binding.def, session, binding.workflow_revision, runs));
+    return { request_id: requestId(req), goals };
   });
   app.get("/api/v1/requirements/:req_id/coordination/:round_id", async (req) => {
     const { req_id, round_id } = req.params as { req_id: string; round_id: string };

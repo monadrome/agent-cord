@@ -24,7 +24,7 @@ export { goalRecoveryInputHash, goalRecoveryCheckpoint, readGoalRecoveryRequest 
 export { readGoalCoordinationRequest } from "./goal-coordination.js";
 export { resolveGoalReadiness, type GoalReadinessEvidence } from "./goal-evidence.js";
 export { goalAcceptanceIsComplete } from "./goal-acceptance.js";
-export { accumulateGoalUsage, usageBudgetExceeded } from "./goal-usage.js";
+export { accumulateGoalUsage, goalUsageTotalsMatch, usageBudgetExceeded, type GoalUsageScope } from "./goal-usage.js";
 export { createContextSessionAgent, buildCoordinationPrompt, parseCoordinationProposal, coordinationInputHash, type ContextSessionAgentOptions } from "./session-agent.js";
 export { readCoordinationSnapshot } from "./coordination-context.js";
 export { readClarificationAnswers, currentClarificationAnswers, projectClarifications, MAX_CLARIFICATION_QUESTIONS, type SnapshotClarification, type ClarificationAnswer } from "./clarifications.js";

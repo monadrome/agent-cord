@@ -112,6 +112,43 @@ describe("Goal 自主交付", () => {
     expect((await runner.runNode(node, session, ctx)).status).toBe("ok");
     expect((await latest_goal()).payload).toMatchObject({ status: "ready", usage_totals: { input_tokens: 10, output_tokens: 2, observed_tasks: 1, unknown_tasks: 0 } });
   });
+  it("只报告 token 不证明费用预算；冷恢复累计已完成任务与未结束启动不重新调用", async () => {
+    let calls = 0;
+    const agent: AgentDriver = { name: "fake", configuration_hash: "a".repeat(64), async *run() {
+      calls++; await writeFile(join(root, "value.txt"), "broken"); yield { type: "result", data: { text: report, usage: { input_tokens: 2 } } };
+    }, async *resume() {} };
+    const def = definition({ usage_budget: { max_cost_usd: 1 } }); const { runner, node, ctx } = setup(def, agent);
+    expect((await runner.runNode(node, session, ctx)).status).toBe("failed"); expect(calls).toBe(1);
+    expect((await latest_goal()).payload).toMatchObject({ failure_kind: "budget", usage_totals: { unknown_cost_tasks: 1, input_tokens: 2 } });
+  });
+  it("task 终态落盘后中断，恢复先核验历史超限，不消耗新的尝试", async () => {
+    let calls = 0;
+    const agent: AgentDriver = { name: "fake", configuration_hash: "a".repeat(64), async *run() { calls++; yield { type: "result", data: { text: report, usage: { input_tokens: 11 } } }; }, async *resume() {} };
+    const def = definition({ usage_budget: { max_input_tokens: 10 } }); const { runner, node, ctx } = setup(def, agent);
+    const original = session.events.append.bind(session.events);
+    const append = vi.spyOn(session.events, "append").mockImplementation(async draft => { const result = await original(draft); if (draft.type === "agent.task.completed") throw Error("完成后中断"); return result; });
+    try { await expect(runner.runNode(node, session, ctx)).rejects.toThrow("完成后中断"); }
+    finally { append.mockRestore(); }
+    expect((await setup(def, agent).runner.runNode(node, session, ctx)).status).toBe("failed"); expect(calls).toBe(1);
+    expect((await latest_goal()).payload).toMatchObject({ status: "blocked", failure_kind: "budget", usage_totals: { input_tokens: 11 } });
+  });
+  it("worker.started 后中断计量未知，冷恢复不重复 worker", async () => {
+    const agent = driver(async () => report); const def = definition({ usage_budget: { max_input_tokens: 10 } }); const { runner, node, ctx } = setup(def, agent);
+    const original = session.events.append.bind(session.events);
+    const append = vi.spyOn(session.events, "append").mockImplementation(async draft => { const result = await original(draft); if (draft.type === "agent.task.started") throw Error("派发窗口中断"); return result; });
+    try { await expect(runner.runNode(node, session, ctx)).rejects.toThrow("派发窗口中断"); }
+    finally { append.mockRestore(); }
+    expect((await runner.runNode(node, session, ctx)).status).toBe("failed"); expect(agent.prompts).toHaveLength(0);
+    expect((await latest_goal()).payload).toMatchObject({ usage_totals: { unknown_input_tasks: 1 }, status: "blocked" });
+  });
+  it("恢复期间明确取消优先于计量未知，保留消耗但不写新 budget blocker", async () => {
+    const agent = driver(async () => report); const def = definition({ usage_budget: { max_input_tokens: 10 } }); const { runner, node, ctx } = setup(def, agent);
+    const original = session.events.append.bind(session.events);
+    const append = vi.spyOn(session.events, "append").mockImplementation(async draft => { const result = await original(draft); if (draft.type === "agent.task.started") throw Error("中断"); return result; });
+    try { await expect(runner.runNode(node, session, ctx)).rejects.toThrow("中断"); } finally { append.mockRestore(); }
+    const signal = AbortSignal.abort(); expect((await runner.runNode(node, session, { ...ctx, signal })).status).toBe("cancelled");
+    expect((await latest_goal()).payload).toMatchObject({ status: "cancelled", usage_totals: { unknown_input_tasks: 1 } });
+  });
   it("声明 usage 预算但 driver 不报告 usage 时 fail-closed，不继续自动尝试", async () => {
     let calls = 0;
     const agent: AgentDriver = { name: "fake", configuration_hash: "a".repeat(64), async *run() {

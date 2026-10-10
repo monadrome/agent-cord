@@ -1,5 +1,11 @@
 # 调研发现
 
+## 实现校准（2026-10-09，usage 来源与部分计量）
+
+- 原 unknown_tasks 只识别全缺失，有 input token 却没有 cost 的 task 可绕过 cost 上限；每个受限指标都需验证完整性。
+- started 无 completed 的冷恢复窗口可能已有外部消耗，不能以零或重置预算继续；ready 必须重算任务事实而非信 payload。
+- 原 candidate-only 伪造测试没有改变共享解析真正读取的事件，需改 events 并提供合法成功对照。
+
 ## 实现校准（2026-10-09，自动协调重试）
 
 - 自动升级轮次失败/timeout/stale 后，原 round 已保存 Goal 来源，但控制台只有“重新协调”入口；普通 start 可能换 agent/版本，无法表达“重试同一 blocker”。

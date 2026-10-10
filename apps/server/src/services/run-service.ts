@@ -31,6 +31,8 @@ import {
   GoalRecoveryRequestedPayloadSchema,
   GoalAttemptStartedPayloadSchema,
   resolveGoalReadiness,
+  accumulateGoalUsage,
+  usageBudgetExceeded,
   readSessionDocument,
   type AgentDriver,
   type Anchor,
@@ -590,7 +592,7 @@ export class RunService {
   }
 
   private assertGoalAcceptanceProof(events: readonly EventEnvelope[], run: RunRow, def: WorkflowDef, node: WorkflowDef["spec"]["nodes"][number]): void {
-    if (node.run?.goal?.acceptance === undefined) return;
+    if (node.run?.goal === undefined || (node.run.goal.acceptance === undefined && node.run.goal.usage_budget === undefined)) return;
     const scope = { workflow_id: def.metadata.id, workflow_revision: run.workflow_revision ?? undefined, run_id: run.run_id };
     const ready = events.filter(event => event.type === "goal.attempt.completed" && matchesWorkflowScope(event.payload, scope)
       && event.payload["run_id"] === run.run_id && event.payload["node_id"] === node.id).at(-1);
@@ -889,6 +891,10 @@ export class RunService {
     const deadline_ms = starts[0] === undefined ? null : Date.parse(starts[0].timestamp) + goal.timeout_ms;
     if (deadline_ms !== null && !Number.isFinite(deadline_ms)) throw conflict("Goal 原截止时间不可验证");
     if (!ready_current) {
+      if (goal.usage_budget !== undefined) {
+        const usage = accumulateGoalUsage(events, run.run_id, node.id, { ...scope, session_id: session.req_id, driver: node.run!.agent });
+        if (usageBudgetExceeded(goal.usage_budget, usage) !== null) throw conflict("Goal 原 usage 预算超限或计量未知，恢复不能重置");
+      }
       if (checkpoint?.type === "goal.attempt.completed" && asRecord(checkpoint.payload)?.["status"] === "blocked") throw conflict("Goal 已阻塞，需要人工处理卡点后独立授权新预算");
       if (remaining_attempts === 0 || (deadline_ms !== null && deadline_ms <= Date.now())) throw conflict("Goal 原尝试或时长预算已耗尽，恢复不能重置");
     }

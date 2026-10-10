@@ -5,7 +5,7 @@
  */
 import { z } from "zod";
 import { ULID_RE, VerificationResultSchema } from "agent-cord";
-import type { CoordinationProposal, CoordinationStatus } from "agent-cord";
+import type { CoordinationProposal, CoordinationStatus, GoalUsageBudget, GoalUsageTotals } from "agent-cord";
 
 // ---------------------------------------------------------------------------
 // 通用
@@ -221,7 +221,17 @@ export interface GoalRetryView {
   timeout_ms: number | null;
   run_id: string | null;
 }
+export interface GoalUsageView {
+  run_id: string | null;
+  event_id: string | null;
+  node_id: string;
+  status: "not_started" | "observed" | "unknown" | "exceeded" | "invalid";
+  reason: string | null;
+  usage_budget: GoalUsageBudget;
+  usage_totals: GoalUsageTotals | null;
+}
 export interface CoordinationRoundView {
+  goal_usage?: GoalUsageView[];
   goal_retry?: GoalRetryView;
   coordination_retry?: CoordinationRetryView | null;
   trigger?: "goal_blocked";

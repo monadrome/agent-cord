@@ -53,6 +53,20 @@ beforeEach(async () => {
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
 describe("协调器 Goal 观察", () => {
+  it("usage budget 在受限 Goal 观察中投影，未观测计量明确 unknown", async () => {
+    const with_budget = structuredClone(def);
+    with_budget.spec.nodes[0]!.run!.goal!.usage_budget = { max_input_tokens: 10, max_cost_usd: 1 };
+    with_budget.spec.nodes[0]!.run!.goal!.acceptance = [{ id: "baseline", criterion: "声明测试通过", checks: ["tests"] }];
+    const execution = structuredClone(blocked);
+    execution.goals[0]!.usage_budget = { max_input_tokens: 10, max_cost_usd: 1 };
+    execution.goals[0]!.usage_totals = { input_tokens: 3, output_tokens: null, cost_usd: null, observed_tasks: 1, unknown_tasks: 0, unknown_input_tasks: 0, unknown_output_tasks: 1, unknown_cost_tasks: 1 };
+    const snap = await snapshot();
+    const prompt = buildCoordinationPrompt(with_budget, snap, undefined, null, [], execution);
+    expect(prompt).toContain("unknown_cost_tasks");
+    expect(parseCoordinationProposal(JSON.stringify(waitProposal({ source: "goal", id: blocked_id })), with_budget, snap, [], execution).next_action.kind).toBe("ask_human");
+    execution.goals[0]!.usage_budget = { max_input_tokens: 99 };
+    expect(() => buildCoordinationPrompt(with_budget, snap, undefined, null, [], execution)).toThrow(/资源预算/);
+  });
   it("有验收清单的 ready 观察必须有完整覆盖，hook 缺项在模型调用前拒绝", async () => {
     const with_acceptance = structuredClone(def);
     with_acceptance.spec.nodes[0]!.run!.goal!.acceptance = [{ id: "baseline", criterion: "当前声明测试通过", checks: ["tests"] }];

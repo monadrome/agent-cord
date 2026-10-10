@@ -172,6 +172,20 @@ p {
   min-height: 38px;
 }
 .coordination-retry { display: inline-flex; align-items: center; gap: 6px; min-height: 38px; }
+.goal-usage-section { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.goal-usage-section > header, .goal-usage-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.goal-usage-section > header { justify-content: space-between; }
+.goal-usage-section h3 { font-size: 15px; margin: 0; }
+.goal-usage-item { padding: 12px 0; }
+.goal-usage-item + .goal-usage-item { border-top: 1px solid var(--line); }
+.goal-usage-item .mono { overflow-wrap: anywhere; }
+.goal-usage-head .link { display: inline-flex; min-width: 28px; min-height: 28px; align-items: center; justify-content: center; }
+.goal-usage-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
+.goal-usage-table th, .goal-usage-table td { text-align: left; padding: 7px 4px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.goal-usage-table thead th { color: var(--ink-soft); font-weight: 500; }
+.goal-usage-observed { color: #15803d; background: #dcfce7; }
+.goal-usage-unknown, .goal-usage-exceeded, .goal-usage-invalid { color: #b91c1c; background: #fee2e2; }
+.goal-usage-not_started { color: var(--ink-soft); background: var(--panel); }
 
 /* ---- 按钮 ---- */
 .btn {

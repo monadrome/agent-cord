@@ -31,6 +31,8 @@
 
 阶段 52 增加 opt-in Goal usage 预算：宿主累计跨 ACP/headless 的 task usage，超过 token/cost 上限后保存 budget 证据并升级，不让未知 usage 伪装为零；动态额度、费用结算和 workspace 总额仍后续完善。
 
+阶段 53 完成当前资源观察：配对事件/逐指标 unknown/ready 重算与冷恢复检查，server goal-usage projection 和协调工作台资源表覆盖 observed/exceeded/unknown/invalid/empty/error 状态；动态扩额与全工作区成本仍后续。
+
 现有默认离线 SDLC 和已发布版本保持原语义，最终人工 gate 保留。以下保留历史 MVP/W1–M4 规划。
 
 ## 本章回答什么问题

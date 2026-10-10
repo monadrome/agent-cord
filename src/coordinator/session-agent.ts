@@ -10,12 +10,17 @@ import { topologicalOrder } from "../workflow/executor.js";
 import type { RequirementSnapshot } from "./snapshot.js";
 import { buildCoordinationDocuments, COORDINATION_CONTEXT_POLICY, readCoordinationSnapshot } from "./coordination-context.js";
 import { goalAcceptanceIsComplete } from "./goal-acceptance.js";
+import { usageBudgetExceeded } from "./goal-usage.js";
 
 function assertGoalAcceptance(def: WorkflowDef, execution_context?: CoordinationExecutionContext): void {
   for (const observation of execution_context?.goals ?? []) {
-    if (observation.current !== true && observation.acceptance_evidence === undefined) continue;
     const goal = def.spec.nodes.find(node => node.id === observation.node_id)?.run?.goal;
-    if (goal === undefined || !goalAcceptanceIsComplete(goal, observation.acceptance_evidence, observation.verification_event_ids)) throw new Error("协调 Goal 验收覆盖与发布条件不一致");
+    if (observation.current === true || observation.acceptance_evidence !== undefined) {
+      if (goal === undefined || !goalAcceptanceIsComplete(goal, observation.acceptance_evidence, observation.verification_event_ids)) throw new Error("协调 Goal 验收覆盖与发布条件不一致");
+    }
+    if (observation.usage_budget !== undefined && canonicalJson(observation.usage_budget) !== canonicalJson(goal?.usage_budget)) throw new Error("协调资源预算与发布条件不一致");
+    if (goal?.usage_budget !== undefined && observation.current === true && (observation.usage_budget === undefined || observation.usage_totals === undefined
+      || observation.usage_totals.observed_tasks === 0 || usageBudgetExceeded(goal.usage_budget, observation.usage_totals) !== null)) throw new Error("协调当前 ready 缺少可核验的资源计量");
   }
 }
 

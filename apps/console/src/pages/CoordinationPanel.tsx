@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import { Bot, Check, ChevronRight, Play, RefreshCw, RotateCcw, Square, Undo2 } from "lucide-react";
-import type { AgentCatalogView, CoordinationRoundView, SdlcSummary } from "@agent-cord/server/contracts";
+import type { AgentCatalogView, CoordinationRoundView, GoalUsageView, SdlcSummary } from "@agent-cord/server/contracts";
 import { api } from "../api.js";
 import { describeError, Empty, ErrorBanner, formatTime, NoticeBanner } from "../ui.js";
 
@@ -11,6 +11,32 @@ const STATUS_TEXT: Record<CoordinationRoundView["status"], string> = {
 };
 const ACTION_TEXT = { advance: "推进流程", ask_human: "人工澄清", wait: "等待", complete: "完成" } as const;
 const FAILURE_TEXT: Record<string, string> = { snapshot: "需求读取", configuration: "Agent 配置", driver: "Agent 运行", output: "结果校验", freshness: "输入核验", interrupted: "运行中断" };
+const USAGE_STATUS = { not_started: "尚未计量", observed: "计量有效", unknown: "计量未知", exceeded: "已超限", invalid: "来源无效" } as const;
+
+function GoalUsagePanel({ goals, error, onSource }: { goals: GoalUsageView[] | null; error: string | null; onSource: (source: "goal", id: string) => void }): ReactElement {
+  return <section className="goal-usage-section" aria-labelledby="goal-usage-title">
+    <header><h3 id="goal-usage-title">资源预算</h3><span className="muted small">当前 run</span></header>
+    {error !== null ? <p className="coordination-warn" role="status">{error}</p> : goals === null ? <p className="muted" role="status">正在读取资源预算...</p>
+      : goals.length === 0 ? <Empty text="当前流程未声明 usage 预算" /> : goals.map(goal => {
+        const usage = goal.usage_totals;
+        const rows = [
+          { label: "输入 token", value: usage?.input_tokens, limit: goal.usage_budget.max_input_tokens, unknown: usage?.unknown_input_tasks },
+          { label: "输出 token", value: usage?.output_tokens, limit: goal.usage_budget.max_output_tokens, unknown: usage?.unknown_output_tasks },
+          { label: "费用 USD", value: usage?.cost_usd, limit: goal.usage_budget.max_cost_usd, unknown: usage?.unknown_cost_tasks },
+        ];
+        const number = (value: number | null | undefined) => value == null ? "未报告" : value.toLocaleString("en-US", { maximumFractionDigits: 12 });
+        return <div key={goal.node_id} className="goal-usage-item">
+          <div className="goal-usage-head"><strong className="mono">{goal.node_id}</strong><span className={`badge goal-usage-${goal.status}`}>{USAGE_STATUS[goal.status]}</span>
+            {goal.event_id !== null ? <button type="button" className="link" aria-label={`打开 ${goal.node_id} 资源来源`} title="打开资源来源" onClick={() => onSource("goal", goal.event_id!)}><ChevronRight size={16} aria-hidden="true" /></button> : null}
+          </div>
+          {goal.run_id !== null ? <p className="muted small mono">run {goal.run_id}</p> : null}
+          <table className="goal-usage-table"><thead><tr><th>指标</th><th>已观测</th><th>上限</th><th>未知任务</th></tr></thead><tbody>{rows.map(row =>
+            <tr key={row.label}><th scope="row">{row.label}</th><td>{number(row.value)}</td><td>{row.limit === undefined ? "未限制" : number(row.limit)}</td><td>{row.unknown ?? "未核验"}</td></tr>)}</tbody></table>
+          {goal.reason !== null ? <p className="coordination-warn small">{goal.reason}</p> : null}
+        </div>;
+      })}
+  </section>;
+}
 
 interface Props {
   req_id: string;
@@ -35,6 +61,8 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
   const [catalog, set_catalog] = useState<AgentCatalogView | null>(null);
   const [sdlcs, set_sdlcs] = useState<SdlcSummary[]>([]);
   const [rounds, set_rounds] = useState<CoordinationRoundView[] | null>(null);
+  const [goal_usage, set_goal_usage] = useState<GoalUsageView[] | null>(null);
+  const [usage_error, set_usage_error] = useState<string | null>(null);
   const [selected_agent, set_selected_agent] = useState("");
   const [selected_sdlc, set_selected_sdlc] = useState(default_sdlc);
   const [timeout_seconds, set_timeout_seconds] = useState("120");
@@ -64,8 +92,12 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
     const operation = ++round_request.current;
     const epoch = generation.current;
     try {
-      const result = await api.listCoordination(req_id);
-      if (mounted.current && generation.current === epoch && operation === round_request.current) apply_rounds(result.rounds);
+      const [result, usage] = await Promise.allSettled([api.listCoordination(req_id), api.getGoalUsage(req_id)]);
+      if (mounted.current && generation.current === epoch && operation === round_request.current) {
+        if (result.status === "fulfilled") apply_rounds(result.value.rounds); else set_load_error(describeError(result.reason));
+        if (usage.status === "fulfilled") { set_goal_usage(usage.value.goals); set_usage_error(null); }
+        else { set_goal_usage(null); set_usage_error(describeError(usage.reason)); }
+      }
     } catch (cause) {
       if (mounted.current && generation.current === epoch) set_load_error(describeError(cause));
     } finally { if (generation.current === epoch) round_loading.current = false; }
@@ -75,9 +107,9 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
     const epoch = generation.current;
     const operation = ++round_request.current;
     set_loading(true);
-    const results = await Promise.allSettled([api.listAgents(), api.listSdlcs(), api.listCoordination(req_id)]);
+    const results = await Promise.allSettled([api.listAgents(), api.listSdlcs(), api.listCoordination(req_id), api.getGoalUsage(req_id)]);
     if (!mounted.current || generation.current !== epoch) return;
-    const [agents_result, sdlcs_result, rounds_result] = results;
+    const [agents_result, sdlcs_result, rounds_result, usage_result] = results;
     const errors: string[] = [];
     if (agents_result.status === "fulfilled") {
       set_catalog(agents_result.value);
@@ -94,6 +126,10 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
     } else errors.push(describeError(sdlcs_result.reason));
     if (rounds_result.status === "fulfilled") { if (operation === round_request.current) apply_rounds(rounds_result.value.rounds); }
     else errors.push(describeError(rounds_result.reason));
+    if (operation === round_request.current) {
+      if (usage_result.status === "fulfilled") { set_goal_usage(usage_result.value.goals); set_usage_error(null); }
+      else { set_goal_usage(null); set_usage_error(describeError(usage_result.reason)); }
+    }
     set_load_error(errors.length > 0 ? errors.join("\n") : null);
     set_loading(false);
   }, [req_id, apply_rounds]);
@@ -101,6 +137,7 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
   useEffect(() => {
     mounted.current = true;
     generation.current += 1;
+    set_goal_usage(null); set_usage_error(null);
     void load_all();
     return () => { mounted.current = false; generation.current += 1; round_loading.current = false; };
   }, [load_all]);
@@ -186,6 +223,7 @@ export function CoordinationPanel({ req_id, default_sdlc, event_seq, run_in_flig
       <button type="submit" className="btn btn-primary coordination-start" disabled={!can_start}><Bot size={16} aria-hidden="true" />{command === "start" ? "发起中..." : pending !== undefined ? "协调进行中" : "发起协调"}</button>
     </form>
 
+    <GoalUsagePanel goals={goal_usage} error={usage_error} onSource={onSource} />
     <div className="coordination-layout" aria-busy={loading && rounds === null}>
       <section className="coordination-history" aria-labelledby="coordination-history-title"><header><h3 id="coordination-history-title">轮次</h3><span className="muted small">{rounds?.length ?? 0}</span></header>
         {rounds === null ? <div className="coordination-loading" role="status">正在读取协调轮次...</div> : rounds.length === 0 ? <Empty text="还没有协调轮次" /> : <ul>{rounds.map((round) => <li key={round.round_id}><button type="button" className={round.round_id === selected?.round_id ? "coordination-round coordination-round-selected" : "coordination-round"} aria-pressed={round.round_id === selected?.round_id} onClick={() => set_selected_round(round.round_id)}>

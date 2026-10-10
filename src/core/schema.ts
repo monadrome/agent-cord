@@ -231,6 +231,10 @@ export const GoalUsageTotalsSchema = z.strictObject({
   cost_usd: z.number().nonnegative().nullable(),
   observed_tasks: z.number().int().nonnegative(),
   unknown_tasks: z.number().int().nonnegative(),
+  /** ADR-0067：新汇总逐指标完整计量；旧事件缺省时由任务事实重算。 */
+  unknown_input_tasks: z.number().int().nonnegative().optional(),
+  unknown_output_tasks: z.number().int().nonnegative().optional(),
+  unknown_cost_tasks: z.number().int().nonnegative().optional(),
 });
 export type GoalUsageBudget = z.infer<typeof GoalUsageBudgetSchema>;
 export type GoalUsageTotals = z.infer<typeof GoalUsageTotalsSchema>;
@@ -370,6 +374,8 @@ export const CoordinationGoalSchema = z.strictObject({
   artifact_hash: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
   verification_event_ids: z.array(z.string().regex(ULID_RE)).max(16),
   acceptance_evidence: GoalAcceptanceEvidenceSchema.optional(),
+  usage_budget: GoalUsageBudgetSchema.optional(),
+  usage_totals: GoalUsageTotalsSchema.optional(),
 }).refine(value => value.acceptance_evidence === undefined || value.status === "ready", "仅 ready Goal 可声明验收通过证据")
   .refine(value => value.status === "missing" || (value.run_id !== null && value.event_id !== null), { message: "当前 Goal 观察必须绑定 run/event" })
   .refine(value => value.max_attempts === null || value.attempt === null || value.attempt <= value.max_attempts, { message: "Goal 尝试编号超过上限" })

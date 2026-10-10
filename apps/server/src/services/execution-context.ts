@@ -1,9 +1,10 @@
 /** ADR-0048：当前 run 的任务状态投影，不复制 runner 或注入日志。 */
 import { AgentTaskStartedPayloadSchema, AgentTaskCompletedPayloadSchema, AgentTaskReusedPayloadSchema, CoordinationExecutionContextSchema,
   GoalAttemptStartedPayloadSchema, GoalAttemptCompletedPayloadSchema, matchesWorkflowScope, readSessionEvents, resolveReusedCompletion,
-  resolveGoalReadiness, readSessionDocument, sha256Hex, isVerificationRunCancelled,
+  resolveGoalReadiness, readSessionDocument, sha256Hex, isVerificationRunCancelled, accumulateGoalUsage, usageBudgetExceeded, goalUsageTotalsMatch, canonicalJson,
   type CoordinationExecutionContext, type CoordinationGoal, type CoordinationTask, type EventEnvelope, type SessionHandle, type WorkflowDef } from "agent-cord";
 import type { RunService } from "./run-service.js";
+import type { GoalUsageView } from "../contracts.js";
 
 export async function readCoordinationExecutionContext(def: WorkflowDef, session: SessionHandle, workflow_revision: string | undefined, runs: RunService): Promise<CoordinationExecutionContext> {
   const nodes = def.spec.nodes.filter((node) => node.run !== undefined).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -58,6 +59,16 @@ export async function readCoordinationExecutionContext(def: WorkflowDef, session
       current: null, freshness_reason: "not_ready",
       attempt: null, max_attempts: null, failure_kind: null, reason: null, input_hash: null, source_hash: null, artifact_hash: null, verification_event_ids: [] };
     const event = latest_goals.get(node.id);
+    if (node.run!.goal!.usage_budget !== undefined) {
+      observation.usage_budget = node.run!.goal!.usage_budget;
+      try {
+        observation.usage_totals = accumulateGoalUsage(events, run?.run_id ?? "", node.id, { ...scope, session_id: session.req_id, driver: node.run!.agent });
+      } catch {
+        if (event !== undefined) observation.event_id = event.event_id;
+        if (event === undefined) throw new Error("Goal 计量来源存在而 Goal 启动事实缺失");
+        return { ...observation, status: "invalid", current: false, freshness_reason: "invalid_evidence" };
+      }
+    }
     if (event === undefined) return observation;
     observation.event_id = event.event_id;
     observation.status = "invalid";
@@ -84,6 +95,10 @@ export async function readCoordinationExecutionContext(def: WorkflowDef, session
     observation.source_hash = parsed.data.source_hash ?? null;
     observation.artifact_hash = parsed.data.artifact_hash ?? null;
     observation.verification_event_ids = parsed.data.verification_event_ids;
+    if ((parsed.data.usage_budget !== undefined && canonicalJson(parsed.data.usage_budget) !== canonicalJson(observation.usage_budget))
+      || (parsed.data.usage_totals !== undefined && (observation.usage_totals === undefined || !goalUsageTotalsMatch(parsed.data.usage_totals, observation.usage_totals)))) {
+      return { ...observation, status: "invalid", current: false, freshness_reason: "invalid_evidence" };
+    }
     observation.current = null; observation.freshness_reason = "not_ready";
     if (parsed.data.status === "ready" && run !== null) {
       if (isVerificationRunCancelled(events, { ...scope, run_id: run.run_id })) {
@@ -107,4 +122,19 @@ export async function readCoordinationExecutionContext(def: WorkflowDef, session
   }));
   return CoordinationExecutionContextSchema.parse({ run: run === null ? null : { run_id: run.run_id, status: run.status,
     active: ["running", "waiting_human"].includes(run.status) && runs.activeRunId(session.req_id) === run.run_id }, tasks, goals });
+}
+
+/** 当前资源来自同一执行观察；历史协调轮次不把旧 run 计量当当前额度。 */
+export function goalUsageViews(context: CoordinationExecutionContext): GoalUsageView[] {
+  return context.goals.flatMap(goal => {
+    if (goal.usage_budget === undefined) return [];
+    const totals = goal.usage_totals ?? null;
+    const limit = totals === null ? null : usageBudgetExceeded(goal.usage_budget, totals);
+    const status: GoalUsageView["status"] = goal.status === "invalid" ? "invalid" : limit === "unknown_usage" ? "unknown"
+      : limit !== null ? "exceeded" : totals === null || (totals.observed_tasks === 0 && totals.unknown_tasks === 0) ? "not_started" : "observed";
+    return [{ run_id: goal.run_id, event_id: goal.event_id, node_id: goal.node_id, status, usage_budget: goal.usage_budget, usage_totals: totals,
+      reason: status === "invalid" ? "资源或 Goal 来源不可核验" : status === "unknown" ? context.run?.active === true
+        ? "当前任务尚未完整报告受限指标，等待计量结果" : "受限指标存在未知计量，停止自动执行"
+        : status === "exceeded" ? "已观测消耗超过声明上限" : null }];
+  });
 }

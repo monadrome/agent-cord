@@ -102,6 +102,7 @@ flowchart LR
 | blocked Goal 自动协调升级 | 原型已实现；显式 supervisor_agent 触发一次 ask_human/wait Draft，重启/并发去重 |
 | Goal 升级协调重试 | 原型已实现；修复配置/事实后按最新 token 重试同 blocker，持久父子来源/单子请求、冷恢复不重放，未答复问题仍可进入独立 Goal 授权（[ADR-0065](./adr/ADR-0065-goal-coordination-retry.md)） |
 | Goal 可观测 usage 预算 | 原型已实现；可选 input/output token 与 cost 上限，宿主累计 task usage，超限或声明预算下 usage 未知时保留 budget 证据并 fail-closed，不把未知 usage 当零（[ADR-0066](./adr/ADR-0066-goal-usage-budget.md)） |
+| 当前 Goal 资源观察 | 原型已实现；server 提供当前 run 的逐指标 totals/budget/unknown/exceeded/invalid，协调模型与控制台消费同一投影，冷恢复和来源跳转保持绑定（[ADR-0067](./adr/ADR-0067-goal-usage-observation.md)） |
 | 独立 Context Session Agent | 已实现最新快照提议、人工采用与受限 Goal 观察；声明 supervisor 后自动解释 blocker 并生成人工卡点，完整监督续跑仍待完善 |
 
 真实 agent 开发流程的设计默认是 Goal；“Agent 协作 · Goal”模板与 [goal-sdlc.yaml](../examples/goal-sdlc.yaml) 提供当前原型。零外部依赖的离线 `simple-sdlc` 继续用于验证平台内核，既有发布版本与人工 gate 保留原语义。后续按 [路线图](./10-roadmap.md) 继续完善，跨模块协议先更新 ADR。

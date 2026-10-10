@@ -16,7 +16,7 @@ import { DEFAULT_SDLC_ID, type SdlcService } from "./sdlc-service.js";
 import type { GoalBlockedContext, RunService } from "./run-service.js";
 import { readVerificationSource, verificationSourceInputs } from "./verification-inputs.js";
 import { readCoordinationVerifications } from "./verification-context.js";
-import { readCoordinationExecutionContext } from "./execution-context.js";
+import { readCoordinationExecutionContext, goalUsageViews } from "./execution-context.js";
 
 interface ActiveCoordination {
   round_id: string;
@@ -196,13 +196,22 @@ export class CoordinationService {
 
   async list(req_id: string): Promise<CoordinationRoundView[]> {
     const rounds = await this.readRounds(req_id);
-    return Promise.all(rounds.map(async (round) => ({ ...round, ...await this.inspect(round), ...await this.inspectGoalRetry(round), ...await this.inspectCoordinationRetry(round) })));
+    return Promise.all(rounds.map(async (round) => ({ ...round, ...await this.inspect(round), ...await this.inspectGoalRetry(round), ...await this.inspectCoordinationRetry(round), ...await this.inspectGoalUsage(round) })));
   }
 
   async get(req_id: string, round_id: string): Promise<CoordinationRoundView> {
     if (this.storage_errors.has(round_id)) throw internalError("协调轮次事实写入失败，需要修复存储后恢复", this.storage_errors.get(round_id));
     const round = await this.readRound(req_id, round_id);
-    return { ...round, ...await this.inspect(round), ...await this.inspectGoalRetry(round), ...await this.inspectCoordinationRetry(round) };
+    return { ...round, ...await this.inspect(round), ...await this.inspectGoalRetry(round), ...await this.inspectCoordinationRetry(round), ...await this.inspectGoalUsage(round) };
+  }
+
+  private async inspectGoalUsage(round: CoordinationRoundView): Promise<Pick<CoordinationRoundView, "goal_usage">> {
+    const binding = await this.sdlcs.get(round.sdlc_id, round.sdlc_version);
+    if (!binding.def.spec.nodes.some(node => node.run?.goal?.usage_budget !== undefined) || binding.workflow_revision !== round.workflow_revision) return {};
+    const latest = await this.options.runs.latestRun(round.req_id);
+    if (latest !== null && latest.workflow_revision !== binding.workflow_revision) return { goal_usage: [] };
+    const session = await this.sessions.open(round.req_id);
+    return { goal_usage: goalUsageViews(await readCoordinationExecutionContext(binding.def, session, binding.workflow_revision, this.options.runs)) };
   }
 
   private async readRound(req_id: string, round_id: string): Promise<CoordinationRoundView> {

@@ -5,6 +5,8 @@ import { createInterface } from "node:readline";
 
 const acp = process.argv.includes("--acp");
 const always_fail = process.argv.includes("--always-fail");
+const usage_mode = process.argv.includes("--usage-mode") ? process.argv[process.argv.indexOf("--usage-mode") + 1] : "none";
+const usage = usage_mode === "none" ? undefined : { inputTokens: 6, outputTokens: 2, ...(usage_mode === "full" ? { cost: 0.02 } : {}) };
 let cwd = process.cwd();
 const send = value => process.stdout.write(JSON.stringify(value) + "\n");
 const report = "# Human review\n\n## 变更\nvalue.txt 对应当前目标，Draft 尚未合入。\n\n## 验收\n宿主检查 value.txt 的值；以宿主实际结果为准。\n\n## 风险\n只验证示例业务值，最终 review 与合入仍人工。\n";
@@ -21,7 +23,9 @@ function work(prompt) {
 
 if (!acp) {
   const text = work(process.argv.at(-1) ?? "");
-  send({ type: "result", subtype: "success", result: text, session_id: "goal-headless" });
+  send({ type: "result", subtype: "success", result: text, session_id: "goal-headless", ...(usage === undefined ? {} : {
+    usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens }, total_cost_usd: usage.cost,
+  }) });
 } else {
   const lines = createInterface({ input: process.stdin });
   lines.on("line", line => {
@@ -32,7 +36,7 @@ if (!acp) {
     else if (method === "session/prompt") {
       const text = work(params.prompt[0].text);
       send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "goal-acp", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } } });
-      respond({ stopReason: "end_turn" });
+      respond({ stopReason: "end_turn", ...(usage === undefined ? {} : { usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, totalTokens: usage.inputTokens + usage.outputTokens } }) });
     }
   });
 }

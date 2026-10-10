@@ -1,5 +1,14 @@
 # 工作进度
 
+## 2026-10-09（阶段 53）
+
+- d7a4103 工作树起点干净，ahead 4；上一轮严格未知 usage 修复为实际进展。HTTP/2 远端查询本轮 20 秒超时。
+- 接资源投影时发现原累计不核验任务来源/配对，部分指标存在即可绕过费用限制，冷恢复没有 completed 的 started 不计量；ready 测试只改 candidate 不改 events，不能证明抗伪造汇总。
+- ADR-0067 先行，修复共享计量/逐指标完整性/派发前检查/ready 重算，并把当前 run 的资源状态投影给协调模型及工作台；状态仍来自 server。沿用 planning-with-files 和既有控制台设计。
+- 共享计量 18 项、runner/ready 65 项与 8 项真实 ACP/headless server 通过关键用例；首次资源测试错误假设需求尚未选择流程时已有预算，改为无绑定返回空。误把 server 观察测试写入库测试造成 helper 缺失，已改成库 prompt/提议契约测试，server 资源行为留在 server 测试。
+- 逐指标缺失/零/超限、来源与配对错误、中断恢复/伪造 ready、当前 run 隔离均已覆盖；blocked 的验收清单不因缺 ready 验收证据禁止 supervisor。运行中未知计量文案改为等待当前任务结果，终态未知仍明确停止。
+- 最终全量 1097 项 / 76 文件、typecheck/build:all/diff 通过；补充 `docs/research/2026-10-09-goal-usage-observation.md`，阶段 53 实现与验证完成，准备独立小步提交。
+
 ## 2026-10-09（阶段 52）
 
 - 当前 8c330ac 已同步远端且工作树干净；阶段 51 为已验证进展。审查发现 ACP/headless 已有规范化 usage，但 Goal 只保存 task usage，不累计也不限制目标资源。

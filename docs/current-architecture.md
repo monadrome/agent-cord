@@ -72,6 +72,8 @@ Goal 可选 acceptance 声明条件到 check ID 的映射。宿主完成检查�
 
 Goal 可选 usage_budget 绑定宿主可观察的 task usage；goal-usage.ts 跨尝试累计输入/输出 token 与 cost，超限写 budget blocker 和 usage_totals，未声明流程保持兼容，未知 usage 不当零（ADR-0066）。
 
+当前资源投影由 execution-context/goalUsageViews 和 `/goal-usage` REST 提供，验证任务成对来源、配置/输入身份与逐指标 unknown；协调 round 和控制台只消费 projection。ready、post gate、恢复共用目标计量重算，活动 run 的未知计量显示等待/invalid，终态 unknown 进入升级，不会在冷恢复重置预算（ADR-0067）。
+
 ## 3. 数据和写入路径
 
 每个需求对应 `cord/<req-id>/`：

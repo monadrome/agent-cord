@@ -20,6 +20,7 @@ import type {
   RequirementSummary,
   RunInfo,
   GoalRecoveryView,
+  GoalUsageView,
   SdlcSummary,
   SdlcTemplate,
   SdlcValidationResult,
@@ -119,6 +120,7 @@ export interface RunResponse {
   run: RunInfo;
 }
 export interface GoalRecoveryResponse { request_id: string; recovery: GoalRecoveryView }
+export interface GoalUsageResponse { request_id: string; goals: GoalUsageView[] }
 export interface CoordinationResponse {
   request_id: string;
   round: CoordinationRoundView;
@@ -295,6 +297,7 @@ export interface ApiClient {
 
   startRun(reqId: string, input?: StartRunInput, key?: string): Promise<RunResponse>;
   listCoordination(reqId: string): Promise<CoordinationListResponse>;
+  getGoalUsage(reqId: string): Promise<GoalUsageResponse>;
   getCoordination(reqId: string, roundId: string): Promise<CoordinationResponse>;
   startCoordination(reqId: string, input: StartCoordinationInput, key?: string): Promise<CoordinationResponse>;
   cancelCoordination(reqId: string, roundId: string, key?: string): Promise<CoordinationResponse>;
@@ -358,6 +361,7 @@ export function createClient(baseUrl = ""): ApiClient {
     startRun: (reqId, input = {}, key) =>
       request<RunResponse>(baseUrl, `${reqPath(reqId)}/runs`, writeInit("POST", input, key)),
     listCoordination: (reqId) => request<CoordinationListResponse>(baseUrl, `${reqPath(reqId)}/coordination`),
+    getGoalUsage: reqId => request<GoalUsageResponse>(baseUrl, `${reqPath(reqId)}/goal-usage`),
     getCoordination: (reqId, roundId) => request<CoordinationResponse>(baseUrl, `${reqPath(reqId)}/coordination/${encodeURIComponent(roundId)}`),
     startCoordination: (reqId, input, key) => request<CoordinationResponse>(baseUrl, `${reqPath(reqId)}/coordination`, writeInit("POST", input, key)),
     cancelCoordination: (reqId, roundId, key) => request<CoordinationResponse>(baseUrl, `${reqPath(reqId)}/coordination/${encodeURIComponent(roundId)}/cancel`, writeInit("POST", undefined, key)),
