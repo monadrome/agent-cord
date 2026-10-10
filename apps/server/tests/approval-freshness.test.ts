@@ -163,6 +163,8 @@ describe("审批依据新鲜度", () => {
   it.each([false, true])("落盘选择未消费时重启，changed=%s：只消费匹配依据的选择", async (changed) => {
     await publish(); await create(); const original = await start(); const item = await approval();
     const waiting = (await events()).find((event) => event.event_id === item.approval_id)!;
+    // 固定未消费窗口：等待事实可见时，旧 executor 仍可能尚未进入 ask。
+    await server.runs.close();
     await append("human.decision.recorded", { ...(waiting.payload as Record<string, unknown>), waiting_event_id: item.approval_id, chosen: "确认放行", chosen_index: 0, timeout_ms: null, default_index: 0, fallback: null, raw_input: null });
     if (changed) await api("PUT", "/api/v1/requirements/REQ-FRESH/docs/prd", { content: "# AFTER_RECORDED_DECISION" });
     await restart();
