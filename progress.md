@@ -10,6 +10,7 @@
 - 浏览器脚本首次错用 role=tab 定位超时，按实际文档按钮修正；1440/390/320 无溢出/pageerror，三行四列变更表与基线来源通过，截图已查看。完整文件 hash 在手机上过长，表内缩为前 12 位，事件保留完整值重算；最新证据 `/tmp/cord-stage57-browser-result.json`、预览 `53563`/PID `18808`、worker 2/审批 1/人工决定 0/节点退出 0/doctor=true，无付费模型调用，原真实 Draft 未操作。
 - 最终候选全量 1155/1156 通过，旧审批 changed=true 用例观察超时；单独复跑通过。测试在 gate.waiting 可见但 ask 尚未登记时手工追加选择，旧 executor 有机会提前消费，未固定“落盘未消费”前提。测试先收束旧 runner 再追加选择，确定性保留待重启窗口，11 项审批回归通过；生产审批语义未改。
 - 2026-10-10 收尾：最终全量 1156 项 / 80 文件通过，typecheck/build:all/diff、180 本地文档链接通过；隔离预览 HTTP 健康且保持审批 1，没有新人工决定或合入。准备独立测试稳定化提交与阶段功能提交，完整持续目标保持 active。
+- 已创建 `0874746`（测试窗口稳定化）与 `0aefbcc`（`feat: attach host source changes to goal reviews`）；HTTP/2 push 与 ls-remote 均报 GitHub 443 连接约 75 秒超时，HTTP/1.1 push 达到 30 秒总时长上限（exit=124）。远端同步未确认，本地提交与全部证据保留，不回滚，工作区干净。
 
 ## 2026-10-09（阶段 56）
 
