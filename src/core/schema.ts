@@ -316,6 +316,8 @@ export const WorkflowDefSchema = z.object({
               /** 任务模板（支持 {{req_id}} / {{node_id}} / {{artifact}} 占位）；缺省按产物类型给模板 */
               prompt: z.string().optional(),
               readonly: z.boolean().default(false),
+              /** ADR-0081：要求headless显式只读启动映射；缺省保留旧语义。 */
+              require_readonly_mapping: z.boolean().optional(),
               /** ADR-0038：text 仅返回完整文本，声明产物由 coordinator 代写；auto 保持原行为。 */
               output: z.enum(["auto", "text"]).optional(),
               timeout_ms: z.number().int().positive().optional(),
@@ -336,6 +338,8 @@ export const WorkflowDefSchema = z.object({
           gates: z.array(GateDefSchema).default([]),
         }).refine((node) => node.run?.output !== "text" || node.artifact !== undefined, {
           path: ["run", "output"], message: "output=text 必须声明节点 artifact",
+        }).refine(node => node.run?.require_readonly_mapping !== true || node.run.readonly, {
+          path: ["run", "require_readonly_mapping"], message: "require_readonly_mapping=true 必须保持 readonly=true",
         }).refine(node => node.run?.goal === undefined || (node.artifact !== undefined && !node.run.readonly && node.run.retry === undefined), {
           path: ["run", "goal"], message: "Goal 必须声明 review artifact、保持可写且不能同时使用 run.retry",
         }),

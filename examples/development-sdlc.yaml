@@ -20,6 +20,7 @@ spec:
       run:
         agent: codex-planner
         readonly: true
+        require_readonly_mapping: true
         output: text
         timeout_ms: 120000
         prompt: >-
@@ -55,6 +56,7 @@ spec:
       run:
         agent: codex-reviewer
         readonly: true
+        require_readonly_mapping: true
         output: text
         timeout_ms: 180000
         prompt: >-

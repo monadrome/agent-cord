@@ -1,5 +1,11 @@
 # 调研发现
 
+## 阶段67（2026-10-10）：节点尚未消费只读映射能力
+
+- readonly_launch已进入公开清单与协调输入，但eligible_nodes只检查worker解析/配置hash；执行器仅把readonly传给driver，不支持声明“角色必须有只读参数映射”。能力显示不满足时仍可派发。
+- 增加可选run.require_readonly_mapping并共用准入谓词，可在协调、派发和checkpoint复用拒绝缺映射。缺省不增字段，避免旧发布/identity整体变更；不能从参数声明推断OS隔离。
+- 直接库调用没有read_agents时也不能放行显式约束；ACP没有CLI映射声明，不把协议权限转换成此能力。
+
 ## 阶段66（2026-10-10）：自定义wrapper忽略readonly
 
 - custom_headless_template仅替换prompt/model/effort/session，未消费task.readonly；同wrapper实现与评审只能用相同启动参数，配置意图没有传到CLI。

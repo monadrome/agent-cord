@@ -229,6 +229,8 @@ ADR-0080 为自定义 headless 条目增加完整 `readonly_args/readonly_resume
 
 公开与 CoordinationAgentCapabilities 的可选 `readonly_launch: mapped/unmapped`、`readonly_resume: supported/unsupported` 仅描述 headless 参数映射，ACP 不设置这两个字段。外部 HeadlessCliTemplate 的 supports_readonly/supports_readonly_resume 必须显式声明，不从普通 supports_resume 推断；未声明只读恢复则在 spawn 前拒绝。实际四分支 argv/不可用恢复 null 进入配置 hash；旧新任务 argv 不变，但旧无只读恢复映射配置的 hash 可变化并触发现有新鲜度核验。只读工具审计仍独立，不保证 OS 沙箱或回滚副作用。
 
+节点 `run.require_readonly_mapping` 是可选严格能力要求，只能与 `readonly=true` 同时发布。true 要求流程 Agent 上下文中的目标 driver 为 resolved、configuration_hash 非空、transport=headless 且 `capabilities.readonly_launch=mapped`。缺失上下文、ACP、unmapped 或配置漂移均使 eligible_nodes 为空；wait/ask_human 可引用 workflow 节点解释卡点。NodeRunner 在派发前记录不可重试 configuration failure，不启动进程；`isCompletionReusable` 同样拒绝不满足能力的旧完成。字段进入 workflow revision/input identity，省略字段的旧流程不改变语义（ADR-0081）。
+
 `POST /api/v1/agents/:name/inspect` 需要 Idempotency-Key，可选 timeout_ms 100-10000。只接受当前清单名称，ACP initialize/new/配置核验后返回受限 observation，不发送 prompt；headless observation=null，不能视为安装已验证。响应绑定固定 revision/configuration_hash；动态模式/选项/候选上限 128、标识上限 200，省略数量明确，扩展选项不公开当前值。失败为 400，未知名称 404，配置/环境/argv 不进入响应。
 
 ADR-0077增可选`AgentCapabilities.inspection`与`AgentInspectionView.cli_observation`。内置headless及库显式inspection_profile模板只运行固定版本/help，原始args返回cli_observation=null而不猜命令。CLI结果evidence=cli_help，status为passed/unavailable/timeout/failed/unrecognized，版本短semver、帮助hash、查询步骤、启动选项configured/advertised(boolean|null)和native_resume入口广告状态。CLI缺失/失败作为200的结构化诊断事实返回，不等于配置current=false；同revision/hash只证明查询配置新鲜，不保证CLI外部未变。解析只依赖选项定义行与明确auto choices，Codex effort保持unknown；所有原stdout/stderr/错误正文不进入响应，执行身份不因诊断变化。控制台显式CLI查询和ACP观察分别展示，沿用新鲜度与幂等重放。

@@ -11,7 +11,7 @@ import type { RequirementSnapshot } from "./snapshot.js";
 import { buildCoordinationDocuments, COORDINATION_CONTEXT_POLICY, readCoordinationSnapshot } from "./coordination-context.js";
 import { goalAcceptanceIsComplete } from "./goal-acceptance.js";
 import { usageBudgetExceeded } from "./goal-usage.js";
-import { validate_coordination_agents } from "./agent-context.js";
+import { readonly_mapping_satisfied, validate_coordination_agents } from "./agent-context.js";
 
 function assertGoalAcceptance(def: WorkflowDef, execution_context?: CoordinationExecutionContext): void {
   for (const observation of execution_context?.goals ?? []) {
@@ -81,7 +81,9 @@ function eligibleNodes(def: WorkflowDef, snapshot: RequirementSnapshot, executio
   const exited = new Set(snapshot.workflow.exited);
   const next_id = topologicalOrder(def).find((id) => !exited.has(id));
   const node = def.spec.nodes.find((item) => item.id === next_id);
-  if (node?.run !== undefined && agents !== undefined && !agents.some(agent => agent.agent === node.run!.agent && agent.resolution === "resolved" && agent.configuration_hash !== null)) return [];
+  const agent = agents?.find(agent => agent.agent === node?.run?.agent);
+  if (node?.run !== undefined && agents !== undefined && (agent?.resolution !== "resolved" || agent.configuration_hash === null)) return [];
+  if (node !== undefined && !readonly_mapping_satisfied(node, agent?.capabilities)) return [];
   return node !== undefined && node.depends_on.every((id) => exited.has(id)) ? [node.id] : [];
 }
 
@@ -100,7 +102,7 @@ export function parseCoordinationProposal(text: string, def: WorkflowDef, snapsh
   if (!parsed.success) throw new Error(`协调提议不符合契约：${parsed.error.issues.map((issue) => issue.path.join(".") || "<root>").join("、")}`);
   const proposal = parsed.data;
   const action = proposal.next_action;
-  if (action.kind === "advance" && !eligibleNodes(def, snapshot, execution_context, agents).includes(action.node_id)) throw new Error("协调提议引用了不可推进的节点（依赖、进度、人工 gate、活动 run 或Agent配置未满足）");
+  if (action.kind === "advance" && !eligibleNodes(def, snapshot, execution_context, agents).includes(action.node_id)) throw new Error("协调提议引用了不可推进的节点（依赖、进度、人工 gate、活动 run 或Agent配置/只读映射未满足）");
   if (action.kind === "complete" && (execution_context?.run?.active === true || (snapshot.workflow.waiting?.length ?? 0) > 0 || !def.spec.nodes.every((node) => snapshot.workflow.exited.includes(node.id)))) throw new Error("工作流尚未完成，不能提议 complete");
   if (action.kind === "ask_human" && new Set(action.options).size !== action.options.length) throw new Error("人工选择题选项必须互不相同");
   if (goal_blocker !== undefined) {
@@ -135,6 +137,7 @@ export function buildCoordinationPrompt(def: WorkflowDef, snapshot: RequirementS
     `context_policy: ${COORDINATION_CONTEXT_POLICY}\n文档按首尾片段提供，document_excerpts 标明 UTF-16 字符范围和省略数。未显示的内容不能声称已核验；材料不足时请选择 wait 或 ask_human。`,
     `workflow 来源的 id 只能是 node.id（${JSON.stringify(def.spec.nodes.map((node) => node.id))}），不能是 gate.id；verification 来源的 id 只能是 current=true 观察的 event_id；goal 来源的 id 只能是当前 Goal 尝试 event_id。`,
     "advance 只可选择 eligible_nodes；该提议不代表机器 checker 或人工审批已放行。存在 blocked/invalid/cancelled Goal 时 eligible_nodes 为空，只能依据当前 Goal 事件提出 ask_human 或 wait，不能自行扩充预算、批准权限或放行 gate。",
+    ...(def.spec.nodes.some(node => node.run?.require_readonly_mapping === true) ? ["run.require_readonly_mapping=true的节点要求headless且readonly_launch=mapped；缺Agent能力上下文、未映射或ACP均不满足。能力只说明参数映射，不证明OS隔离；修复前请选择wait/ask_human，不能自行降级流程约束或换Agent。"] : []),
     `req_id: ${snapshot.req_id}\ntitle: ${snapshot.title ?? "（未命名）"}`,
     ...(goal_blocker === undefined ? [] : [`goal_blocker: ${JSON.stringify(goal_blocker)}\n这是宿主自动发起的阻塞解释。只可返回 ask_human 或 wait，必须引用此 goal_event_id；说明已尝试的自动修复、缺少的事实或权限以及最小人工决定，不自动扩充预算、回答问题或恢复 run。`]),
     `workflow: ${JSON.stringify(def)}`,

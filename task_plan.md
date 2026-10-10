@@ -870,6 +870,15 @@
 - [x] 功能小步提交bde74cb，完整实现/证据/指南保留；原真实Draft未操作，完整目标active
 - [ ] 远端同步：HTTP/1.1 push35秒上限exit124，HTTP/2低速超时exit128，独立两种协议ls-remote分别15/12秒上限exit124，未确认实际远端hash
 
+## 阶段67：节点只读启动映射要求（已实现并验证，待提交同步）
+
+- [x] 核验5c772c7干净/ahead6，阶段66实现/验证属于实际进展；定位能力声明未被节点准入消费，ADR-0081先行
+- [x] 可选require_readonly_mapping schema、共用谓词、派发/复用/协调fail-closed
+- [x] 发布/实际argv/无进程拒绝、修复、最新快照、固定resolver与冷恢复回归
+- [x] 推荐示例/核心feature/协议/架构与human review指南、实际HTTP验收
+- [x] 最终全量1342项/92文件、typecheck/build:all/diff与103个本地链接通过；证据/tmp/cord-stage67-tests.json
+- [ ] 小步提交/有界推送/独立远端核验；完整目标active
+
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
 - [x] 核验当前分支与阶段 10；上一轮实现和远端同步属于已验证进展

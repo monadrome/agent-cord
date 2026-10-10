@@ -31,6 +31,7 @@ import { executionInputHash } from "./checkpoint.js";
 import { nodeProducesArtifact } from "./artifact-policy.js";
 import { withGoalDelivery } from "./goal.js";
 import { readonlyToolViolation } from "./readonly-tool-policy.js";
+import { readonly_mapping_satisfied } from "./agent-context.js";
 
 const ADAPTER = "coordinator";
 const PROMPT_EXCERPT_CHARS = 4_096;
@@ -175,6 +176,7 @@ function createTaskNodeRunner(def: WorkflowDef, options: CoordinatorOptions): No
         files: [...def.spec.nodes, node].flatMap((item) => item.artifact === undefined ? [] : [item.artifact]),
       });
       const driver = options.resolveDriver(node.run?.agent ?? "");
+      if (!readonly_mapping_satisfied(node, driver.capabilities)) return false;
       const source_hash = await read_source_hash(node);
       if (source_hash !== null && payload["source_hash"] !== source_hash) return false;
       if (executionInputHash(def, node, snapshot, options.maxPackChars, driver.configuration_hash ?? null, source_hash) !== payload["execution_input_hash"]) return false;
@@ -337,6 +339,9 @@ function createTaskNodeRunner(def: WorkflowDef, options: CoordinatorOptions): No
     snapshotFields["execution_input_hash"] = executionInputHash(def, node, snapshot!, options.maxPackChars, driver.configuration_hash ?? null, source_hash);
     if (driver.configuration_hash !== undefined) snapshotFields["agent_configuration_hash"] = driver.configuration_hash;
     await started(driver.name);
+    if (!readonly_mapping_satisfied(node, driver.capabilities)) {
+      return complete("failed", { error: "节点要求headless显式只读启动映射，当前Agent能力不满足", text: "", failure_stage: "configuration", retryable: false });
+    }
 
     // 3. 派发 worker：聚合流式文本，result 事件优先；中间事件不入事件流
     let chunks = "";

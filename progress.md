@@ -1,5 +1,14 @@
 # 工作进度
 
+## 2026-10-10（阶段67）
+
+- 当前5c772c7干净/ahead6。阶段66完成真实子进程/TCP/浏览器与1326项验证，属于progress；网络同步未确认并不阻塞可独立实施的节点能力约束，完整目标active。
+- 沿用planning-with-files与agent-optimizer，读取最新快照Agent上下文、节点runner/复用与发布schema。ADR-0081先于schema修改，准备显式require_readonly_mapping；无付费模型或子agent。
+- 首次定位使用不存在的src/session-agent、旧测试/schema/template路径与factor-11-supervision参考文件，按rg --files取得实际coordinator/session-agent和sdlc-templates目录后继续；不把缺文件视为运行阻塞。
+- 新增可选`run.require_readonly_mapping`，schema要求readonly=true；`readonly_mapping_satisfied`被协调eligible_nodes、提议校验、NodeRunner spawn前和checkpoint reuse共同调用。缺能力/身份、ACP或unmapped只可wait/ask，实际失败configuration/retryable=false且无artifact/进程；缺省节点保持旧语义。
+- ADR-0081先行后修改schema。新增16项定向测试，修正测试中不可用Agent必须同时缺失capabilities的严格契约，以及冷恢复等待状态测试的错误预期；最终npm test1342项/92文件通过，typecheck/build:all/diff通过，文档链接103项，证据/tmp/cord-stage67-tests.json。
+- HTTP隔离验收：未映射任务无worker pid/approval且无自动重试；配置修复并更新PRD后实际只读argv完成报告，run停在waiting_human；协调未映射只能wait，映射变化使旧提议不可采用。使用确定性fixture，无付费模型，完整目标active。
+
 ## 2026-10-10（阶段66）
 
 - b69b051工作树干净/ahead4；阶段65真实TCP/进程验收属于进展，独立ls-remote成功但远端仍b01ea64。积压本地提交保留，结束时再有界同步。

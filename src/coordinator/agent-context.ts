@@ -1,6 +1,11 @@
 /** 只读取流程声明Agent的公开定义，不spawn、探测或保存解析错误正文。 */
-import type { AgentDriver } from "../core/ports.js";
+import type { AgentCapabilities, AgentDriver } from "../core/ports.js";
 import { CoordinationAgentsSchema, type CoordinationAgents, type WorkflowDef } from "../core/schema.js";
+
+/** 仅检查声明的CLI参数映射，不证明工具或OS隔离。 */
+export function readonly_mapping_satisfied(node: WorkflowDef["spec"]["nodes"][number], capabilities: AgentCapabilities | null | undefined): boolean {
+  return node.run?.require_readonly_mapping !== true || (node.run.readonly === true && capabilities?.transport === "headless" && capabilities.readonly_launch === "mapped");
+}
 
 export function workflow_agent_names(def: WorkflowDef): string[] {
   return [...new Set(def.spec.nodes.flatMap(node => node.run === undefined ? [] : [node.run.agent, ...(node.run.goal?.supervisor_agent === undefined ? [] : [node.run.goal.supervisor_agent])]))].sort();

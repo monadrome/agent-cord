@@ -141,6 +141,8 @@ ACP `launch.option_ids.mode` 可将 mode 绑定新配置 ID，兼容无 category
 
 自定义 headless args 支持 `readonly_args/readonly_resume_args` 完整分支和 `{{readonly}}` 文字占位，按任务模式与显式 session 选择唯一分支。所有声明分支保持 model/effort 映射与必要 prompt；resume 绑定 session ID，缺只读映射则拒绝派发，不开新会话。`readonly_launch/readonly_resume` 描述参数映射，外部模板必须显式声明支持，不能从普通 resume 推断。实际 argv/null 进入现有配置身份，流程 Agent 上下文、热重载快照、冷恢复与审批继续共用此身份；旧无映射只读 resume 的拒绝和身份变化属于保守兼容调整，不承诺权限隔离（[ADR-0080](./adr/ADR-0080-custom-readonly-launch.md)）。
 
+安全敏感的只读节点可声明 `run.require_readonly_mapping=true`。节点 schema 要求同时 `readonly=true`；Context Session Agent 用固定流程 Agent 能力快照计算 eligible_nodes，缺少稳定身份或 `readonly_launch=mapped` 时只允许解释性 wait/ask_human。NodeRunner 在解析 driver 后、spawn 前再次检查，checkpoint 复用也检查能力，配置漂移不能借旧成功绕过。缺省字段维持旧 readonly 兼容；该准入检查仍不是 OS 隔离（[ADR-0081](./adr/ADR-0081-node-readonly-mapping-requirement.md)）。
+
 RunService 维护进程内 agent lease：新 start/Goal 授权/显式恢复遇到含 `node.run` 的活动执行器返回 409，不写额外请求事实。冷恢复冲突保留原 run，lease 释放后经既有恢复器自动重检续跑；原启动事实支持重启/索引删除重建。启动失败无条件释放，已派发 executor 等 finally 收束后释放；无 agent 流程和无活动 executor 的冷人审不占 lease，未来恢复重新获取（ADR-0069）。这是单实例冲突保护，不冻结 review 版本，不代替 worktree、容器或跨进程锁。
 
 ADR-0070 已将载体升级为独立 SQLite 事务和 fsync owner 标记，在本地跨实例互斥；主索引不持长事务。正常 executor 收束才清标记，强杀/外部修改保留 unresolved 并阻断新派发，SQLite 锁释放不推断 detached worker 死亡。busy 原授权恢复每秒重检，关闭取消检查；不可读取与占用分开诊断。锁不冻结 review、提供 OS 隔离或允许同需求多 daemon 写事件，运行中不删除 `.index`。
