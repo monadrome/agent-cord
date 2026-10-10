@@ -8,6 +8,7 @@
 - 12项新驱动与4项真实TCP通过；另有查询mode与revision/hash共同匹配的纯UI回归。新readonly_launch不合并base，注册拒绝非法选项/非plan/扩展，session动态核验；v6身份绑定两套分支/顺序，旧无profile身份保持。查询readonly进入共享key，headless真只读查询400，typed第三input兼容旧调用、默认响应不加字段。
 - 完整npm test1384项/96文件、typecheck/build:all/diff通过，证据/tmp/cord-stage71-tests.json。隔离实际HTTP PID33324/http://127.0.0.1:56241：同ACP别名两次code/anthropic-large-high、报告与最新PRD协调plan/openai-small-low，无扩展继承；审批1/人工决定0、仅deliver退出、doctor=true；查询候选区分两模式且无prompt。fixture无真实LLM调用，原7306Draft未操作。
 - Playwright1440/390/320九截图与六次执行/只读模式查询通过：旧mode候选标“其他任务配置”、新查询才显示当前所选结果；pageerror=[]/无横向溢出，桌面/320/跨mode历史截图已查看。证据/tmp/cord-stage71-browser-result.json；9份相关文档先123个链接，ADR追加指南后124个，图/脚本/运行数据不入仓库。完整目标active，准备功能小步提交与有界同步。
+- 功能提交796c5f2（feat: support acp readonly launch profiles）。HTTP/1.1 push成功（c11afec→796c5f2），独立HTTP/2 ls-remote核验796c5f2af6d09daab2a01fd5ffac24791bc21c00；预览health200/审批1/current协调wait再次核验，原真实Draft未操作，完整持续目标active。
 
 ## 2026-10-10（阶段70）
 
