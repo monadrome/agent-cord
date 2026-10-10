@@ -860,14 +860,15 @@
 - [x] 功能提交f56ad07，工作树收尾后干净；完整目标active，原真实Draft未操作
 - [ ] 远端同步：核心推送HTTP/1.1 30秒、HTTP/2 25秒、ls-remote15秒均exit124；补充提交HTTP/1.1 push25秒、独立ls-remote12秒仍exit124，实际远端hash未确认
 
-## 阶段66：自定义headless只读启动与恢复（已实现并验证，待提交同步）
+## 阶段66：自定义headless只读启动与恢复（已实现并验证，本地提交，远端未确认）
 
 - [x] 核验b69b051干净/ahead4、阶段65实际进展；远端ls-remote核验仍b01ea64，ADR-0080先行
 - [x] readonly_args/readonly_resume_args/readonly占位、能力声明与严格分支编译；外部模板只读恢复必须显式声明
 - [x] 四分支实际argv/拒绝/配置身份/恢复与热重载回归；42项定向验证含外部模板拒绝反例
 - [x] 实际HTTP SDLC实现+评审、最新PRD独立协调，1440/390/320五截图无溢出/pageerror；核心feature/协议/示例/人审指南同步
 - [x] 最终全量1326项/90文件、typecheck/build:all/diff与101个本地链接通过
-- [ ] 小步提交/推送/独立远端核验；完整目标active
+- [x] 功能小步提交bde74cb，完整实现/证据/指南保留；原真实Draft未操作，完整目标active
+- [ ] 远端同步：HTTP/1.1 push35秒上限exit124，HTTP/2低速超时exit128，独立两种协议ls-remote分别15/12秒上限exit124，未确认实际远端hash
 
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 

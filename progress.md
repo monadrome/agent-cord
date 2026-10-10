@@ -11,6 +11,7 @@
 - 路由定位首次搜索旧routes/requirements.ts路径不存在，按实际目录检索后继续；未影响运行事实。
 - 42项最终定向回归通过；最终完整npm test1326项/90文件、typecheck/build:all/diff通过，证据/tmp/cord-stage66-final-tests.json。新协调prompt实际包含旧deliver ready/current=false/freshness_reason=stale_input；HTTP health200、审批1、run waiting_human、协调current=true/wait均再次核验。
 - 七份相关文档首轮100项本地链接通过，ADR增加指南后为101项；最终文档链接与diff检查后准备功能小步提交。系统没有gtimeout命令，Git同步采用Node子进程总时长限制，不修改全局设置，不启动版本发布或tag，完整持续目标active。
+- 功能提交bde74cb（feat: map custom readonly launch and resume）。HTTP/1.1 push达到35秒总上限exit124；独立ls-remote15秒上限exit124。HTTP/2重试报GitHub低于1 bytes/sec持续15秒、exit128；独立HTTP/2 ls-remote12秒总上限exit124。实际远端hash未确认，本地功能及阶段65积压提交保留；本阶段交付与验证已完成，远端同步仍待网络恢复，完整持续目标active。
 
 ## 2026-10-10（阶段65）
 
