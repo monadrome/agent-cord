@@ -17,6 +17,12 @@ describe("能力查询公开身份核对", () => {
     expect(inspection_matches_catalog(catalog, "worker", inspection)).toBe(true);
     expect(inspection_matches_catalog(catalog, "other", inspection)).toBe(false);
   });
+  it("查询任务模式不同不将历史候选作为当前所选配置，旧结果只对应执行配置", () => {
+    expect(inspection_matches_catalog(catalog, "worker", inspection, true)).toBe(false);
+    const readonly = { ...inspection, readonly: true };
+    expect(inspection_matches_catalog(catalog, "worker", readonly)).toBe(false);
+    expect(inspection_matches_catalog(catalog, "worker", readonly, true)).toBe(true);
+  });
   it.each(["revision", "hash", "missing_hash", "removed", "server_stale", "old_server"])("%s 不将旧查询视为当前", mode => {
     const next = structuredClone(catalog); const result = structuredClone(inspection);
     if (mode === "revision") next.revision += 1;

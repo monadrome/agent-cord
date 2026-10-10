@@ -11,8 +11,8 @@ export function launch_option_text(option: string): string {
   return Object.hasOwn(LAUNCH_OPTION_TEXT, option) ? LAUNCH_OPTION_TEXT[option]! : option;
 }
 
-export function inspection_matches_catalog(catalog: AgentCatalogView, name: string, inspection: AgentInspectionView): boolean {
+export function inspection_matches_catalog(catalog: AgentCatalogView, name: string, inspection: AgentInspectionView, readonly = false): boolean {
   const agent = catalog.agents.find(entry => entry.name === name);
   return inspection.current === true && inspection.configuration_hash !== null && agent !== undefined
-    && catalog.revision === inspection.revision && agent.configuration_hash === inspection.configuration_hash;
+    && catalog.revision === inspection.revision && agent.configuration_hash === inspection.configuration_hash && (inspection.readonly === true) === readonly;
 }

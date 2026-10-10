@@ -87,6 +87,8 @@ npm run cord -- demo
 
 Agent 能力识别与启动控制是平台原子能力：严格 `launch` 配置覆盖 provider/model/effort、Claude bare/auto/角色/预算、ACP mode 与 select/boolean 扩展、自定义参数映射及显式 session 恢复。不支持的参数拒绝注册，固定流程节点恢复限定原授权未退出 Goal 节点。能力清单与无 prompt 的 ACP 协商接口、配置示例和 human review 指南见 [启动能力验收](./docs/research/2026-10-10-agent-launch-capabilities.md)；provider 单独的配置与审查见 [Provider 指南](./docs/research/2026-10-10-provider-launch.md)。
 
+ACP 可声明完整 `readonly_launch`，让同一别名分别承担可写实现与只读评审/协调；两套配置不合并。控制台可选择查询执行或只读配置，接口使用 `{readonly: true}` 核验只读分支，结果标明实际任务模式。两套配置共同绑定恢复与协调身份，说明与人审入口见 [ACP 只读配置指南](./docs/research/2026-10-10-acp-readonly-launch.md)。
+
 工作区 `cord/agents.yaml` 支持 ACP、内置 headless 模板和自定义参数三种形态：
 
 ```yaml

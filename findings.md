@@ -1,5 +1,11 @@
 # 调研发现
 
+## 阶段71（2026-10-10）：ACP启动配置缺少只读分支
+
+- task.readonly改变权限拒绝与工具审计，但AcpLaunchState仍消费唯一launch；显式code/扩展配置直接拒绝readonly，同别名无法既实施Goal又只读评审/协调。
+- 完整readonly_launch可独立选择provider/model/effort/plan与ID，不继承可写扩展；注册校验与session动态回执分别负责静态/动态错误。旧无声明身份保留，任意分支变化都绑定新身份。
+- 独立配置必须可显式inspect；任务模式要进入共享key与结果标签，不能把执行配置候选当只读配置候选或复用在途探测。
+
 ## 阶段70（2026-10-10）：Provider切换可改变配置候选
 
 - AcpLaunchState当前顺序为mode/扩展/provider/model/effort；新provider解锁的扩展选项会在切换前被拒绝。需要按当前完整回执设置provider，再处理扩展/model/effort，最终仍检查反向重置。

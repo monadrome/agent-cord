@@ -195,7 +195,7 @@ function handleMessage(message) {
     if (mode === "reset-config" && params.configId === "thinking") configOptions.find(value => value.id === "llm").currentValue = "small";
     if (mode === "duplicate-option") configOptions.push(structuredClone(option));
     if (mode === "duplicate-value") configOptions.find(value => value.id === "thinking").options.push({ value: "high", name: "Duplicated" });
-    if (mode === "mode-dependent-model" && params.configId === "workflow") configOptions.find(value => value.id === "llm").options.push({ value: "large", name: "Large" });
+    if (mode === "mode-dependent-model" && params.configId === "workflow" && params.value === "code") configOptions.find(value => value.id === "llm").options.push({ value: "large", name: "Large" });
     respond(id, { configOptions });
     if (mode === "post-set-drift" && params.configId === "thinking") {
       const changed = structuredClone(configOptions); changed.find(value => value.id === "llm").currentValue = "small";

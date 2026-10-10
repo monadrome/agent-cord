@@ -231,6 +231,10 @@ ADR-0080 为自定义 headless 条目增加完整 `readonly_args/readonly_resume
 
 声明provider的ACP按mode → provider → ID排序扩展 → model → effort设置，每步使用最新完整回执。新路由解锁的模型/扩展可以正常设置，扩展或effort反向重置provider仍拒绝。配置身份绑定`explicit-session-selections.provider-first.v1`；旧provider身份变化触发现有新鲜度检查。未声明provider保留旧`explicit-session-selections.v1`与顺序（ADR-0083）。
 
+ACP条目/options可声明完整`readonly_launch: AgentLaunch`，readonly新任务、原生session恢复和独立协调以此替代launch，字段不继承。注册核验ACP支持项、精确ID/重复映射并拒绝非plan mode或非空config_options；实际session仍核验候选、回执/更新。公开与严格CoordinationAgentCapabilities增可选`readonly_configuration: explicit`；它不等价于headless的readonly_launch映射或OS权限。v6身份覆盖两套launch与各自顺序策略，无声明保留旧域/参数/能力。
+
+inspect输入增加可选readonly boolean，仅ACP支持true；默认/false响应形状不变，true响应增加readonly=true。任务mode进入共享key（缺省/false等价），跨mode在途冲突409，不缓存完成结果。查询不发送prompt或调用worker onSession，权限/工具仍拒绝；冷重载结果保持原revision/hash。console选择执行/只读查询，跨mode历史显示“其他任务配置”，实际mode标签来自响应，不能以同配置hash将执行候选冒充只读候选（ADR-0084）。
+
 公开与 CoordinationAgentCapabilities 的可选 `readonly_launch: mapped/unmapped`、`readonly_resume: supported/unsupported` 仅描述 headless 参数映射，ACP 不设置这两个字段。外部 HeadlessCliTemplate 的 supports_readonly/supports_readonly_resume 必须显式声明，不从普通 supports_resume 推断；未声明只读恢复则在 spawn 前拒绝。实际四分支 argv/不可用恢复 null 进入配置 hash；旧新任务 argv 不变，但旧无只读恢复映射配置的 hash 可变化并触发现有新鲜度核验。只读工具审计仍独立，不保证 OS 沙箱或回滚副作用。
 
 节点 `run.require_readonly_mapping` 是可选严格能力要求，只能与 `readonly=true` 同时发布。true 要求流程 Agent 上下文中的目标 driver 为 resolved、configuration_hash 非空、transport=headless 且 `capabilities.readonly_launch=mapped`。缺失上下文、ACP、unmapped 或配置漂移均使 eligible_nodes 为空；wait/ask_human 可引用 workflow 节点解释卡点。NodeRunner 在派发前记录不可重试 configuration failure，不启动进程；`isCompletionReusable` 同样拒绝不满足能力的旧完成。未注入NodeRunner时，未退出严格节点在post gate前抛定义错误，不能靠普通run可见跳过或历史成功退出；恢复注入后重新核验。字段进入 workflow revision/input identity，省略字段的旧流程不改变语义（ADR-0081）。

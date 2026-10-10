@@ -873,6 +873,7 @@ export const CoordinationAgentCapabilitiesSchema = z.strictObject({
   launch_options: z.array(z.string().min(1).max(64)).max(32).refine(values => new Set(values).size === values.length, "启动选项必须唯一"),
   native_resume: z.enum(["supported", "unsupported", "negotiated"]), goal: z.literal("host"), workflow_resume: z.literal("authorized_unexited_goal"),
   readonly_launch: z.enum(["mapped", "unmapped"]).optional(), readonly_resume: z.enum(["supported", "unsupported"]).optional(),
+  readonly_configuration: z.literal("explicit").optional(),
 });
 export const CoordinationAgentsSchema = z.array(z.strictObject({
   agent: z.string().min(1).max(200), resolution: z.enum(["resolved", "unavailable"]),

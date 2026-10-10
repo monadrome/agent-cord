@@ -16,6 +16,11 @@ function work(prompt, configuration) {
   const calls = existsSync(calls_file) ? Number(readFileSync(calls_file, "utf8")) : 0;
   writeFileSync(calls_file, String(calls + 1));
   appendFileSync(join(cwd, ".goal-worker-prompts.jsonl"), JSON.stringify({ prompt, calls: calls + 1, ...(configuration === undefined ? {} : { configuration }) }) + "\n");
+  if (process.argv.includes("--profile-worker") && configuration?.workflow === "plan") {
+    if (readFileSync(join(cwd, "value.txt"), "utf8") !== "fixed") throw new Error("只读fixture观察到业务值未修复");
+    return prompt.startsWith("# Context Session Agent") ? JSON.stringify({ summary: "最新只读配置观察等待最终人审",
+      next_action: { kind: "wait", reason: "最终gate人工未决", evidence: [{ source: "workflow", id: "review" }] }, risks: [] }) : report;
+  }
   const repaired = calls > 0 && !always_fail;
   writeFileSync(join(cwd, "value.txt"), repaired ? "fixed" : "broken");
   if (process.argv.includes("--source-changes")) {
@@ -38,6 +43,7 @@ if (!acp) {
     { id: "llm", name: "Model", type: "select", currentValue: "small", options: [{ value: "small", name: "Small" }, { value: "large", name: "Large" }] },
     { id: "thinking", name: "Effort", type: "select", currentValue: "low", options: [{ value: "low", name: "Low" }, { value: "high", name: "High" }] },
     { id: "workflow", name: "Mode", type: "select", currentValue: "plan", options: [{ value: "plan", name: "Plan" }, { value: "code", name: "Code" }] },
+    ...(process.argv.includes("--profile-worker") ? [{ id: "extended", name: "Extension", type: "boolean", currentValue: false }] : []),
   ];
   const lines = createInterface({ input: process.stdin });
   lines.on("line", line => {

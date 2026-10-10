@@ -23,6 +23,7 @@ export function Agents(): ReactElement {
   const [catalog_verified, setCatalogVerified] = useState(false);
   const [inspecting, setInspecting] = useState<string | null>(null);
   const [inspections, setInspections] = useState(new Map<string, AgentInspectionView>());
+  const [inspection_modes, setInspectionModes] = useState(new Map<string, boolean>());
   const [inspection_errors, setInspectionErrors] = useState(new Map<string, { message: string; stage: "inspection" | "catalog" }>());
   const detail_id = useId();
   const generation = useRef(0);
@@ -53,7 +54,7 @@ export function Agents(): ReactElement {
     }
   }, []);
 
-  const inspect = useCallback(async (name: string): Promise<void> => {
+  const inspect = useCallback(async (name: string, readonly = false): Promise<void> => {
     if (in_flight.current) return;
     in_flight.current = true;
     const operation = ++generation.current;
@@ -61,7 +62,7 @@ export function Agents(): ReactElement {
     setNotice(null);
     setInspectionErrors(previous => { const next = new Map(previous); next.delete(name); return next; });
     try {
-      const result = await api.inspectAgent(name);
+      const result = await api.inspectAgent(name, undefined, readonly ? { readonly: true } : {});
       if (generation.current !== operation) return;
       setInspections(previous => new Map(previous).set(name, result));
       setCatalogVerified(false);
@@ -95,6 +96,7 @@ export function Agents(): ReactElement {
   }, [catalog, query, source, protocol, capability]);
   const available_options = useMemo(() => [...new Set(catalog?.agents.flatMap(agent => agent.capabilities?.launch_options ?? []) ?? [])].sort(), [catalog]);
   const busy = phase !== "idle" || inspecting !== null;
+  const readonly_query = (agent: AgentCatalogView["agents"][number]) => agent.kind === "acp" && agent.capabilities?.readonly_configuration === "explicit" && inspection_modes.get(agent.name) === true;
 
   return (
     <div className="agent-workspace">
@@ -160,8 +162,9 @@ export function Agents(): ReactElement {
                     {selected?.name === agent.name ? <ChevronUp size={18} aria-hidden="true" /> : <ChevronDown size={18} aria-hidden="true" />}
                   </button><span role="tooltip" className="agent-tooltip">查看能力</span></span>
                   {selected?.name === agent.name ? <AgentCapabilityDetails id={detail_id} agent={agent} inspection={inspections.get(agent.name)}
-                    current={catalog_verified && inspections.has(agent.name) && inspection_matches_catalog(catalog, agent.name, inspections.get(agent.name)!)}
-                    catalog_verified={catalog_verified} inspecting={inspecting === agent.name} disabled={busy} error={inspection_errors.get(agent.name)?.message ?? null} onInspect={() => void inspect(agent.name)} /> : null}
+                    current={catalog_verified && inspections.has(agent.name) && inspection_matches_catalog(catalog, agent.name, inspections.get(agent.name)!, readonly_query(agent))}
+                    readonly={readonly_query(agent)} onReadonlyChange={value => setInspectionModes(previous => new Map(previous).set(agent.name, value))}
+                    catalog_verified={catalog_verified} inspecting={inspecting === agent.name} disabled={busy} error={inspection_errors.get(agent.name)?.message ?? null} onInspect={() => void inspect(agent.name, readonly_query(agent))} /> : null}
                 </li>
               ))}
             </ul>
@@ -171,6 +174,7 @@ export function Agents(): ReactElement {
       {catalog !== null && selected !== null && !catalog.agents.some(agent => agent.name === selected.name) ? <section className="agent-removed-observation" aria-label="已移除 Agent 的历史查询">
         <header className="agent-detail-head"><h2 className="mono">{selected.name}</h2><span className="agent-result-stale">已移除</span><button type="button" className="btn agent-icon-button" aria-label="关闭历史查询" onClick={() => setSelected(null)}><X size={18} aria-hidden="true" /></button></header>
         <AgentCapabilityDetails id={detail_id} agent={selected} inspection={inspections.get(selected.name)} current={false} catalog_verified={catalog_verified}
+          readonly={readonly_query(selected)} onReadonlyChange={() => undefined}
           inspecting={inspecting === selected.name} disabled={true} error={inspection_errors.get(selected.name)?.message ?? null} onInspect={() => undefined} />
       </section> : null}
     </div>

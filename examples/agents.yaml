@@ -34,6 +34,22 @@ agents:
 # ACP 可用 launch: {provider: anthropic, model: ..., effort: high, option_ids: {provider: provider, model: llm, effort: thinking}}；ID和值必须来自实际握手。
 # ACP model/effort 需要 option_ids，先通过 /agents/:name/inspect 查询当前配置 ID。
 # 新 ACP mode 可用 launch: {mode: code, option_ids: {mode: workflow}}，ID/值必须来自实际协议。
+# 同ACP别名可声明完整readonly_launch，以plan配置承担只读评审/协调，不合并可写launch：
+# dual-worker:
+#   kind: acp
+#   bin: your-acp-wrapper
+#   launch:
+#     provider: your-provider-id
+#     model: your-writable-model
+#     effort: high
+#     mode: code
+#     option_ids: {provider: provider, model: llm, effort: thinking, mode: workflow}
+#   readonly_launch:
+#     model: your-review-model
+#     effort: low
+#     mode: plan
+#     option_ids: {model: llm, effort: thinking, mode: workflow}
+# 缺省readonly_launch继承原launch；明确只读分支不能声明非plan mode或config_options扩展。
 # 自定义 wrapper 的 args 可绑定 {{prompt}}/{{model}}/{{effort}}/{{readonly}}。
 # 原生恢复须给完整 resume_args 并显式绑定 {{resume_session_id}}；无映射则拒绝恢复。
 # readonly_args 是完整只读新会话argv，不追加args。

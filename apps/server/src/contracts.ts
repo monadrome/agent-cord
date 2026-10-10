@@ -38,7 +38,8 @@ export interface AgentCatalogView {
   warnings: string[];
   rejected: string[];
 }
-export const InspectAgentInputSchema = z.strictObject({ timeout_ms: z.number().int().min(100).max(10_000).optional() });
+export const InspectAgentInputSchema = z.strictObject({ timeout_ms: z.number().int().min(100).max(10_000).optional(), readonly: z.boolean().optional() });
+export type InspectAgentInput = z.infer<typeof InspectAgentInputSchema>;
 export interface AgentInspectionView {
   revision: number;
   configuration_hash: string | null;
@@ -47,6 +48,8 @@ export interface AgentInspectionView {
   capabilities: AgentCapabilities | null;
   observation: AcpCapabilityObservation | null;
   cli_observation?: HeadlessCapabilityObservation | null;
+  /** ADR-0084：true表示只读任务配置查询；旧缺省表示执行配置。 */
+  readonly?: boolean;
 }
 
 // ---------------------------------------------------------------------------

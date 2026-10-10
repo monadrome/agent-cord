@@ -906,6 +906,16 @@
 - [x] 最终全量1367项/94文件、typecheck/build:all/diff与125个本地文档链接通过
 - [x] 功能提交ceea352；HTTP/2首次push30秒超时，HTTP/1.1推送成功（b01ea64→ceea352）；推送后HTTP/1.1查询15秒超时，独立HTTP/2查询核验ceea352f833ac4c833085f60b01217c4b2828d6a，完整目标active
 
+## 阶段71：ACP独立只读启动配置（已实现并验证，待提交同步）
+
+- [x] 核验c11afec干净/tracking同步，阶段69/70为实际progress；定位同ACP别名code/扩展配置不能用于只读，ADR-0084先行
+- [x] readonly_launch完整替换、严格注册/运行核验、两套策略身份与旧配置兼容；12项真实driver回归
+- [x] 任务模式无prompt查询/typed client/在途共享key/关闭/重载；UI历史mode纯核验测试
+- [x] 4项真实TCP Goal+readonly报告/最新PRD协调与固定resolver/冷等待回归
+- [x] 核心feature/协议/架构/示例、人审指南；1440/390/320九截图/六查询无pageerror/溢出，桌面/320/跨mode历史已查看
+- [x] 全量1384项/96文件、typecheck/build:all/diff与124个本地文档链接通过
+- [ ] 小步提交/有界同步/独立远端核验；完整目标active
+
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
 - [x] 核验当前分支与阶段 10；上一轮实现和远端同步属于已验证进展

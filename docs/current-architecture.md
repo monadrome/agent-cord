@@ -145,6 +145,8 @@ ACP `launch.option_ids.mode` 可将 mode 绑定新配置 ID，兼容无 category
 
 声明provider的ACP先设置mode/provider，再用完整回执处理扩展、model、effort，避免新路由解锁选项在切换前被误拒绝。设置期间反向重置也在seal时拒绝，执行中漂移继续取消。新顺序策略只改变provider配置身份，未声明provider保持原顺序/hash。真实TCP Goal验证宿主失败→修复→通过后等待人审；冷恢复路由变化使原run重新验证并使用剩余预算，不新增run、批准或合入（[ADR-0083](./adr/ADR-0083-provider-configuration-order.md)）。
 
+ACP定义的可选readonly_launch是完整AgentLaunch，task.readonly=true时替代可写launch，不合并，包含新session、loadSession和独立协调。构造时复用严格映射校验并拒绝非plan/扩展；允许值、回执和漂移仍按session动态核验。显式只读定义使用v6配置身份，纳入两套配置与顺序策略，公开readonly_configuration=explicit不暴露原文。无声明保留旧身份/能力；只读工具审计、权限和产物控制仍独立。AgentService查询的任务mode进入共享key，仅ACP接受readonly=true，结果标明实际模式；UI还核对所选模式与revision/hash。查询不调用模型或worker会话hook（[ADR-0084](./adr/ADR-0084-acp-readonly-launch-profile.md)）。
+
 安全敏感的只读节点可声明 `run.require_readonly_mapping=true`。节点 schema 要求同时 `readonly=true`；Context Session Agent 用固定流程 Agent 能力快照计算 eligible_nodes，缺少稳定身份或 `readonly_launch=mapped` 时只允许解释性 wait/ask_human。NodeRunner 在解析 driver 后、spawn 前再次检查，checkpoint 复用也检查能力，配置漂移不能借旧成功绕过。缺省字段维持旧 readonly 兼容；该准入检查仍不是 OS 隔离（[ADR-0081](./adr/ADR-0081-node-readonly-mapping-requirement.md)）。
 
 RunService 维护进程内 agent lease：新 start/Goal 授权/显式恢复遇到含 `node.run` 的活动执行器返回 409，不写额外请求事实。冷恢复冲突保留原 run，lease 释放后经既有恢复器自动重检续跑；原启动事实支持重启/索引删除重建。启动失败无条件释放，已派发 executor 等 finally 收束后释放；无 agent 流程和无活动 executor 的冷人审不占 lease，未来恢复重新获取（ADR-0069）。这是单实例冲突保护，不冻结 review 版本，不代替 worktree、容器或跨进程锁。

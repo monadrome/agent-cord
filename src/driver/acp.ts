@@ -158,6 +158,8 @@ export interface AcpDriverOptions {
   /** agent 二进制（如 kimi / opencode / claude-agent-acp） */
   bin: string;
   launch?: AgentLaunch;
+  /** ADR-0084：只读任务的完整启动配置；不与launch合并。 */
+  readonly_launch?: AgentLaunch;
   /** 子命令，默认 ["acp"] */
   args?: string[];
   /** 暴露给 registry 的驱动名，默认 `acp:<bin>` */
@@ -177,12 +179,24 @@ export interface AcpDriverOptions {
   onSession?: (sessionId: string) => void;
 }
 
+const ACP_LAUNCH_OPTIONS = Object.freeze(["provider", "model", "effort", "mode", "option_ids", "config_options"]);
+function validate_acp_launch(value: AgentLaunch | undefined): AgentLaunch {
+  const launch = validate_agent_launch(value, ACP_LAUNCH_OPTIONS);
+  for (const key of ["provider", "model", "effort"] as const) {
+    if (launch[key] !== undefined && launch.option_ids?.[key] === undefined) throw new Error(`ACP ${key} 必须声明 option_ids.${key}`);
+  }
+  const ids = Object.values(launch.option_ids ?? {});
+  if (new Set(ids).size !== ids.length) throw new Error("ACP 启动选项不能映射到相同配置 ID");
+  if (ids.some(id => Object.hasOwn(launch.config_options ?? {}, id))) throw new Error("ACP 配置 ID 与启动选项映射重复");
+  return launch;
+}
+
 export class AcpDriver implements AgentDriver {
   readonly name: string;
   readonly configuration_hash: string;
-  readonly capabilities: AgentCapabilities = Object.freeze({ transport: "acp", evidence: "adapter", installation: "unchecked", inspection: "acp_handshake",
-    launch_options: Object.freeze(["provider", "model", "effort", "mode", "option_ids", "config_options"]), native_resume: "negotiated", goal: "host", workflow_resume: "authorized_unexited_goal" });
+  readonly capabilities: AgentCapabilities;
   private readonly launch: AgentLaunch;
+  private readonly readonly_launch: AgentLaunch | undefined;
   /** agent 二进制（doctor / registry 观测用） */
   readonly bin: string;
   readonly args: string[];
@@ -198,18 +212,19 @@ export class AcpDriver implements AgentDriver {
     this.bin = options.bin;
     this.args = [...(options.args ?? ["acp"])];
     this.name = options.name ?? `acp:${options.bin}`;
-    this.launch = validate_agent_launch(options.launch, this.capabilities.launch_options);
-    for (const key of ["provider", "model", "effort"] as const) {
-      if (this.launch[key] !== undefined && this.launch.option_ids?.[key] === undefined) throw new Error(`ACP ${key} 必须声明 option_ids.${key}`);
-    }
-    const ids = Object.values(this.launch.option_ids ?? {});
-    if (new Set(ids).size !== ids.length) throw new Error("ACP 启动选项不能映射到相同配置 ID");
-    if (ids.some(id => Object.hasOwn(this.launch.config_options ?? {}, id))) throw new Error("ACP 配置 ID 与启动选项映射重复");
+    this.launch = validate_acp_launch(options.launch);
+    this.readonly_launch = options.readonly_launch === undefined ? undefined : validate_acp_launch(options.readonly_launch);
+    if (this.readonly_launch !== undefined) new AcpLaunchState(this.readonly_launch, true);
+    this.capabilities = Object.freeze({ transport: "acp", evidence: "adapter", installation: "unchecked", inspection: "acp_handshake",
+      launch_options: ACP_LAUNCH_OPTIONS, native_resume: "negotiated", goal: "host", workflow_resume: "authorized_unexited_goal",
+      ...(this.readonly_launch === undefined ? {} : { readonly_configuration: "explicit" as const }) });
     if (options.permission_policy !== undefined && options.decidePermission !== undefined) throw new Error("permission_policy 与 decidePermission 不能同时声明");
     this.permission_policy = options.permission_policy === undefined ? undefined : AcpPermissionPolicySchema.parse(options.permission_policy);
-    this.configuration_hash = sha256Hex(canonicalJson({ domain: Object.keys(this.launch).length > 0 ? "cord.agent-config.acp.v5" : this.permission_policy !== undefined ? "cord.agent-config.acp.v3" : options.context_revision === undefined ? "cord.agent-config.acp.v1" : "cord.agent-config.acp.v2",
+    this.configuration_hash = sha256Hex(canonicalJson({ domain: this.readonly_launch !== undefined ? "cord.agent-config.acp.v6" : Object.keys(this.launch).length > 0 ? "cord.agent-config.acp.v5" : this.permission_policy !== undefined ? "cord.agent-config.acp.v3" : options.context_revision === undefined ? "cord.agent-config.acp.v1" : "cord.agent-config.acp.v2",
       ...(Object.keys(this.launch).length === 0 ? {} : { launch_state_policy: this.launch.provider === undefined ? ACP_LAUNCH_STATE_POLICY : ACP_PROVIDER_LAUNCH_STATE_POLICY }),
       ...(Object.keys(this.launch).length === 0 ? {} : { launch: this.launch }),
+      ...(this.readonly_launch === undefined ? {} : { readonly_launch: this.readonly_launch,
+        readonly_launch_state_policy: this.readonly_launch.provider === undefined ? ACP_LAUNCH_STATE_POLICY : ACP_PROVIDER_LAUNCH_STATE_POLICY }),
       ...(this.permission_policy === undefined ? {} : { permission_policy: this.permission_policy }),
       ...(options.context_revision === undefined ? {} : { context_revision: options.context_revision }), name: this.name, bin: this.bin, args: this.args }));
     this.env = { ...options.env };
@@ -228,10 +243,10 @@ export class AcpDriver implements AgentDriver {
   }
 
   /** 只协商新 session 并校验启动配置，不发送 prompt 或请求工具。 */
-  async inspect(cwd: string, timeout_ms = 5_000, signal?: AbortSignal): Promise<AcpCapabilityObservation> {
+  async inspect(cwd: string, timeout_ms = 5_000, signal?: AbortSignal, readonly = false): Promise<AcpCapabilityObservation> {
     if (signal?.aborted) throw new Error("ACP 能力查询已取消");
     let observation: AcpCapabilityObservation | undefined;
-    for await (const event of this.execute({ prompt: "", cwd, timeout_ms, ...(signal === undefined ? {} : { signal }) }, undefined, true)) {
+    for await (const event of this.execute({ prompt: "", cwd, timeout_ms, ...(readonly ? { readonly: true } : {}), ...(signal === undefined ? {} : { signal }) }, undefined, true)) {
       if (event.type === "error") throw new Error("ACP 能力协商或启动配置核验失败");
       if (event.type === "tool_use") throw new Error("ACP 能力查询不允许工具调用");
       if (event.type === "result") observation = (event.data as { raw: AcpCapabilityObservation }).raw;
@@ -244,6 +259,7 @@ export class AcpDriver implements AgentDriver {
   private async *execute(task: AgentTask, resumeSessionId: string | undefined, inspect_only = false): AsyncIterable<AgentEvent> {
     const timeoutMs = task.timeout_ms ?? DEFAULT_TASK_TIMEOUT_MS;
     const readonly = task.readonly === true;
+    const launch = readonly ? this.readonly_launch ?? this.launch : this.launch;
     const queue = new AsyncQueue<AgentEvent>();
 
     // execa 的 stdin 与 ACP 的 writable 必须是同一个流的两端，但两端各自被一方 lock，
@@ -417,7 +433,7 @@ export class AcpDriver implements AgentDriver {
         activeSessionId = sessionId;
         if (!inspect_only) this.onSession?.(sessionId);
         assert_running();
-        launch_state = new AcpLaunchState(this.launch, readonly);
+        launch_state = new AcpLaunchState(launch, readonly);
         launch_state.initialize(state);
         await this.configure_session(ctx, sessionId, launch_state, assert_running);
         assert_running();
@@ -427,7 +443,7 @@ export class AcpDriver implements AgentDriver {
           const modes = (state.modes?.availableModes ?? []).filter(mode => mode.id.length <= 200).map(mode => mode.id).slice(0, 128);
           const options = configured.filter(option => option.id.length <= 200).slice(0, 128).map(option => {
             const category = option.category == null ? null : option.category.slice(0, 200);
-            const public_values = option.type === "select" && (["provider", "model", "thought_level", "mode"].includes(category ?? "") || Object.values(this.launch.option_ids ?? {}).includes(option.id));
+            const public_values = option.type === "select" && (["provider", "model", "thought_level", "mode"].includes(category ?? "") || Object.values(launch.option_ids ?? {}).includes(option.id));
             if (!public_values || option.type !== "select") return { id: option.id, type: option.type, category };
             const all = option.options.flatMap(entry => "group" in entry ? entry.options.map(item => item.value) : [entry.value]);
             const values = all.filter(value => value.length <= 200).slice(0, 128);

@@ -275,6 +275,8 @@ export interface AgentCapabilities {
   /** ADR-0080：仅描述headless实参映射，不证明工具/OS隔离。 */
   readonly_launch?: "mapped" | "unmapped";
   readonly_resume?: "supported" | "unsupported";
+  /** ADR-0084：ACP完整只读配置声明，不证明只读权限隔离。 */
+  readonly_configuration?: "explicit";
   goal: "host";
   workflow_resume: "authorized_unexited_goal";
 }

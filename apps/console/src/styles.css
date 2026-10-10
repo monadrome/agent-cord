@@ -1207,6 +1207,7 @@ p {
 .agent-launch-options code { overflow-wrap: anywhere; min-width: 0; }
 .agent-launch-options span { color: var(--ink-soft); font-size: 12px; flex-shrink: 0; }
 .agent-protocol-observation { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.agent-inspection-mode { width: min(100%, 240px); margin: 12px 0; }
 .agent-result-state { display: flex; flex-wrap: wrap; gap: 5px 14px; margin: 10px 0 14px; font-size: 12px; align-items: baseline; }
 .agent-result-current { color: var(--ok); }
 .agent-result-stale { color: var(--warn); }

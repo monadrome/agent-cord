@@ -206,7 +206,7 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
   app.post("/api/v1/agents/:name/inspect", { config: { idempotency: true } }, async req => {
     const { name } = req.params as { name: string };
     const input = parseOrThrow(InspectAgentInputSchema, req.body ?? {});
-    return { request_id: requestId(req), ...await agents.inspect(name, input.timeout_ms) };
+    return { request_id: requestId(req), ...await agents.inspect(name, input.timeout_ms, input.readonly) };
   });
 
   // ---- Dashboard -----------------------------------------------------------

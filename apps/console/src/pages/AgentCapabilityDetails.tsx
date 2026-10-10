@@ -15,13 +15,16 @@ interface Props {
   catalog_verified: boolean;
   inspecting: boolean;
   disabled: boolean;
+  readonly: boolean;
+  onReadonlyChange(value: boolean): void;
   error: string | null;
   onInspect(): void;
 }
 
-export function AgentCapabilityDetails({ id, agent, inspection, current, catalog_verified, inspecting, disabled, error, onInspect }: Props): ReactElement {
+export function AgentCapabilityDetails({ id, agent, inspection, current, catalog_verified, inspecting, disabled, readonly, onReadonlyChange, error, onInspect }: Props): ReactElement {
   const tip_id = useId(); const capabilities = agent.capabilities; const observation = agent.kind === "acp" ? inspection?.observation : null;
-  const result_state = current ? "当前配置" : inspection?.current === false ? "旧配置结果"
+  const mode_id = useId();
+  const result_state = inspection !== undefined && (inspection.readonly === true) !== readonly ? "其他任务配置" : current ? "当前配置" : inspection?.current === false ? "旧配置结果"
     : !catalog_verified ? "清单未核验" : inspection?.current !== true ? "新鲜度未核验" : "旧配置结果";
   const cli_query = agent.kind === "headless" && capabilities?.inspection === "cli_help";
   const query_name = cli_query ? "CLI 能力" : "协议能力";
@@ -33,6 +36,7 @@ export function AgentCapabilityDetails({ id, agent, inspection, current, catalog
         <div><dt>原生会话恢复</dt><dd>{RESUME_TEXT[capabilities.native_resume]}</dd></div>
         {capabilities.readonly_launch !== undefined ? <div><dt>只读启动</dt><dd>{capabilities.readonly_launch === "mapped" ? "已映射" : "未声明映射"}</dd></div> : null}
         {capabilities.readonly_resume !== undefined ? <div><dt>只读会话恢复</dt><dd>{RESUME_TEXT[capabilities.readonly_resume]}</dd></div> : null}
+        {capabilities.readonly_configuration === "explicit" ? <div><dt>只读启动配置</dt><dd>已独立声明</dd></div> : null}
         <div><dt>Goal</dt><dd>宿主交付</dd></div>
         <div><dt>流程节点恢复</dt><dd>原授权未退出节点</dd></div>
         <div><dt>安装状态</dt><dd>未核验</dd></div>
@@ -49,12 +53,18 @@ export function AgentCapabilityDetails({ id, agent, inspection, current, catalog
           <ScanSearch size={18} className={inspecting ? "agent-spinning" : undefined} aria-hidden="true" />
         </button><span id={tip_id} role="tooltip" className="agent-tooltip">{query_label}</span></span>
       </header>
+      {agent.kind === "acp" && capabilities?.readonly_configuration === "explicit" ? <div className="field agent-inspection-mode">
+        <label htmlFor={mode_id}>查询配置</label><select id={mode_id} className="select" value={readonly ? "readonly" : "writable"} disabled={disabled} onChange={event => onReadonlyChange(event.target.value === "readonly")}>
+          <option value="writable">执行配置</option><option value="readonly">只读配置</option>
+        </select>
+      </div> : null}
       <ErrorBanner message={error} />
       {inspecting ? <p role="status" className="muted small">正在查询{query_name}...</p> : null}
       {cli_query && inspection?.cli_observation != null ? <CliCapabilityObservation inspection={inspection} current={current} result_state={result_state} historical={error !== null || inspecting} /> : null}
       {observation == null ? (!inspecting && error === null && inspection?.cli_observation == null ? <p className="muted small">尚未查询</p> : null) : <div className="agent-observation-result">
         <div className={`agent-result-state ${current ? "agent-result-current" : "agent-result-stale"}`} role="status">
           <strong>{error !== null || inspecting ? "上次查询" : "协议已协商"}</strong><span>{result_state}</span>
+          <span>{inspection?.readonly === true ? "只读配置" : "执行配置"}</span>
           <code title={inspection?.configuration_hash ?? "未提供"}>{inspection?.configuration_hash?.slice(0, 12) ?? "未提供"}</code>
           <span>配置版本 {inspection?.revision}</span>
         </div>

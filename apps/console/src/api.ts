@@ -10,6 +10,7 @@
 import type {
   AgentCatalogView,
   AgentInspectionView,
+  InspectAgentInput,
   ApprovalItem,
   CreateRequirementInput,
   CoordinationRoundView,
@@ -283,7 +284,7 @@ export interface ApiClient {
   dashboard(): Promise<DashboardResponse>;
   listAgents(): Promise<AgentCatalogResponse>;
   reloadAgents(key?: string): Promise<AgentCatalogResponse>;
-  inspectAgent(name: string, key?: string): Promise<AgentInspectionView & { request_id: string }>;
+  inspectAgent(name: string, key?: string, input?: InspectAgentInput): Promise<AgentInspectionView & { request_id: string }>;
 
   listRequirements(): Promise<RequirementsResponse>;
   getRequirement(reqId: string): Promise<RequirementResponse>;
@@ -342,7 +343,7 @@ export function createClient(baseUrl = ""): ApiClient {
     dashboard: () => request<DashboardResponse>(baseUrl, "/api/v1/dashboard"),
     listAgents: () => request<AgentCatalogResponse>(baseUrl, "/api/v1/agents"),
     reloadAgents: (key) => request<AgentCatalogResponse>(baseUrl, "/api/v1/agents/reload", writeInit("POST", undefined, key)),
-    inspectAgent: (name, key) => request<AgentInspectionView & { request_id: string }>(baseUrl, `/api/v1/agents/${encodeURIComponent(name)}/inspect`, writeInit("POST", {}, key)),
+    inspectAgent: (name, key, input = {}) => request<AgentInspectionView & { request_id: string }>(baseUrl, `/api/v1/agents/${encodeURIComponent(name)}/inspect`, writeInit("POST", input, key)),
 
     listRequirements: () => request<RequirementsResponse>(baseUrl, "/api/v1/requirements"),
     getRequirement: (reqId) => request<RequirementResponse>(baseUrl, reqPath(reqId)),

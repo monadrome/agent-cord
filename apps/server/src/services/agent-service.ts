@@ -38,29 +38,30 @@ export class AgentService {
     return this.registry.resolve;
   }
 
-  async inspect(name: string, timeout_ms = 5_000): Promise<AgentInspectionView> {
+  async inspect(name: string, timeout_ms = 5_000, readonly = false): Promise<AgentInspectionView> {
     if (this.closing) return Promise.reject(service_closing());
     if (!this.registry.list().some(entry => entry.name === name)) return Promise.reject(notFound("agent 不在当前可用清单"));
     const driver = this.registry.resolve(name); const revision = this.revision;
-    const key = JSON.stringify([revision, driver.configuration_hash ?? driver.name, timeout_ms]);
+    if (readonly && !(driver instanceof AcpDriver)) throw badRequest("只读任务配置查询仅支持ACP");
+    const key = JSON.stringify([revision, driver.configuration_hash ?? driver.name, timeout_ms, readonly]);
     if (this.pending_inspection !== undefined) {
-      if (this.pending_inspection.key !== key) return Promise.reject(conflict("已有不同配置或超时的能力查询在进行，请稍后重试"));
+      if (this.pending_inspection.key !== key) return Promise.reject(conflict("已有不同配置、任务模式或超时的能力查询在进行，请稍后重试"));
       return this.pending_inspection.promise.then(result => structuredClone(result));
     }
     const controller = new AbortController();
-    const operation = Promise.resolve().then(() => this.inspect_once(name, driver, revision, timeout_ms, controller.signal)).finally(() => {
+    const operation = Promise.resolve().then(() => this.inspect_once(name, driver, revision, timeout_ms, controller.signal, readonly)).finally(() => {
       if (this.pending_inspection?.controller === controller) this.pending_inspection = undefined;
     });
     this.pending_inspection = { key, controller, promise: operation };
     return operation.then(result => structuredClone(result));
   }
 
-  private async inspect_once(name: string, driver: AgentDriver, revision: number, timeout_ms: number, signal: AbortSignal): Promise<AgentInspectionView> {
+  private async inspect_once(name: string, driver: AgentDriver, revision: number, timeout_ms: number, signal: AbortSignal, readonly: boolean): Promise<AgentInspectionView> {
     if (this.closing || signal.aborted) throw service_closing();
     let observation: AgentInspectionView["observation"] = null;
     let cli_observation: AgentInspectionView["cli_observation"] = null;
     if (driver instanceof AcpDriver) {
-      try { observation = await driver.inspect(dirname(this.cord_root), timeout_ms, signal); }
+      try { observation = await driver.inspect(dirname(this.cord_root), timeout_ms, signal, readonly); }
       catch { if (this.closing || signal.aborted) throw service_closing(); throw badRequest("ACP 能力协商或启动配置核验失败"); }
     }
     if (driver instanceof HeadlessDriver) {
@@ -72,7 +73,7 @@ export class AgentService {
     const current_hash = current_entry === undefined ? null : this.registry.resolve(name).configuration_hash ?? null;
     const configuration_hash = driver.configuration_hash ?? null;
     const current = revision === this.revision && configuration_hash !== null && current_hash === configuration_hash;
-    return { revision, configuration_hash, current, capabilities: driver.capabilities ?? null, observation, cli_observation };
+    return { revision, configuration_hash, current, capabilities: driver.capabilities ?? null, observation, cli_observation, ...(readonly ? { readonly: true } : {}) };
   }
 
   async close(): Promise<void> {

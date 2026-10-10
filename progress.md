@@ -1,5 +1,14 @@
 # 工作进度
 
+## 2026-10-10（阶段71）
+
+- 当前c11afec干净/远端tracking同步；阶段70全部1367项/94文件、实际TCP/浏览器与独立远端核验属于progress。继续沿用planning-with-files/agent-optimizer，先读实际ACP/schema/查询/UI，ADR-0084先于ports/schema修改；无子agent/付费模型。
+- 同ACP别名唯一launch含code/扩展时无法承担readonly报告/协调；准备完整readonly_launch及按任务inspect，配置身份/原权限/Goal自测/人工gate保持既有边界。首次typed client路径查找未命中server/src/client.ts，rg核验实际客户端位于console/src/api.ts。
+- 原生新任务/指定session恢复、完整替换、注册失败前无进程、动态漂移与hash回归已写。inspect候选用例定位fixture把plan设置也错误解锁code模型，改仅value=code解锁。workspace typecheck读旧根dist声明而报新字段/签名缺失；根source检查通过，先构建根包同步声明再验收workspace，不改源码绕过类型检查。
+- 12项新驱动与4项真实TCP通过；另有查询mode与revision/hash共同匹配的纯UI回归。新readonly_launch不合并base，注册拒绝非法选项/非plan/扩展，session动态核验；v6身份绑定两套分支/顺序，旧无profile身份保持。查询readonly进入共享key，headless真只读查询400，typed第三input兼容旧调用、默认响应不加字段。
+- 完整npm test1384项/96文件、typecheck/build:all/diff通过，证据/tmp/cord-stage71-tests.json。隔离实际HTTP PID33324/http://127.0.0.1:56241：同ACP别名两次code/anthropic-large-high、报告与最新PRD协调plan/openai-small-low，无扩展继承；审批1/人工决定0、仅deliver退出、doctor=true；查询候选区分两模式且无prompt。fixture无真实LLM调用，原7306Draft未操作。
+- Playwright1440/390/320九截图与六次执行/只读模式查询通过：旧mode候选标“其他任务配置”、新查询才显示当前所选结果；pageerror=[]/无横向溢出，桌面/320/跨mode历史截图已查看。证据/tmp/cord-stage71-browser-result.json；9份相关文档先123个链接，ADR追加指南后124个，图/脚本/运行数据不入仓库。完整目标active，准备功能小步提交与有界同步。
+
 ## 2026-10-10（阶段70）
 
 - 阶段69功能提交d4ae3ff，1348项/92文件与typecheck/build通过，属于progress。读取ACP动态回执后定位provider顺序缺口；ADR-0083先行，先写真实协议反例并补阶段68未直接覆盖的证据，不增加泛化能力要求。

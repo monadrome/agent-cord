@@ -32,6 +32,7 @@ const AgentEntrySchema = z.discriminatedUnion("kind", [
     context_revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
     permission_policy: AcpPermissionPolicySchema.optional(),
     launch: AgentLaunchSchema.optional(),
+    readonly_launch: AgentLaunchSchema.optional(),
   }),
   z.strictObject({
     kind: z.literal("headless"),
@@ -140,6 +141,7 @@ function compileAgentsYaml(yaml: AgentsYaml | null): {
           ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }),
           ...(entry.permission_policy === undefined ? {} : { permission_policy: entry.permission_policy }),
           ...(entry.launch === undefined ? {} : { launch: entry.launch }),
+          ...(entry.readonly_launch === undefined ? {} : { readonly_launch: entry.readonly_launch }),
           ...(entry.env !== undefined ? { env: { ...entry.env } } : {}),
         }));
         entries.push({ name, kind: "acp", source: "workspace", template: null, ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }),
