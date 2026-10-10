@@ -828,14 +828,15 @@
 - [x] 全量1250项/84文件、typecheck/build:all/diff、113本地链接通过
 - [x] 功能提交dbb49ef，HTTP/1.1推送成功，独立ls-remote核验dbb49efc368af5d8e8e6b58fc3321534e2d10ab8；持续完整目标active，原7306真实Draft未操作
 
-## 阶段63：Headless CLI能力查询（已实现并验证，提交同步中）
+## 阶段63：Headless CLI能力查询（已实现并验证，本地已提交，远端未确认）
 
 - [x] 核验7f659db干净、上一轮实际进展；OpenAI Docs/本机CLI帮助核对，ADR-0077先行
 - [x] 明确probe profile/有界版本帮助执行、保守能力证据与成功/失败/超时进程树收束
 - [x] server/console运行时CLI观察与新鲜度，旧ACP/custom兼容；HTTP失败保留“上次查询”材料
 - [x] 16项probe与3项新增HTTP/重载回归；真实本机Claude2.1.220/Codex0.160.0/Kimi2.1.1无prompt查询、1440/390/320七截图无溢出/pageerror
 - [x] 最终全量1269项/85文件、typecheck/build:all/diff、120本地链接通过；研究/human review指南同步
-- [ ] 小步提交与远端同步；持续完整目标active，原真实Draft未操作
+- [x] 功能提交78842a3，验证与全部证据保留，工作树收尾后干净；持续完整目标active，原真实Draft未操作
+- [ ] 远端同步：HTTP/1.1 push达30秒上限，HTTP/2达25秒上限；两种协议独立ls-remote各达15秒上限，exit124，不能确认已同步
 
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
