@@ -848,21 +848,15 @@
 - [x] 功能提交39aa980，完整实现和验收保留，本地小步完成；完整持续目标active，原真实Draft未操作
 - [x] 远端同步：先前两种协议push/ls-remote超时，最后HTTP/1.1推送成功（7f659db→0706c29），独立ls-remote核验0706c29815d7cf8a68fd3356dea38ad7a0fd79c0；阶段63积压一并同步
 
-## 阶段65：能力查询去重与关闭生命周期（实现中）
-
-- [x] 核验b01ea64干净、上一轮实际进展；读取driver/AgentService/Fastify preClose，ADR-0079先行
-- [ ] 单实例在途槽位/同配置共享/冲突与失败释放，固定快照不缓存完成结果
-- [ ] inspect取消信号、进程/连接清理、preClose取消与重载关闭边界
-- [ ] 真实fixture/HTTP并发、失败/timeout/关闭/恢复回归；研究与人审指南
-- [ ] 全量验证、实际预览、小步提交与有界远端同步；完整持续目标active
-
-## 阶段65：能力查询去重与关闭生命周期（已实现并验证，本地已提交，远端未确认）
+## 阶段65：能力查询去重与关闭生命周期（已实现并验证，补充验收提交中）
 
 - [x] 核验 b01ea64 干净、上一轮实际进展；ADR-0079先行
 - [x] 单实例在途 slot/同配置共享/冲突与失败释放，固定快照不缓存完成结果
 - [x] inspect取消信号、进程/连接清理、preClose取消与重载关闭边界
-- [x] 20项registry/16项probe，真实HTTP/CLI/ACP并发、失败/timeout/关闭；现有Goal/协调回归保持
-- [x] 全量 1293 项 / 87 文件、typecheck/build:all/diff、123 本地链接通过；完整人审指南与现有 Goal/协调回归保持
+- [x] 首轮1293项/87文件、typecheck/build:all/diff通过；127本地链接实际核验，无付费模型调用
+- [x] 补充11项真实TCP/进程生命周期与2项ACP driver回归：不同幂等键、规范化timeout、重载冲突、失败释放、close/preClose取消、结果副本、预取消/回执隔离
+- [x] 最终1306项/88文件、typecheck/build:all/diff通过；隔离TCP验收CLI/ACP关闭503/PID退出、共享一次probe/冲突409，不调用模型
+- [ ] 新增实际生命周期测试与修正记录单独提交；原真实Draft未操作，完整目标active
 - [x] 功能提交f56ad07，工作树收尾后干净；完整目标active，原真实Draft未操作
 - [ ] 远端同步：HTTP/1.1 push30秒、HTTP/2 push25秒、独立ls-remote15秒均exit124，实际远端hash未确认
 

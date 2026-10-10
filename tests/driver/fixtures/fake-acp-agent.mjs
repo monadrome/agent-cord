@@ -9,7 +9,7 @@
 //                       cwd 透传、permission 应答、session/cancel 等）
 //   --result-text <text> 输出指定最终文本（结构化协调协议测试）
 //   --no-tools          不报告工具事件（独立协调测试）
-import { writeFileSync, appendFileSync } from "node:fs";
+import { writeFileSync, appendFileSync, existsSync } from "node:fs";
 
 const argv = process.argv.slice(2);
 const flagValue = (name) => {
@@ -134,16 +134,20 @@ function handleMessage(message) {
   if (method === "initialize") {
     record({ event: "initialize", clientCapabilities: params.clientCapabilities });
     if (mode === "hang-init") return;
-    respond(id, {
+    const initialized = {
       protocolVersion: mode === "bad-version" ? 2 : 1,
       agentCapabilities: { loadSession: !argv.includes("--no-resume") },
       agentInfo: { name: "fake-acp-agent", version: "0.0.1" },
-    });
+    };
+    if (mode === "gate-init") {
+      const timer = setInterval(() => { if (existsSync(flagValue("--gate-file"))) { clearInterval(timer); respond(id, initialized); } }, 10);
+    } else respond(id, initialized);
     return;
   }
 
   if (method === "session/new") {
     record({ event: "session/new", cwd: params.cwd, mcpServers: params.mcpServers ?? null });
+    if (mode === "hang-new") return;
     if (argv.includes("--permission-on-new")) send({ jsonrpc: "2.0", id: "perm-1", method: "session/request_permission", params: {
       sessionId, toolCall: { toolCallId: "probe-tool", title: "write file", kind: "edit" },
       options: [{ optionId: "allow-once", name: "Allow", kind: "allow_once" }] } });

@@ -5,6 +5,8 @@
 - REST幂等仅共享同key请求，不同key/多端能力查询会独立spawn；AgentService没有关闭/并发边界。
 - Headless inspect只有deadline，ACP inspect没有传signal；app onClose也不关闭AgentService。Fastify源码确认preClose在连接排空前运行，可先取消长期查询再等待请求。
 - 同配置快照/规范化timeout可以共享一个在途结果，不缓存完成态；不同输入409，释放必须发生在driver清理之后。单个调用方断开不能取消其他共享请求。
+- 实际TCP回归确认共享底层probe、冲突不spawn与关闭PID退出；服务mock不能支持这些范围的结论。整个server关闭时TCP可能断开，不能把连接错误当作503已送达。
+- 排队reload遇close拒绝且revision不变，共享结果独立副本；ACP诊断不调用worker onSession。诊断仍只约束单实例，不触碰workflow事实/权限。
 
 ## 阶段64（2026-10-10）：协调漏绑worker配置
 
@@ -22,11 +24,6 @@
 - Claude实际auto choices使用引号，首轮纯解析误报false；新增quoted-auto与无choices反例，修正后本机auto=true。缺旗标标unadvertised，不将hidden参数断言为不支持。
 - 大输出fixture需要等待stdout刷出，立即process.exit会丢弃缓冲而无法证明上限。创建后代的成功fixture必须明确退出组长，默认Node child handle保持事件循环会把用例变成超时；已修正并验证两条独立清理路径。
 - UI网络查询失败保留CLI历史结果时需标“上次查询”，不能在错误旁仍把旧帮助显示为本次成功。实时配置current和CLI查询status是两个维度。
-
-## 阶段65（2026-10-10）：能力查询生命周期
-
-- 同配置不同幂等键共享 slot，完成不缓存；不同 timeout 冲突，slot 在 driver 完全清理后释放。
-- Fastify preClose 先取消 ACP/CLI 查询；driver 取消原始 Error 由 AgentService 归一为 503 `service_closing`，关闭期间不产生 workflow 事实。
 
 ## 阶段62（2026-10-10）：活动等待查询一致性
 

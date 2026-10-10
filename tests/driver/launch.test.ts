@@ -236,4 +236,30 @@ describe("严格 agent 启动与能力识别", () => {
     await expect(worker.inspect(cwd)).rejects.toThrow(/能力/);
     expect(asked).toBe(false); expect((await messages()).some(fact => fact.event === "prompt")).toBe(false);
   });
+
+  it("ACP查询预取消不启动进程，取消session/new挂起会收束且允许后续查询", async () => {
+    const cancelled = new AbortController(); cancelled.abort(); const pid_file = join(cwd, "pid");
+    const worker = driver({}, ["--mode", "hang-new", "--pid-file", pid_file]);
+    await expect(worker.inspect(cwd, 10000, cancelled.signal)).rejects.toThrow(/取消/);
+    await expect(readFile(pid_file, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    const controller = new AbortController(); const pending = worker.inspect(cwd, 10000, controller.signal);
+    const rejection = expect(pending).rejects.toThrow(/协商|取消/);
+    const deadline = Date.now() + 3000;
+    while (!await messages().then(values => values.some(value => value.event === "session/new")).catch(() => false)) {
+      if (Date.now() > deadline) throw new Error("ACP查询未进入session/new");
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    controller.abort(); await rejection;
+    const pid = Number(await readFile(pid_file, "utf8")); expect(() => process.kill(pid, 0)).toThrow();
+    expect((await driver({}).inspect(cwd)).evidence).toBe("acp_handshake");
+    expect((await messages()).some(value => value.event === "prompt")).toBe(false);
+  });
+
+  it("ACP能力查询不调用worker会话回执hook，后续run仍报告实际session", async () => {
+    const receipts: string[] = [];
+    const worker = new AcpDriver({ bin: process.execPath, args: [acp, "--record", record, "--no-tools"], onSession: id => receipts.push(id) });
+    expect((await worker.inspect(cwd)).evidence).toBe("acp_handshake"); expect(receipts).toEqual([]);
+    expect((await collect(worker.run({ prompt: "work", cwd }))).some(event => event.type === "result")).toBe(true);
+    expect(receipts).toEqual(["acp-session-1"]);
+  });
 });

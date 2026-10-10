@@ -8,4 +8,8 @@ AgentService 对同 revision、configuration_hash 和 timeout 的在途查询共
 
 查询不发送 prompt、不调用 worker、不授予工具权限，也不写 workflow 事实。诊断快照仍用 revision/hash 核对 current；自定义原始 args 没有显式 probe profile 时不自动猜测。该 slot 仅约束单服务实例，不替代跨进程锁或 OS 隔离。
 
-验证覆盖同配置不同幂等键、不同 timeout 冲突、失败/超时释放、预取消、关闭 503、CLI/ACP 进程收束和正常 run/协调不受影响。
+ACP查询不调用worker的onSession回执钩子。预取消不启动进程，查询成功/失败/取消后的slot释放均等driver清理结束；同一查询的结果为独立副本。在途重载可使旧查询current=false，关闭之后不提交新registry。
+
+实际TCP HTTP和子进程回归覆盖不同幂等键及省略/显式5000ms共享、不同timeout/Agent冲突、重载快照、超时/失败后的再查询、关闭503、Fastify preClose及PID收束；driver回归覆盖ACP预取消/挂起取消和worker回执隔离。
+
+服务关闭会关闭TCP连接，客户端可能收到service_closing响应，也可能只观察到连接断开；不能仅凭连接错误声称503已送达。单独AgentService.close的HTTP验收确认503，完整app.close的验收同时检查关闭完成及实际PID退出。此边界不扩大为跨daemon互斥或副作用回滚保证。

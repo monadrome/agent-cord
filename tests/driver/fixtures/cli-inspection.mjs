@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // CLI 能力诊断替身：只接受固定帮助命令，拒绝任何实际模型调用。
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 const argv = process.argv.slice(2); const end = argv.indexOf("--probe-args");
 const flags = end === -1 ? [] : argv.slice(0, end); const args = end === -1 ? argv : argv.slice(end + 1);
@@ -12,10 +12,15 @@ if (record !== undefined) appendFileSync(record, JSON.stringify({ args }) + "\n"
 if (![["--version"], ["--help"], ["exec", "--help"], ["exec", "resume", "--help"]].some(allowed => JSON.stringify(allowed) === JSON.stringify(args))) {
   process.stderr.write("PRIVATE_UNEXPECTED_MODEL_CALL\n"); process.exit(2);
 }
-if (flags.includes("--pid-file")) writeFileSync(value("--pid-file"), String(process.pid));
-if (flags.includes("--child-pid-file")) {
+const pid_file = flags.includes("--pid-file") ? value("--pid-file") : process.env.CORD_INSPECT_PID_FILE;
+const child_pid_file = flags.includes("--child-pid-file") ? value("--child-pid-file") : process.env.CORD_INSPECT_CHILD_PID_FILE;
+if (pid_file !== undefined) writeFileSync(pid_file, String(process.pid));
+if (child_pid_file !== undefined) {
   const child = spawn(process.execPath, ["-e", "process.on('SIGTERM',()=>{});setTimeout(()=>{},60000)"], { stdio: "ignore" });
-  writeFileSync(value("--child-pid-file"), String(child.pid));
+  writeFileSync(child_pid_file, String(child.pid));
+}
+if (scenario === "gate-version" && args[0] === "--version") {
+  while (!existsSync(process.env.CORD_INSPECT_GATE_FILE)) await new Promise(resolve => setTimeout(resolve, 10));
 }
 if (scenario === "hang" || (scenario === "hang-help" && args.at(-1) === "--help")) {
   process.on("SIGTERM", () => undefined); await new Promise(resolve => setTimeout(resolve, 60000));

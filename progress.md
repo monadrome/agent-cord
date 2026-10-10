@@ -4,6 +4,12 @@
 
 - b01ea64工作树干净/tracking同步；上一轮流程Agent上下文与1290项验证属于实际进展。
 - 审查发现能力查询不同幂等键无限并发、无服务关闭收束。沿用planning-with-files/agent-optimizer；读取Fastify本地preClose生命周期源码，ADR-0079先行，不重新调用付费模型。
+- 增加AgentService在途slot、规范化timeout共享、冲突与完成后释放；ACP/CLI inspect支持AbortSignal，preClose收束，关闭中503。首轮registry共享/关闭主要以mock验证，完整回归1293项/87文件与typecheck/build:all/diff通过，本地文档链接实际127项（此前123的记录已纠正）。
+- 关闭测试首次将index提前关闭，与既有afterEach重复清理冲突，已修正生命周期；Headless取消拒绝归一为service_closing。功能提交f56ad07和记录5771174保留本地，HTTP/1.1 push30秒、HTTP/2 push25秒和ls-remote15秒超时；最后一次HTTP/1.1推送也达30秒上限，远端尚未核验。
+- 审查验收范围后补真实fixture/TCP测试，不再将服务mock视为实际HTTP共享证据。11项覆盖CLI/ACP不同key共享、默认/5000timeout、重载冲突、失败/timeout释放、关闭503、Fastify preClose清理、结果副本与关闭期间reload；另加ACP预取消/挂起取消和worker回执隔离。
+- 真实CLI timeout测试300ms不足以保证shebang进程已进入fixture，改为2000ms并核验启动标记；进程退出使用PID查询，未重新启动超时未决任务。测试不调用付费模型，不操作原7306Draft；本阶段仍在完成补充验收。
+- 补充11项TCP/进程与2项ACP回归通过，最终全量1306项/88文件、typecheck/build:all/diff通过。证据/tmp/cord-stage65-final-tests.json。清理了本轮重复的阶段标题和两处过早/重复验收记录，保留历史提交与实际网络超时结果。
+- 隔离实际TCP验收共享CLI探测仅version/help一组，不同timeout409；同key重放不重做，新key在完成后重新探测。Fastify关闭实际CLI/ACP分别约2013ms/23ms、响应503、PID退出，未等10秒timeout；无新增需求/模型prompt。/tmp/cord-stage65-real-result.json定位临时root，PID28733/http://127.0.0.1:52389/#/agents健康预览，无付费模型，原Draft未操作。
 
 ## 2026-10-10（阶段64）
 
@@ -24,12 +30,6 @@
 - 起点7f659db干净/本地tracking同步；上一轮等待投影为已验证进展。
 - 复用planning-with-files/agent-optimizer与OpenAI Docs，Firecrawl官方CLI参考及本机三家--version/help核对。准备headless无prompt运行时查询，不能把help旗标当模型访问或实际执行证明；ADR-0077先行。
 
-## 2026-10-10（阶段65）
-
-- 增加 AgentService 同配置在途 slot、不同 timeout 冲突、不缓存完成结果、AbortSignal 和 preClose 关闭收束；20项 registry/16项 probe 通过。
-- 首次关闭测试显式关 index 后 afterEach 重复关闭，修正测试生命周期；Headless取消错误归一为503。完整回归、实际HTTP和CLI预览待最终收尾。
-- 完整npm test 1293项/87文件、typecheck/build:all/diff、123本地链接通过；20项registry slot/关闭测试、16项headless probe通过。功能提交f56ad07（fix: coordinate agent inspection lifecycle）。HTTP/1.1 push30秒、HTTP/2 push25秒和独立ls-remote15秒均exit124，远端hash未确认，本地提交/证据保留。
-- 最终完整回归 `npm test` 1293项/87文件，typecheck/build:all/diff、123本地链接通过；新增slot/关闭回归与既有Goal、协调、ACP/headless测试全部通过，证据/tmp/cord-stage65-tests.json。
 - 实现inspection_profile、version/task/resume固定命令，128KiB/流与全步骤deadline；有限semver/帮助hash/flag三态，无prompt/模型/角色入argv，结果不改变执行身份。成功组长已退出也清理同进程组后代，超时另有有界grace。
 - server新cli_observation独立于ACP，current/固定snapshot和幂等兼容；consoleCLI显式查询/步骤/已配置与帮助展示/缺CLI/未知/历史错误，原始args无probe不猜命令。
 - 首轮大输出fixture立即退出导致输出未刷全，修正flush；旧ACP测试在重载覆盖清单后查询不存在worker，删除该多余断言并由独立custom用例覆盖。Claude本机引号auto枚举新增失败反例修正；成功parent-exit fixture child handle保持eventloop，明确flush+exit并等待实际pid收束后通过，未放宽生产检查。

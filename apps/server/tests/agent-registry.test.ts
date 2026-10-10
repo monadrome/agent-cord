@@ -165,7 +165,7 @@ describe("工作区 agent registry", () => {
     expect(await pending).toMatchObject({ current: false, revision: before.revision, configuration_hash: worker.configuration_hash, cli_observation: observed });
   });
 
-  it("不同幂等键的相同CLI查询共享一次探测，不同timeout冲突，完成后可重新查询", async () => {
+  it("同配置服务调用共享一次探测，不同timeout冲突，完成后可重新查询", async () => {
     const { server } = await workspace("seed"); const worker = server.agents.resolver()("worker") as HeadlessDriver;
     let release!: () => void; const held = new Promise<void>(resolve => { release = resolve; });
     const spy = vi.spyOn(worker, "inspect").mockImplementation(async () => { await held; return { evidence: "cli_help", profile: "claude", status: "passed", version: "2.1.220", help_hash: "a".repeat(64), checks: [{ id: "version", status: "passed" }], launch_options: [], native_resume: "advertised" }; });
@@ -176,18 +176,18 @@ describe("工作区 agent registry", () => {
   });
 
   it("服务关闭前取消在途CLI查询，返回503且新查询被拒绝", async () => {
-    const { root, server } = await workspace("seed"); const worker = server.agents.resolver()("worker") as HeadlessDriver;
-    let release!: () => void; const held = new Promise<void>(resolve => { release = resolve; });
+    const { server } = await workspace("seed"); const worker = server.agents.resolver()("worker") as HeadlessDriver;
+    let entered!: () => void; const started = new Promise<void>(resolve => { entered = resolve; });
     const spy = vi.spyOn(worker, "inspect").mockImplementation(async (_cwd, _timeout, signal) => await new Promise((_resolve, reject) => {
       signal?.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+      entered();
     }));
     const pending = server.agents.inspect("worker");
-    await new Promise(resolve => setTimeout(resolve, 10));
+    await started;
     const closing = server.agents.close();
     await expect(pending).rejects.toMatchObject({ statusCode: 503 }); await closing;
     await expect(server.agents.inspect("worker")).rejects.toMatchObject({ statusCode: 503 });
-    release();
-    expect(spy).toHaveBeenCalledTimes(1); expect(root).toBeTruthy();
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 
   it.each(["changed", "unchanged", "removed", "invalid_reload"])("查询期间 %s 保留原快照身份并核验 current", async mode => {
