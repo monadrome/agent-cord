@@ -1,5 +1,14 @@
 # 工作进度
 
+## 2026-10-10（阶段70）
+
+- 阶段69功能提交d4ae3ff，1348项/92文件与typecheck/build通过，属于progress。读取ACP动态回执后定位provider顺序缺口；ADR-0083先行，先写真实协议反例并补阶段68未直接覆盖的证据，不增加泛化能力要求。
+- 17项新driver测试首轮复现新任务/恢复扩展早设置与provider旧策略身份3项失败；改mode/provider/排序扩展/model/effort顺序，provider专用策略绑定hash，旧未声明provider保留原身份。候选/类型/忽略/反向重置、无category精确ID查询、四分支真实argv/漏映射/固定resolver全部通过。
+- 2项TCP Goal回归通过：路由固定的两次调用自主修复，宿主failed→passed、自测/源码变更指南、人审等待；冷恢复不重复有效worker。只换worker provider让旧协调失效，cold恢复原run第3次尝试使用新路由并自测，不新增run/预算/人工决定。初次用例错误尝试新run被活动恢复409拒绝，改按原run恢复事实核验。
+- 最终全量1367项/94文件、typecheck/build:all/diff通过，证据/tmp/cord-stage70-tests.json。隔离实际HTTP PID26896/http://127.0.0.1:55355，worker2/anthropic均保持、宿主failed/passed、审批1/人工决定0/节点退出0/doctor=true。更新PRD后ready明确stale_input，新协调current=true/wait；无付费模型、原7306Draft未操作。
+- 首次浏览器脚本切换到已保留选择的页面时再次点击折叠，导致标签等待超时；检查aria-expanded后才展开并重跑。同阶段路由文件定位首次使用不存在的AgentsPage.tsx，rg核验实际为Agents.tsx，无生产行为改动。
+- 最终Playwright1440/390/320三截图/provider候选/中文路由标签通过，pageerror=[]/无横向溢出，桌面与最窄截图已查看。证据/tmp/cord-stage70-browser-result.json；12份文档首124个本地链接通过，ADR增加指南后125个；截图/脚本/运行数据不入仓库，完整目标active。
+
 ## 2026-10-10（阶段69）
 
 - 3ecd4df干净/ahead10，阶段67/68完成提交和1344项验证属于实际进展。沿用planning-with-files/agent-optimizer审查实际代码，定位WorkflowExecutor缺NodeRunner可跳过严格只读节点；先扩充ADR-0081再写反例，不调用付费模型或子agent。

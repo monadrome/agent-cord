@@ -4,6 +4,7 @@ import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { AgentLaunch } from "./launch.js";
 
 export const ACP_LAUNCH_STATE_POLICY = "explicit-session-selections.v1";
+export const ACP_PROVIDER_LAUNCH_STATE_POLICY = "explicit-session-selections.provider-first.v1";
 export class AcpLaunchConfigurationError extends Error {}
 const choice = z.object({ value: z.string(), name: z.string() });
 const option = z.intersection(z.object({ id: z.string(), name: z.string(), category: z.string().nullable().optional() }), z.discriminatedUnion("type", [
@@ -28,8 +29,10 @@ export class AcpLaunchState {
     }
     this.legacy_mode = launch.option_ids?.mode === undefined ? launch.mode : undefined;
     if (launch.mode !== undefined && launch.option_ids?.mode !== undefined) this.selections.set(launch.option_ids.mode, launch.mode);
+    // 切换provider可能解锁后续扩展和模型；每步消费最新完整回执。
+    if (launch.provider !== undefined) this.selections.set(launch.option_ids!.provider!, launch.provider);
     for (const [id, value] of Object.entries(launch.config_options ?? {}).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) this.selections.set(id, value);
-    for (const key of ["provider", "model", "effort"] as const) {
+    for (const key of ["model", "effort"] as const) {
       const value = launch[key];
       if (value !== undefined) this.selections.set(launch.option_ids![key]!, value);
     }

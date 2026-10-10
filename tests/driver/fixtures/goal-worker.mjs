@@ -11,11 +11,11 @@ let cwd = process.cwd();
 const send = value => process.stdout.write(JSON.stringify(value) + "\n");
 const report = "# Human review\n\n## 变更\nvalue.txt 对应当前目标，Draft 尚未合入。\n\n## 验收\n宿主检查 value.txt 的值；以宿主实际结果为准。\n\n## 风险\n只验证示例业务值，最终 review 与合入仍人工。\n";
 
-function work(prompt) {
+function work(prompt, configuration) {
   const calls_file = join(cwd, ".goal-worker-calls");
   const calls = existsSync(calls_file) ? Number(readFileSync(calls_file, "utf8")) : 0;
   writeFileSync(calls_file, String(calls + 1));
-  appendFileSync(join(cwd, ".goal-worker-prompts.jsonl"), JSON.stringify({ prompt, calls: calls + 1 }) + "\n");
+  appendFileSync(join(cwd, ".goal-worker-prompts.jsonl"), JSON.stringify({ prompt, calls: calls + 1, ...(configuration === undefined ? {} : { configuration }) }) + "\n");
   const repaired = calls > 0 && !always_fail;
   writeFileSync(join(cwd, "value.txt"), repaired ? "fixed" : "broken");
   if (process.argv.includes("--source-changes")) {
@@ -34,6 +34,7 @@ if (!acp) {
   }) });
 } else {
   const launch_options = [
+    ...(process.argv.includes("--provider-config") ? [{ id: "provider", name: "Provider", type: "select", currentValue: "openai", options: [{ value: "openai", name: "OpenAI" }, { value: "anthropic", name: "Anthropic" }] }] : []),
     { id: "llm", name: "Model", type: "select", currentValue: "small", options: [{ value: "small", name: "Small" }, { value: "large", name: "Large" }] },
     { id: "thinking", name: "Effort", type: "select", currentValue: "low", options: [{ value: "low", name: "Low" }, { value: "high", name: "High" }] },
     { id: "workflow", name: "Mode", type: "select", currentValue: "plan", options: [{ value: "plan", name: "Plan" }, { value: "code", name: "Code" }] },
@@ -49,9 +50,9 @@ if (!acp) {
       respond({ configOptions: launch_options });
     }
     else if (method === "session/prompt") {
-      const text = work(params.prompt[0].text);
+      const text = work(params.prompt[0].text, process.argv.includes("--provider-config") ? Object.fromEntries(launch_options.map(option => [option.id, option.currentValue])) : undefined);
       if (process.argv.includes("--drift-model")) {
-        launch_options[0].currentValue = "small";
+        launch_options.find(option => option.id === "llm").currentValue = "small";
         send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "goal-acp", update: { sessionUpdate: "config_option_update", configOptions: launch_options } } });
       }
       send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "goal-acp", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } } });

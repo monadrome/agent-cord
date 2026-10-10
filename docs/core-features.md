@@ -145,8 +145,10 @@ Headless运行时能力查询已接通，CLI版本、任务/恢复帮助、已�
 
 Provider 是独立的 LLM 路由选择：ACP 必须通过 `option_ids.provider` 绑定真实 session 配置项并核验候选/回执；自定义 headless 在所有 argv 分支使用 `{{provider}}`；内置 CLI 没有统一 provider 旗标，配置会直接拒绝。它不从 model、环境变量或 prompt 推断，也不证明模型权限、额度或输出质量（[ADR-0082](./adr/ADR-0082-provider-launch-selection.md)）。
 
+ACP路由切换先于扩展/model/effort设置，逐步使用最新回执，并在最终和运行中核验全部显式选择。新路由解锁的选项可用，反向重置仍拒绝；provider配置绑定新顺序身份，旧未声明配置保持兼容。provider仅为启动控制，Goal测试证据、最新需求/源码与人审仍独立核验（[ADR-0083](./adr/ADR-0083-provider-configuration-order.md)、[配置与人审指南](./research/2026-10-10-provider-launch.md)）。
+
 流程节点可以显式要求 `require_readonly_mapping`。这不是把所有 readonly 节点强行升级，而是给安全敏感流程一个可验证的准入条件：未解析、无稳定配置身份、ACP 通道或未映射 headless agent 只能生成 wait/ask_human，不能 advance；实际派发前和完成复用时仍会重检，修复配置后以最新快照重新协调。该字段只验证启动参数映射，不提供 OS 沙箱或模型权限证明（[ADR-0081](./adr/ADR-0081-node-readonly-mapping-requirement.md)）。
 
 独立协调已默认读取完整流程worker/supervisor配置身份和有界能力声明；worker模型、角色、通道或context_revision改变会使旧提议不可采用。未知/缺稳定身份的next worker不能advance，只能解释配置卡点；采用固定实际resolver并重检，冷恢复也验证原完成来源与同一身份，不自动换Agent或放行gate（[ADR-0078](./adr/ADR-0078-coordination-agent-context.md)）。
 
-待扩展维度包括 provider 路由、MCP/工具集、网络与沙箱、隔离 worktree、CLI 精确版本探测、原生 fork/turn checkpoint；应按厂商真实能力逐项映射。任意历史 workflow rewind、跨 agent 的原生 session 迁移不在当前保证内，不能通过清除已退出节点事实实现。
+待扩展维度包括内置 CLI 的 provider 路由、MCP/工具集、网络与沙箱、隔离 worktree、CLI 精确版本探测、原生 fork/turn checkpoint；应按厂商真实能力逐项映射。任意历史 workflow rewind、跨 agent 的原生 session 迁移不在当前保证内，不能通过清除已退出节点事实实现。

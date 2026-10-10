@@ -1,6 +1,6 @@
 # ADR-0082 ｜ Provider 作为显式 Agent 启动能力
 
-- 状态：accepted（实现中）
+- 状态：accepted（已实现并验证）
 - 日期：2026-10-10
 - 关联：ADR-0073（严格启动能力）、ADR-0075（ACP 启动状态一致性）、ADR-0080（自定义 headless 参数映射）
 
@@ -15,3 +15,5 @@
 ## 验证
 
 覆盖 ACP provider option ID/值/类型/回执漂移、自定义四分支 argv 与遗漏映射拒绝、内置 CLI 不支持配置、配置 hash/协调快照绑定和实际无 prompt inspect。使用确定性 fixture，不调用付费模型。
+
+阶段68基础验证1344项通过；阶段70补充17项provider真实子进程/四分支与2项TCP Goal/协调/冷恢复证据。provider依赖顺序按 [ADR-0083](./ADR-0083-provider-configuration-order.md) 处理；原provider配置身份变化需重新核验，未声明provider保持旧顺序与身份。

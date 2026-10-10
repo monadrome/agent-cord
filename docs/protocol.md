@@ -229,6 +229,8 @@ ADR-0080 为自定义 headless 条目增加完整 `readonly_args/readonly_resume
 
 `AgentLaunchSchema.provider` 是独立的 LLM 路由字段。ACP 的 `option_ids.provider` 必须存在且映射到 session/new/load 返回的 select 配置项；设置顺序稳定，候选/类型/currentValue 与后续 update 不一致时 fail-closed。自定义 headless 模板可用 `{{provider}}`，其完整新会话/恢复/只读分支必须与基本 args 保持同一 provider/model/effort 映射；内置模板未声明 provider 能力时拒绝。provider 进入 configuration_hash、任务/审批/协调输入身份，不由 model、环境或 prompt 推断。它不表示 provider 可用、模型有额度或输出质量（ADR-0082）。
 
+声明provider的ACP按mode → provider → ID排序扩展 → model → effort设置，每步使用最新完整回执。新路由解锁的模型/扩展可以正常设置，扩展或effort反向重置provider仍拒绝。配置身份绑定`explicit-session-selections.provider-first.v1`；旧provider身份变化触发现有新鲜度检查。未声明provider保留旧`explicit-session-selections.v1`与顺序（ADR-0083）。
+
 公开与 CoordinationAgentCapabilities 的可选 `readonly_launch: mapped/unmapped`、`readonly_resume: supported/unsupported` 仅描述 headless 参数映射，ACP 不设置这两个字段。外部 HeadlessCliTemplate 的 supports_readonly/supports_readonly_resume 必须显式声明，不从普通 supports_resume 推断；未声明只读恢复则在 spawn 前拒绝。实际四分支 argv/不可用恢复 null 进入配置 hash；旧新任务 argv 不变，但旧无只读恢复映射配置的 hash 可变化并触发现有新鲜度核验。只读工具审计仍独立，不保证 OS 沙箱或回滚副作用。
 
 节点 `run.require_readonly_mapping` 是可选严格能力要求，只能与 `readonly=true` 同时发布。true 要求流程 Agent 上下文中的目标 driver 为 resolved、configuration_hash 非空、transport=headless 且 `capabilities.readonly_launch=mapped`。缺失上下文、ACP、unmapped 或配置漂移均使 eligible_nodes 为空；wait/ask_human 可引用 workflow 节点解释卡点。NodeRunner 在派发前记录不可重试 configuration failure，不启动进程；`isCompletionReusable` 同样拒绝不满足能力的旧完成。未注入NodeRunner时，未退出严格节点在post gate前抛定义错误，不能靠普通run可见跳过或历史成功退出；恢复注入后重新核验。字段进入 workflow revision/input identity，省略字段的旧流程不改变语义（ADR-0081）。

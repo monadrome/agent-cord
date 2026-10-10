@@ -1,5 +1,11 @@
 # 调研发现
 
+## 阶段70（2026-10-10）：Provider切换可改变配置候选
+
+- AcpLaunchState当前顺序为mode/扩展/provider/model/effort；新provider解锁的扩展选项会在切换前被拒绝。需要按当前完整回执设置provider，再处理扩展/model/effort，最终仍检查反向重置。
+- 阶段68测试只覆盖单个headless新任务provider、ACP正常设置和运行漂移；文档中四分支、恢复、身份/协调与无prompt inspect的provider保证尚缺直接证据，需补齐，不能用旧model/effort用例替代。
+- 控制台launch_option_text遗漏provider，当前只显示原始ID；增加本地中文标签并验收实际候选投影，不展示配置原文或凭据。
+
 ## 阶段69（2026-10-10）：严格节点缺执行器仍跳过
 
 - WorkflowExecutor仅对run.goal拒绝缺NodeRunner；require_readonly_mapping=true仍走普通run的fail-visible跳过，可能把严格节点记为exited，后续无法靠配置修复补做已退出工作。

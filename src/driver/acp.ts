@@ -27,7 +27,7 @@ import { execa } from "execa";
 import type { AgentDriver, AgentEvent, AgentTask } from "../core/ports.js";
 import { canonicalJson, sha256Hex } from "../core/hash.js";
 import { validate_agent_launch, type AgentCapabilities, type AgentLaunch } from "./launch.js";
-import { ACP_LAUNCH_STATE_POLICY, AcpConfigResponseSchema, AcpLaunchConfigurationError, AcpLaunchState, type AcpCapabilityObservation } from "./acp-launch.js";
+import { ACP_LAUNCH_STATE_POLICY, ACP_PROVIDER_LAUNCH_STATE_POLICY, AcpConfigResponseSchema, AcpLaunchConfigurationError, AcpLaunchState, type AcpCapabilityObservation } from "./acp-launch.js";
 import { AcpPermissionPolicySchema, decideAcpWorkspacePermission, type AcpPermissionPolicy, type AcpPermissionPolicyInput } from "./acp-permissions.js";
 import {
   AsyncQueue,
@@ -208,7 +208,7 @@ export class AcpDriver implements AgentDriver {
     if (options.permission_policy !== undefined && options.decidePermission !== undefined) throw new Error("permission_policy 与 decidePermission 不能同时声明");
     this.permission_policy = options.permission_policy === undefined ? undefined : AcpPermissionPolicySchema.parse(options.permission_policy);
     this.configuration_hash = sha256Hex(canonicalJson({ domain: Object.keys(this.launch).length > 0 ? "cord.agent-config.acp.v5" : this.permission_policy !== undefined ? "cord.agent-config.acp.v3" : options.context_revision === undefined ? "cord.agent-config.acp.v1" : "cord.agent-config.acp.v2",
-      ...(Object.keys(this.launch).length === 0 ? {} : { launch_state_policy: ACP_LAUNCH_STATE_POLICY }),
+      ...(Object.keys(this.launch).length === 0 ? {} : { launch_state_policy: this.launch.provider === undefined ? ACP_LAUNCH_STATE_POLICY : ACP_PROVIDER_LAUNCH_STATE_POLICY }),
       ...(Object.keys(this.launch).length === 0 ? {} : { launch: this.launch }),
       ...(this.permission_policy === undefined ? {} : { permission_policy: this.permission_policy }),
       ...(options.context_revision === undefined ? {} : { context_revision: options.context_revision }), name: this.name, bin: this.bin, args: this.args }));

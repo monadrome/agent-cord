@@ -41,6 +41,9 @@ const configOptions = [
   { id: "extended", name: "Extension", type: "boolean", currentValue: false },
 ];
 const availableModes = [{ id: "plan", name: "Plan" }, { id: "code", name: "Code" }];
+if (argv.includes("--provider-boolean")) Object.assign(configOptions.find(option => option.id === "provider"), { type: "boolean", currentValue: false });
+if (argv.includes("--provider-without-category")) delete configOptions.find(option => option.id === "provider").category;
+if (argv.includes("--provider-dependent-config")) configOptions.find(option => option.id === "llm").options = [{ value: "small", name: "Small" }];
 if (mode === "mode-dependent-model") configOptions.find(value => value.id === "llm").options = [{ value: "small", name: "Small" }];
 let currentModeId = "plan";
 if (argv.includes("--config-mode")) configOptions.unshift({ id: "workflow", name: "Mode", type: "select", currentValue: "plan", options: [{ value: "plan", name: "Plan" }, { value: "code", name: "Code" }] });
@@ -184,6 +187,11 @@ function handleMessage(message) {
     if (mode === "reject-config") { respondError(id, -32000, "configuration rejected"); return; }
     const option = configOptions.find(value => value.id === params.configId);
     if (option && mode !== "ignore-config") option.currentValue = params.value;
+    if (argv.includes("--provider-dependent-config") && params.configId === "provider" && option?.currentValue === "anthropic") {
+      configOptions.find(option => option.id === "llm").options = [{ value: "small", name: "Small" }, { value: "large", name: "Large" }];
+      if (!configOptions.some(option => option.id === "extra")) configOptions.push({ id: "extra", name: "Provider Extension", type: "boolean", currentValue: false });
+    }
+    if (argv.includes("--reset-provider") && params.configId === "thinking") configOptions.find(option => option.id === "provider").currentValue = "openai";
     if (mode === "reset-config" && params.configId === "thinking") configOptions.find(value => value.id === "llm").currentValue = "small";
     if (mode === "duplicate-option") configOptions.push(structuredClone(option));
     if (mode === "duplicate-value") configOptions.find(value => value.id === "thinking").options.push({ value: "high", name: "Duplicated" });

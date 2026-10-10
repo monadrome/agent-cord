@@ -84,8 +84,8 @@ describe("严格 agent 启动与能力识别", () => {
     const events = await collect(driver(provider_launch, ["--provider-option"]).run({ prompt: "work", cwd }));
     expect(events.some(event => event.type === "error")).toBe(false);
     const facts = await messages(); const settings = facts.filter(fact => fact.event === "session/set_config_option");
-    expect(settings.map(fact => [fact.configId, fact.value])).toEqual([["extended", true], ["provider", "anthropic"], ["llm", "large"], ["thinking", "high"]]);
-    expect(settings[0].type).toBe("boolean");
+    expect(settings.map(fact => [fact.configId, fact.value])).toEqual([["provider", "anthropic"], ["extended", true], ["llm", "large"], ["thinking", "high"]]);
+    expect(settings[1].type).toBe("boolean");
     expect(facts[0].clientCapabilities).toMatchObject({ session: { configOptions: { boolean: {} } } });
     expect(facts.findIndex(fact => fact.event === "session/set_mode")).toBeLessThan(facts.findIndex(fact => fact.event === "prompt"));
     expect(facts.at(-1).event).toBe("prompt");
