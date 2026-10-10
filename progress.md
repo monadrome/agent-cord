@@ -8,6 +8,7 @@
 - 共享计量 18 项、runner/ready 65 项与 8 项真实 ACP/headless server 通过关键用例；首次资源测试错误假设需求尚未选择流程时已有预算，改为无绑定返回空。误把 server 观察测试写入库测试造成 helper 缺失，已改成库 prompt/提议契约测试，server 资源行为留在 server 测试。
 - 逐指标缺失/零/超限、来源与配对错误、中断恢复/伪造 ready、当前 run 隔离均已覆盖；blocked 的验收清单不因缺 ready 验收证据禁止 supervisor。运行中未知计量文案改为等待当前任务结果，终态未知仍明确停止。
 - 最终全量 1097 项 / 76 文件、typecheck/build:all/diff 通过；补充 `docs/research/2026-10-09-goal-usage-observation.md`，阶段 53 实现与验证完成，准备独立小步提交。
+- 已提交 `ab7d2a1`（`feat: project observable goal usage resources`）；HTTP/2 push 成功，`git ls-remote` 核验 `exp/impl` 为 `ab7d2a1ca54ebb4543aec1207d6db51b11d721f1`。
 
 ## 2026-10-09（阶段 52）
 
