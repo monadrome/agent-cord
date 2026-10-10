@@ -1,5 +1,12 @@
 # 工作进度
 
+## 2026-10-10（阶段69）
+
+- 3ecd4df干净/ahead10，阶段67/68完成提交和1344项验证属于实际进展。沿用planning-with-files/agent-optimizer审查实际代码，定位WorkflowExecutor缺NodeRunner可跳过严格只读节点；先扩充ADR-0081再写反例，不调用付费模型或子agent。
+- 首轮新增4项回归中的首次/有checkpoint两项失败，复现缺执行器仍成功退出。沿用WorkflowDefinitionError拒绝，恢复时由生产NodeRunner重新核验后才进入post gate；旧缺省/false可见跳过与已退出事实保留。
+- checkpoint恢复反例首次漏掉原node.entered，scan正确清除无进入依据的成功；补齐真实执行血统后，恢复不重复worker、post checker只执行一次、无人工询问。40项定向和最终全量1348项/92文件、typecheck/build:all/diff通过，9份文档111个本地链接通过，证据/tmp/cord-stage69-tests.json。
+- 本轮有界Git脚本去掉close后再次杀已退出进程组的路径，避免此前EPERM掩盖真实超时；收尾仍核验进程与远端实际hash，不把本地tracking当作远端证据。
+
 ## 2026-10-10（阶段67）
 
 - 当前5c772c7干净/ahead6。阶段66完成真实子进程/TCP/浏览器与1326项验证，属于progress；网络同步未确认并不阻塞可独立实施的节点能力约束，完整目标active。

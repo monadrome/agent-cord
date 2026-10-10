@@ -1,5 +1,10 @@
 # 调研发现
 
+## 阶段69（2026-10-10）：严格节点缺执行器仍跳过
+
+- WorkflowExecutor仅对run.goal拒绝缺NodeRunner；require_readonly_mapping=true仍走普通run的fail-visible跳过，可能把严格节点记为exited，后续无法靠配置修复补做已退出工作。
+- 修复应在未退出节点的run边界拒绝，历史ok也不能代表当前准入核验；已退出事实保持不回滚。沿用现有WorkflowDefinitionError，不新增状态机或能力要求抽象。
+
 ## 阶段67（2026-10-10）：节点尚未消费只读映射能力
 
 - readonly_launch已进入公开清单与协调输入，但eligible_nodes只检查worker解析/配置hash；执行器仅把readonly传给driver，不支持声明“角色必须有只读参数映射”。能力显示不满足时仍可派发。

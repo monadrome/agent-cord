@@ -86,7 +86,7 @@ export interface ExecutorOptions {
   /** 按节点覆盖 payload；优先于 payload */
   payloadFor?: (node: WorkflowNode) => Record<string, unknown>;
   /**
-   * 节点执行体（ADR-0023）：节点声明 run 时调用；未注入则跳过执行并在 node.exited 记 warn（fail-visible）。
+   * 节点执行体：普通run缺执行器时可见跳过；Goal/严格只读映射节点拒绝跳过。
    * 恢复扫点：通过 NodeRunner 校验输入指纹与产物后，才复用历史 ok（ADR-0030）。
    */
   nodeRunner?: NodeRunner;
@@ -189,6 +189,7 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
           if (node.run !== undefined) {
             if (options.nodeRunner === undefined) {
               if (node.run.goal !== undefined) throw new WorkflowDefinitionError("Goal 节点缺少 NodeRunner，不能跳过交付执行");
+              if (node.run.require_readonly_mapping === true) throw new WorkflowDefinitionError("严格只读节点缺少 NodeRunner，不能跳过启动映射核验");
               notes.push("节点声明了 run 执行体但未注入 NodeRunner，执行被跳过（fail-visible）");
             } else {
               const completion = state.agentDone.get(nodeId);

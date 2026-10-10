@@ -6,11 +6,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ulid } from "ulid";
 import { HeadlessDriver, initSession, type AgentCapabilities, type AgentDriver, type CoordinationAgents,
   type CoordinationProposal, type SessionHandle } from "../../src/index.js";
-import { WorkflowDefSchema } from "../../src/core/schema.js";
+import { GateDefSchema, WorkflowDefSchema } from "../../src/core/schema.js";
 import { custom_headless_template } from "../../src/driver/custom-template.js";
 import { createNodeRunner } from "../../src/coordinator/coordinator.js";
 import { readSnapshot } from "../../src/coordinator/snapshot.js";
 import { buildCoordinationPrompt, coordinationInputHash, parseCoordinationProposal } from "../../src/coordinator/session-agent.js";
+import { createExecutor } from "../../src/workflow/executor.js";
 
 const fixture = fileURLToPath(new URL("../driver/fixtures/fake-cli.mjs", import.meta.url));
 const workflow = () => WorkflowDefSchema.parse({ apiVersion: "agent-cord.dev/v1alpha1", kind: "Workflow", metadata: { id: "readonly-admission" },
@@ -26,6 +27,46 @@ beforeEach(async () => { root = await mkdtemp(join(tmpdir(), "cord-readonly-admi
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
 describe("节点只读映射要求", () => {
+  it.each([false, true])("缺NodeRunner不跳过严格节点或post gate，原checkpoint=%s，恢复后才退出", async checkpoint => {
+    const def = workflow(); const node = def.spec.nodes[0]!;
+    node.gates = [GateDefSchema.parse({ id: "post-evidence", role: {}, attach: { node: node.id, when: "post" },
+      checks: [{ ref: "observe-post" }], pass: { human_confirm: false }, on_fail: "block" })];
+    const worker: AgentDriver = { name: "worker", configuration_hash: "a".repeat(64), capabilities: caps,
+      async *run() { yield { type: "result", data: { text: "# 当前只读报告", session_id: null } }; }, async *resume() {} };
+    const runner = createNodeRunner(def, { workspaceRoot: root, resolveDriver: () => worker });
+    if (checkpoint) {
+      await session.events.append({ event_id: ulid(), session_id: session.req_id, type: "workflow.node.entered", schema_version: "1",
+        actor: { kind: "system", id: "workflow-executor" }, correlation_id: node.id, source: { adapter: "workflow-executor" },
+        payload: { workflow_id: def.metadata.id, node_id: node.id, artifact: node.artifact, resumed: false } });
+      expect((await runner.runNode(node, session, { workflow_id: def.metadata.id, node_id: node.id })).status).toBe("ok");
+    }
+    let checks = 0; let asks = 0;
+    const options = { humanGate: { async ask() { asks++; return "停止"; } },
+      registry: { register() {}, get() { return { name: "observe-post", async check() {
+        checks++; return { result: "pass" as const, anchors: [], reason: "测试用后置证据", confidence: 1 };
+      } }; } } };
+    await expect(createExecutor(options).run(def, session)).rejects.toThrow(/只读.*NodeRunner/);
+    const blocked = await session.events.readOrdered();
+    expect(blocked.some(event => ["workflow.node.exited", "gate.waiting", "gate.resolved", "agent.task.reused"].includes(event.type))).toBe(false);
+    expect(checks).toBe(0); expect(asks).toBe(0);
+    expect(blocked.filter(event => event.type === "agent.task.completed")).toHaveLength(checkpoint ? 1 : 0);
+    await createExecutor({ ...options, nodeRunner: runner }).run(def, session);
+    const completed = await session.events.readOrdered();
+    expect(completed.filter(event => event.type === "workflow.node.exited")).toHaveLength(1);
+    expect(completed.filter(event => event.type === "agent.task.completed")).toHaveLength(1);
+    expect(checks).toBe(1); expect(asks).toBe(0);
+    await createExecutor(options).run(def, session);
+    expect(await session.events.readOrdered()).toHaveLength(completed.length);
+  });
+
+  it.each([undefined, false])("旧节点require_readonly_mapping=%s缺执行器保持可见跳过", async requirement => {
+    const def = workflow(); const node = def.spec.nodes[0]!;
+    if (requirement === undefined) delete node.run!.require_readonly_mapping; else node.run!.require_readonly_mapping = false;
+    await createExecutor({ humanGate: { async ask() { throw new Error("不应询问"); } } }).run(def, session);
+    const completed = (await session.events.readOrdered()).find(event => event.type === "workflow.node.exited");
+    expect(completed?.payload["notes"]).toContain("节点声明了 run 执行体但未注入 NodeRunner，执行被跳过（fail-visible）");
+  });
+
   it("发布拒绝可写组合与错误类型，缺省不新增字段或改变旧输入身份", async () => {
     const def = workflow(); const node = def.spec.nodes[0]!;
     expect(WorkflowDefSchema.safeParse({ ...def, spec: { nodes: [{ ...node, run: { ...node.run, readonly: false } }] } }).success).toBe(false);

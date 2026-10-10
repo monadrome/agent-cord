@@ -19,7 +19,8 @@ run:
 1. Context Session Agent 读取本轮固定流程 Agent 快照。严格节点不满足能力时 `eligible_nodes=[]`，只能提出 wait/ask_human。
 2. 采用与启动之间仍使用固定 resolver；NodeRunner 在 driver 解析后、spawn 前重检，失败记录不可重试 configuration failure，不代写 artifact。
 3. checkpoint 复用重新读取能力。即使 configuration_hash 未变化，能力从 mapped 变为 unmapped 也不能复用旧成功。
-4. 修复 agents.yaml 后必须 reload，并基于最新需求快照重新协调；旧提议/审批按已有 workflow 与 agent identity 规则失效。
+4. 库模式缺少 NodeRunner 时，严格节点在 post gate 前抛定义错误；原成功 checkpoint 也不能绕过。恢复注入生产 NodeRunner 后才执行/复用；已退出事实不回滚，缺省或 false 保留旧规则。
+5. 修复 agents.yaml 后必须 reload，并基于最新需求快照重新协调；旧提议/审批按已有 workflow 与 agent identity 规则失效。
 
 能力只证明参数映射。它不证明 wrapper 遵守模式、CLI 已安装、模型可访问、OS 沙箱、网络或工具边界。跨 driver readonly tool audit、ACP permission policy、源码/产物验证和人工 gate 仍分别生效。
 
