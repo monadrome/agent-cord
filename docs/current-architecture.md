@@ -56,6 +56,8 @@ ACP/headless 保持任务调用。coordinator/goal.ts 在 NodeRunner 内承载 r
 
 Goal 声明 `supervisor_agent` 时，RunService 在 blocked 事实和 failed run 落盘后调用 CoordinationService 自动发起 `goal_blocked` 轮次。请求事实绑定 blocker event、run、node 和 workflow revision，服务重启补缺失请求且不重放已开始的 supervisor；在途人工协调先等待。协调失败不改变 run failed，输入变化使轮次 stale，人工回答仍走既有澄清接口。没有声明 supervisor 的流程保持旧行为。
 
+升级写前、历史请求和人工续跑统一调用纯resolveGoalBlocker，核验指定事件的system/goal-runner actor/source、session/scope/run/node与合法blocked payload；caller另核验最新run/Goal、唯一目标引用和因果前缀。错误actor和重复事件不会先写入request再污染协调列表。合法同ACP别名的code实现达到预算边界后，以readonly_launch的plan配置自动问答；有效答复不启动执行，独立retry-goal才授予原发布新预算并重新自测，happy path无额外协调调用（[ADR-0085](./adr/ADR-0085-goal-blocker-source-boundary.md)）。
+
 自动问题的人工答复可由独立 retry-goal 命令继续：view 展示当前输入 token 与发布预算，RunService 槽位内/记录前重检，started.goal_retry_round_id 与 goal.retry.authorized 绑定新执行及来源，worker 固定配置后派发。答复本身不启动模型；新 run 重新验证未退出 Goal，保留上游退出与原失败。SQLite 新列可从启动事实重建；恢复必须证明人工授权先于派发，预算与发布版本一致，旧 failed Goal 不继承新 run 的等待状态。用户处理卡点时可更新事实/代码，旧输入 409，刷新后再授权；最终人审继续绑定新产物（ADR-0059）。
 
 续跑在首次校验前固定 resolver，授权保存 worker/supervisor/节点输入 hash；RunService 的首次派发、冷恢复与审批共用 coordinator/goal-retry.ts 身份归因。热重载不改变在途 agent，冷配置漂移拒绝派发/放行，恢复原配置后可显式恢复原 run 与预算；旧授权须有合法任务来源。过期审批不通过普通 start 重授次数/时长（ADR-0062）。

@@ -1,10 +1,10 @@
 /** ADR-0059：人工新预算的持久化来源链；只查授权前事实，后续撤回不自动取消 run。 */
-import { AgentTaskStartedPayloadSchema, AgentTaskCompletedPayloadSchema, GoalAttemptCompletedPayloadSchema, GoalRetryAuthorizedPayloadSchema, CoordinatorRoundRequestedPayloadSchema, WorkflowRunStartedPayloadSchema,
+import { AgentTaskStartedPayloadSchema, AgentTaskCompletedPayloadSchema, GoalRetryAuthorizedPayloadSchema, CoordinatorRoundRequestedPayloadSchema, WorkflowRunStartedPayloadSchema,
   type EventEnvelope, type WorkflowDef } from "../core/schema.js";
 import { SessionEventReadError } from "../core/session-events.js";
 import { matchesWorkflowScope } from "../workflow/scope.js";
 import { currentClarificationAnswers } from "./clarifications.js";
-import { readGoalCoordinationRequest } from "./goal-coordination.js";
+import { readGoalCoordinationRequest, resolveGoalBlocker } from "./goal-coordination.js";
 
 function payload(event: EventEnvelope): Record<string, unknown> {
   return typeof event.payload === "object" && event.payload !== null && !Array.isArray(event.payload) ? event.payload as Record<string, unknown> : {};
@@ -24,7 +24,7 @@ export function readGoalRetryAuthorization(events: readonly EventEnvelope[], run
   if (request === undefined || readGoalCoordinationRequest(prefix, auth.round_id).event_id !== request.event_id) throw new SessionEventReadError("Goal 协调授权请求来源不可验证");
   const requested = CoordinatorRoundRequestedPayloadSchema.safeParse(request?.payload);
   const blocker = prefix.find(item => item.event_id === auth.goal_event_id);
-  const blocked = GoalAttemptCompletedPayloadSchema.safeParse(blocker?.payload);
+  const blocked = resolveGoalBlocker(blocker, { ...scope, session_id: event.session_id, run_id: auth.failed_run_id, node_id: auth.node_id, goal_event_id: auth.goal_event_id });
   const starts = prefix.filter(item => item.type === "workflow.run.started").map(item => ({ event: item, parsed: WorkflowRunStartedPayloadSchema.safeParse(item.payload) }));
   const current = starts.at(-1);
   const original = starts.find(item => item.parsed.success && item.parsed.data.run_id === auth.failed_run_id);
@@ -32,9 +32,7 @@ export function readGoalRetryAuthorization(events: readonly EventEnvelope[], run
   if (request === undefined || !requested.success || requested.data.trigger !== "goal_blocked" || requested.data.goal_event_id !== auth.goal_event_id
     || requested.data.run_id !== auth.failed_run_id || requested.data.node_id !== auth.node_id || !matchesWorkflowScope(requested.data, scope)
     || request.correlation_id !== auth.round_id
-    || blocker === undefined || blocker.type !== "goal.attempt.completed" || blocker.correlation_id !== auth.node_id || blocker.seq >= request.seq
-    || blocker.actor.kind !== "system" || blocker.source.adapter !== "goal-runner" || !blocked.success || blocked.data.status !== "blocked"
-    || blocked.data.run_id !== auth.failed_run_id || blocked.data.node_id !== auth.node_id || !matchesWorkflowScope(blocked.data, scope)
+    || blocker === undefined || blocked === null || blocker.seq >= request.seq
     || answer === undefined || current === undefined || !current.parsed.success || current.parsed.data.run_id !== run_id
     || current.parsed.data.goal_retry_round_id !== auth.round_id || !matchesWorkflowScope(current.parsed.data, scope)
     || current.event.actor.kind !== "human" || current.event.correlation_id !== run_id

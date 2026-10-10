@@ -17,6 +17,14 @@ function work(prompt, configuration) {
   writeFileSync(calls_file, String(calls + 1));
   appendFileSync(join(cwd, ".goal-worker-prompts.jsonl"), JSON.stringify({ prompt, calls: calls + 1, ...(configuration === undefined ? {} : { configuration }) }) + "\n");
   if (process.argv.includes("--profile-worker") && configuration?.workflow === "plan") {
+    if (process.argv.includes("--profile-supervisor") && prompt.startsWith("# Context Session Agent")) {
+      const context = JSON.parse(prompt.split("\n").find(line => line.startsWith("execution_context: ")).slice("execution_context: ".length));
+      const blocker = context.goals.find(goal => goal.status === "blocked");
+      if (blocker === undefined) throw new Error("只读supervisor fixture缺少当前blocker");
+      return JSON.stringify({ summary: "Goal达到自动修复边界，等待明确处理卡点",
+        next_action: { kind: "ask_human", question: "是否补充最新事实后明确重新执行？", options: ["修复并重新验收", "停止目标"],
+          reason: "原预算已耗尽，问答不等于新预算或最终gate批准", evidence: [{ source: "goal", id: blocker.event_id }] }, risks: ["代码尚无当前自测通过证据"] });
+    }
     if (readFileSync(join(cwd, "value.txt"), "utf8") !== "fixed") throw new Error("只读fixture观察到业务值未修复");
     return prompt.startsWith("# Context Session Agent") ? JSON.stringify({ summary: "最新只读配置观察等待最终人审",
       next_action: { kind: "wait", reason: "最终gate人工未决", evidence: [{ source: "workflow", id: "review" }] }, risks: [] }) : report;

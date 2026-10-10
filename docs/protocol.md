@@ -145,6 +145,8 @@ ADR-0061 统一 ready 证据：resolveGoalReadiness 校验同批事实中的最�
 
 Goal 可选声明 `supervisor_agent` 与 `supervisor_timeout_ms`。同一 run/node 的 `goal.attempt.completed{status:blocked}` 落盘并使 run failed 后，宿主自动追加 `coordinator.round.requested{trigger:goal_blocked,run_id,node_id,goal_event_id}`，使用当前 resolver 发起受限协调。自动轮次只接受引用 blocker 的 `ask_human`/`wait`，advance、complete、缺证据或输入变化均 fail-closed。已有人工协调轮次先收束再检查，完全相同 blocker 只请求一次；重启只补缺少 request 事实的 blocker，已启动调用不重放。请求 actor 为 `goal-supervisor`，失败不覆盖原 run.error。
 
+ADR-0085以纯`resolveGoalBlocker`统一指定事件来源：完成类型/ID、session/scope/run/node/correlation、合法blocked payload与system/goal-runner actor/source必须一致。升级在追加request前核验最新Goal与目标ID唯一性，错误actor或重复引用不能写入协调请求；人工续跑、历史请求/授权共用来源规则，并保留各自当前状态与因果前缀/seq约束。错误历史仍拒绝消费，不删除或回退。此规则不证明事件的OS写者或业务结论可信。
+
 ADR-0065：`POST .../coordination/:round_id/retry` 接收 `{input_hash}` 与 Idempotency-Key。服务端 coordination_retry 投影提供当前 token/available/reason/子 round，只对最新失败/timeout/stale/cancelled 或未答复 ok/current=false 的 Goal 升级轮次可用。修复同别名 supervisor 配置后可读取新 token 明确授权；token 绑定当前协调输入、父完成事件与发布超时。request 增加完整 retry_of_round_id/retry_input_hash/retry_configuration_hash，用 human actor/console-server；初始自动请求仍 system/goal-supervisor。校验父子来源、同 blocker/版本/agent 和唯一直接子请求，派发前固定 resolver 与输入重检，旧 token 409。相同父/token 重放返回原子 round，后续只能从最新失败子 round 重试；冷中断不重放模型，坏来源隔离该需求。重试不启动 worker、不增加 Goal 预算、不代答/批准 gate，答复后的 Goal 授权共用请求来源校验。
 
 ADR-0066：Goal 可选 `usage_budget`（`max_input_tokens`/`max_output_tokens`/`max_cost_usd` 至少一项）。宿主累计同一 run/node 的合法 `agent.task.completed.usage`，缓存 token 不重复计入 input；超限或声明预算下 usage 未知，在当前 task 终态后写 Goal blocked/budget 与 `usage_totals`，停止后续自动 worker，不扩额度。未声明预算保持兼容。预算进入 Goal 输入身份/ready 审计，不能替代业务验收、厂商费用结算或 OS 隔离。

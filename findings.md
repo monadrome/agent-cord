@@ -1,5 +1,11 @@
 # 调研发现
 
+## 阶段72（2026-10-10）：Goal blocker写前与历史来源边界不一致
+
+- validateGoalBlocker遗漏actor.id，readGoalCoordinationRequest要求goal-runner；先追加request再读严格来源会使新轮次甚至整个协调列表失败，不能把后置fail-closed当作没有坏写入。
+- 当前状态选择与指定事件来源校验职责不同。共享纯来源判定覆盖session/scope/run/node/目标/correlation/actor/source/payload；caller保留最新run/预算/因果前缀，并拒绝重复目标引用。
+- 阶段71只验证同别名常规Goal/评审/独立wait，自动blocker ask→答复→独立预算授权尚缺同ACP配置直接证据；本轮补实际TCP路径。
+
 ## 阶段71（2026-10-10）：ACP启动配置缺少只读分支
 
 - task.readonly改变权限拒绝与工具审计，但AcpLaunchState仍消费唯一launch；显式code/扩展配置直接拒绝readonly，同别名无法既实施Goal又只读评审/协调。

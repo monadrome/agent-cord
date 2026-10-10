@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse, stringify } from "yaml";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ulid } from "ulid";
 import { GoalBlockerTriggerSchema, CoordinatorRoundRequestedPayloadSchema, readGoalCoordinationRequest, readGoalRetryAuthorization, type EventEnvelope } from "agent-cord";
 import { createClient } from "../../console/src/api.js";
 import { buildApp, type BuiltServer } from "@agent-cord/server";
@@ -401,6 +402,25 @@ describe("Goal blocked 自动协调升级", () => {
     expect(await rounds()).toHaveLength(0);
   });
 
+  it("错误system actor的blocked事实在request写入前拒绝，不污染协调列表；合法来源修复后可升级", async () => {
+    await prepare(); server!.runs.setGoalBlockedHandler(async () => {}); const run_id = await start();
+    await waitFor(async () => !server!.runs.isActive("REQ-GOAL-ESC") && (await server!.runs.getRun(run_id)).status === "failed");
+    const session = await server!.sessions.open("REQ-GOAL-ESC"); const original = (await events()).filter(event => event.type === "goal.attempt.completed").at(-1)!;
+    const append_blocker = (id: string) => session.events.append({ event_id: ulid(), session_id: session.req_id, type: "goal.attempt.completed", schema_version: "1",
+      actor: { kind: "system", id }, correlation_id: "deliver", source: { adapter: "goal-runner" }, payload: original.payload });
+    const invalid = await append_blocker("foreign-system");
+    await expect(server!.coordination.start(session.req_id, { agent: "supervisor", sdlc_id: "goal-escalation", sdlc_version: 1 },
+      { run_id, node_id: "deliver", goal_event_id: invalid.event_id })).rejects.toThrow(/来源/);
+    expect((await events()).filter(event => event.type === "coordinator.round.requested")).toHaveLength(0);
+    expect((await api("GET", "/requirements/REQ-GOAL-ESC/coordination")).status).toBe(200);
+    await expect(calls()).rejects.toThrow();
+    const restored = await append_blocker("goal-runner");
+    const created = await server!.coordination.start(session.req_id, { agent: "supervisor", sdlc_id: "goal-escalation", sdlc_version: 1 },
+      { run_id, node_id: "deliver", goal_event_id: restored.event_id });
+    await waitFor(async () => (await rounds())[0]?.status === "ok"); expect(created.goal_event_id).toBe(restored.event_id); expect(await calls()).toBe(1);
+    expect((await events()).filter(event => event.type === "human.decision.recorded" || event.type === "goal.retry.authorized")).toHaveLength(0);
+  });
+
   it("历史自动请求来源被改成不存在事件时查询拒绝，不能展示可答复问题", async () => {
     await prepare(); await start(); await waitFor(async () => (await rounds())[0]?.status === "ok");
     const session = await server!.sessions.open("REQ-GOAL-ESC");
@@ -410,6 +430,22 @@ describe("Goal blocked 自动协调升级", () => {
     try { expect((await api("GET", "/requirements/REQ-GOAL-ESC/coordination")).status).toBe(500); }
     finally { mock.mockRestore(); }
     expect((await rounds())[0].answerable).toBe(true);
+  });
+
+  it("目标blocker ID重复时写前拒绝，不选择第一条来源", async () => {
+    await prepare(); server!.runs.setGoalBlockedHandler(async () => {}); const run_id = await start();
+    await waitFor(async () => !server!.runs.isActive("REQ-GOAL-ESC") && (await server!.runs.getRun(run_id)).status === "failed");
+    const ctx = await context(); const session = await server!.sessions.open("REQ-GOAL-ESC"); const read = session.events.readOrderedStrict!.bind(session.events);
+    const mock = vi.spyOn(session.events, "readOrderedStrict").mockImplementation(async () => {
+      const original = await read(); const source = original.find(event => event.event_id === ctx.goal_event_id)!;
+      return [...original, { ...source, seq: original.at(-1)!.seq + 1 }];
+    });
+    try {
+      await expect(server!.coordination.start(session.req_id, { agent: "supervisor", sdlc_id: "goal-escalation", sdlc_version: 1 },
+        { run_id, node_id: "deliver", goal_event_id: ctx.goal_event_id })).rejects.toThrow(/来源/);
+    } finally { mock.mockRestore(); }
+    expect((await events()).filter(event => event.type === "coordinator.round.requested")).toHaveLength(0); await expect(calls()).rejects.toThrow();
+    expect((await api("GET", "/requirements/REQ-GOAL-ESC/coordination")).status).toBe(200);
   });
 
   it("已有人工协调时等待其收束，再核验并执行一次自动升级", async () => {

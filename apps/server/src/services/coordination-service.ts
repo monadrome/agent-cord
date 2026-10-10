@@ -5,7 +5,7 @@ import {
   CoordinatorRoundCompletedPayloadSchema, createContextSessionAgent,
   CoordinatorRoundAdoptedPayloadSchema, coordinationInputHash, parseCoordinationProposal, readCoordinationSnapshot,
   GoalAttemptCompletedPayloadSchema, GoalBlockerTriggerSchema, type GoalBlockerTrigger, matchesWorkflowScope,
-  GoalRetryAuthorizedPayloadSchema, readGoalRetryAuthorization, readGoalCoordinationRequest, canonicalJson, sha256Hex,
+  GoalRetryAuthorizedPayloadSchema, readGoalRetryAuthorization, readGoalCoordinationRequest, resolveGoalBlocker, canonicalJson, sha256Hex,
   readSessionEvents, SessionEventReadError, CoordinatorRoundAnsweredPayloadSchema, CoordinatorRoundAnswerRevokedPayloadSchema, readClarificationAnswers, currentClarificationAnswers, projectClarifications, MAX_CLARIFICATION_QUESTIONS,
   read_coordination_agents, type AgentDriver, type EventEnvelope, type SessionHandle, type WorkflowDef,
 } from "agent-cord";
@@ -408,9 +408,8 @@ export class CoordinationService {
     const blocker = events.filter(event => ["goal.attempt.started", "goal.attempt.completed"].includes(event.type)
       && matchesWorkflowScope(event.payload, { workflow_id: versioned.def.metadata.id, workflow_revision: round.workflow_revision! })
       && event.payload["run_id"] === trigger.run_id && event.payload["node_id"] === trigger.node_id).at(-1);
-    const blocked = GoalAttemptCompletedPayloadSchema.safeParse(blocker?.payload);
-    if (blocker?.event_id !== trigger.goal_event_id || blocker.type !== "goal.attempt.completed" || blocker.correlation_id !== trigger.node_id
-      || !blocked.success || blocked.data.status !== "blocked") throw conflict("Goal 阻塞事实已变化，不能续跑旧卡点");
+    const blocked = resolveGoalBlocker(blocker, { ...trigger, session_id: session.req_id, workflow_id: versioned.def.metadata.id, workflow_revision: versioned.workflow_revision });
+    if (blocked === null || events.filter(event => event.event_id === trigger.goal_event_id).length !== 1) throw conflict("Goal 阻塞事实已变化或来源不可验证，不能续跑旧卡点");
     const answers = currentClarificationAnswers(events, { workflow_id: versioned.def.metadata.id, workflow_revision: round.workflow_revision });
     const answer = answers.find(item => item.round_id === round.round_id && item.revoked_at === undefined);
     if (answer === undefined || round.answer?.event_id !== answer.event_id) throw conflict("Goal 续跑需要当前未撤回的人工答复");
@@ -425,7 +424,7 @@ export class CoordinationService {
     const input = await this.options.runs.readNodeInput(versioned.def, node, session, worker_hash, round.workflow_revision);
     assert_current();
     const input_hash = sha256Hex(canonicalJson({ domain: "cord.goal-retry-input.v1", req_id: round.req_id, round_id: round.round_id,
-      blocker: trigger, blocked: blocked.data, answer_event_id: answer.event_id, completion_event_id: answer.completion_event_id,
+      blocker: trigger, blocked, answer_event_id: answer.event_id, completion_event_id: answer.completion_event_id,
       node_input_hash: input.input_hash, worker_hash, supervisor_hash, max_attempts: goal.max_attempts, timeout_ms: goal.timeout_ms }));
     return { input_hash, answer, goal, agent_configuration_hash: worker_hash, supervisor_configuration_hash: supervisor_hash, node_input_hash: input.input_hash };
   }
@@ -610,9 +609,8 @@ export class CoordinationService {
     const scope = { workflow_id: def.metadata.id, workflow_revision };
     const event = events.filter(item => ["goal.attempt.started", "goal.attempt.completed"].includes(item.type)
       && matchesWorkflowScope(item.payload, scope) && item.payload["run_id"] === source.run_id && item.payload["node_id"] === source.node_id).at(-1);
-    const parsed = GoalAttemptCompletedPayloadSchema.safeParse(event?.payload);
-    if (event?.event_id !== source.goal_event_id || event.type !== "goal.attempt.completed" || event.correlation_id !== source.node_id
-      || !parsed.success || parsed.data.status !== "blocked" || event.actor.kind !== "system" || event.source.adapter !== "goal-runner") throw conflict("自动 Goal 升级的 blocker 来源不符合契约");
+    if (resolveGoalBlocker(event, { ...source, session_id: req_id, ...scope }) === null
+      || events.filter(item => item.event_id === source.goal_event_id).length !== 1) throw conflict("自动 Goal 升级的 blocker 来源不符合契约");
   }
 
   /** 冷恢复只补没有请求事实的 blocker；已开始的模型调用不重放。 */

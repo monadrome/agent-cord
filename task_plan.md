@@ -916,6 +916,15 @@
 - [x] 全量1384项/96文件、typecheck/build:all/diff与124个本地文档链接通过
 - [x] 功能提交796c5f2；HTTP/1.1推送成功（c11afec→796c5f2），独立HTTP/2 ls-remote核验796c5f2af6d09daab2a01fd5ffac24791bc21c00；完整目标active
 
+## 阶段72：Goal blocker来源与同ACP自动升级（已实现并验证，待提交同步）
+
+- [x] 核验9227ccb干净/tracking同步，阶段71为实际progress；定位写前/历史actor校验不一致，ADR-0085先行
+- [x] 先复现错误actor请求写入；统一纯来源判定/唯一目标引用/升级与续跑，15项来源与2项server反例
+- [x] 同ACP只读profile自动ask、最新需求/配置/冷恢复与独立人工授权续跑的3项真实TCP验收；正常路径无额外协调
+- [x] 文档/human review指南与http://127.0.0.1:57051可查看预览；1440/390/320三截图通过、无pageerror/横向溢出/写请求
+- [x] 全量1404项/98文件、typecheck/build:all/diff与122个本地文档链接通过，原真实Draft未操作
+- [ ] 小步提交/有界推送/独立远端核验；完整目标active
+
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
 - [x] 核验当前分支与阶段 10；上一轮实现和远端同步属于已验证进展

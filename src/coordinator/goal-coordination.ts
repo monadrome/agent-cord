@@ -1,10 +1,20 @@
 /** ADR-0065：自动升级及人工重试的共用因果来源，不从失败跳过坏父轮次。 */
-import { CoordinatorRoundRequestedPayloadSchema, CoordinatorRoundCompletedPayloadSchema, GoalAttemptCompletedPayloadSchema, type EventEnvelope } from "../core/schema.js";
+import { CoordinatorRoundRequestedPayloadSchema, CoordinatorRoundCompletedPayloadSchema, GoalAttemptCompletedPayloadSchema, type EventEnvelope, type GoalBlockerTrigger } from "../core/schema.js";
 import { SessionEventReadError } from "../core/session-events.js";
 import { matchesWorkflowScope } from "../workflow/scope.js";
 
 function payload(event: EventEnvelope): Record<string, unknown> {
   return typeof event.payload === "object" && event.payload !== null && !Array.isArray(event.payload) ? event.payload as Record<string, unknown> : {};
+}
+
+/** 只核验指定blocked事件来源；当前run/最新Goal和因果前缀由调用方判定。 */
+export function resolveGoalBlocker(event: EventEnvelope | undefined, binding: GoalBlockerTrigger & { session_id: string; workflow_id: string; workflow_revision?: string }) {
+  const parsed = GoalAttemptCompletedPayloadSchema.safeParse(event?.payload);
+  if (event === undefined || event.type !== "goal.attempt.completed" || event.event_id !== binding.goal_event_id || event.session_id !== binding.session_id
+    || event.actor.kind !== "system" || event.actor.id !== "goal-runner" || event.source.adapter !== "goal-runner" || event.correlation_id !== binding.node_id
+    || !parsed.success || parsed.data.status !== "blocked" || parsed.data.run_id !== binding.run_id || parsed.data.node_id !== binding.node_id
+    || !matchesWorkflowScope(parsed.data, binding)) return null;
+  return parsed.data;
 }
 
 export function readGoalCoordinationRequest(events: readonly EventEnvelope[], round_id: string): EventEnvelope {
@@ -18,10 +28,9 @@ export function readGoalCoordinationRequest(events: readonly EventEnvelope[], ro
     || events.filter(item => item.event_id === event.event_id).length !== 1) throw new SessionEventReadError("Goal 协调请求来源不可验证");
   const request = parsed.data;
   const blocker = prefix.find(item => item.event_id === request.goal_event_id);
-  const goal = GoalAttemptCompletedPayloadSchema.safeParse(blocker?.payload);
-  if (blocker === undefined || blocker.type !== "goal.attempt.completed" || blocker.session_id !== event.session_id || blocker.seq >= event.seq
-    || blocker.actor.kind !== "system" || blocker.actor.id !== "goal-runner" || blocker.source.adapter !== "goal-runner" || blocker.correlation_id !== request.node_id
-    || !goal.success || goal.data.status !== "blocked" || goal.data.run_id !== request.run_id || goal.data.node_id !== request.node_id || !matchesWorkflowScope(goal.data, request)) throw new SessionEventReadError("Goal 协调请求的 blocker 来源不可验证");
+  const goal = resolveGoalBlocker(blocker, { session_id: event.session_id, workflow_id: request.workflow_id, workflow_revision: request.workflow_revision,
+    run_id: request.run_id!, node_id: request.node_id!, goal_event_id: request.goal_event_id! });
+  if (blocker === undefined || goal === null || blocker.seq >= event.seq || events.filter(item => item.event_id === request.goal_event_id).length !== 1) throw new SessionEventReadError("Goal 协调请求的 blocker 来源不可验证");
   if (request.retry_of_round_id === undefined) {
     if (event.actor.kind !== "system" || event.actor.id !== "goal-supervisor") throw new SessionEventReadError("自动 Goal 协调请求必须来自宿主");
     return event;

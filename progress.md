@@ -1,5 +1,16 @@
 # 工作进度
 
+## 2026-10-10（阶段72）
+
+- 9227ccb干净/tracking同步；上一轮1384项与实际TCP/九截图/独立远端核验属于progress。沿用planning-with-files/agent-optimizer读取Goal升级/重试/来源链，发现入口actor.id遗漏；ADR-0085先行，不派生agent、不调用付费模型。
+- 首次查找不存在的独立goal-coordination/goal-retry测试文件，rg定位实际回归集中在server的goal-escalation/goal-retry以及core goal-evidence，继续按实际源码核验。
+- 第一个来源反例已失败，证明错误system actor先落request再读失败；修复共享resolveGoalBlocker并在server写前/续跑检查目标唯一性，历史请求/授权同用来源规则，保留最新状态与因果前缀职责。
+- 15项纯来源与35项升级/33项授权回归全部通过（83项）；构建定位helper返回payload不能让TypeScript自动窄化原event变量，补显式undefined守卫，不改变运行语义。继续补同ACPprofile自动升级链路。
+- 3项同ACP别名真实TCP通过：code失败/plan自动ask、cold不重发、答复不增预算、明确独立授权1次新预算后code自测与最终人审；最新PRD/只读effort变化使旧协调retry token失效，仅重试plan；happy path自动修复无中途supervisor。共享fixture新增显式profile-supervisor分支，其他默认行为保留。
+- 最终全量1404项/98文件、typecheck/build:all/diff通过，证据/tmp/cord-stage72-tests.json。另加重复目标ID在request写前拒绝回归；未修改核心schema/ports，状态仍经events.append。
+- 隔离实际HTTP PID81208/http://127.0.0.1:57051：code/plan/plan调用，最新PRD下重试同blocker，Goal尝试1/协调请求2、current/answerable=true、人工答复0/授权0/人工决定0/节点退出0、doctor=true。预览保留未答问题，不操作原7306Draft；无真实模型调用。浏览器首次定位Coordination.tsx不存在，rg核验实际CoordinationPanel.tsx后继续，未影响生产行为。
+- Playwright1440/390/320三截图验证当前自动升级/来源/可用澄清选项，未选答复按钮禁用、未答无新Goal授权按钮，pageerror=[]/写请求0/无横向溢出；桌面与最窄截图已查看。证据/tmp/cord-stage72-browser-result.json；9份文档首121个本地链接通过，ADR添加指南后122个，临时脚本/图/运行数据不入仓库，完整目标active。
+
 ## 2026-10-10（阶段71）
 
 - 当前c11afec干净/远端tracking同步；阶段70全部1367项/94文件、实际TCP/浏览器与独立远端核验属于progress。继续沿用planning-with-files/agent-optimizer，先读实际ACP/schema/查询/UI，ADR-0084先于ports/schema修改；无子agent/付费模型。

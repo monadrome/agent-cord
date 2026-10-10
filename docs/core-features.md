@@ -101,6 +101,7 @@ flowchart LR
 | ACP 文件操作范围预授权 | 已实现可写任务 read/edit 的结构化位置核验与 allow_once；未知/越界拒绝，只读不变 |
 | 全部 PRD 语义覆盖判定、跨 driver execute/网络权限、费用/token 动态额度调整 | 待完善；显式矩阵只证明声明条件到检查事件的关联，readonly 工具审计与 ACP read/edit 策略不覆盖 execute/网络或替代 OS 沙箱 |
 | blocked Goal 自动协调升级 | 原型已实现；显式 supervisor_agent 触发一次 ask_human/wait Draft，重启/并发去重 |
+| Goal卡点来源 | 写前/历史/人工续跑共用指定blocked来源核验，错误actor或重复引用不写协调请求；同ACP别名可通过readonly_launch自动解释卡点，happy path不增加协调调用（[ADR-0085](./adr/ADR-0085-goal-blocker-source-boundary.md)） |
 | Goal 升级协调重试 | 原型已实现；修复配置/事实后按最新 token 重试同 blocker，持久父子来源/单子请求、冷恢复不重放，未答复问题仍可进入独立 Goal 授权（[ADR-0065](./adr/ADR-0065-goal-coordination-retry.md)） |
 | Goal 可观测 usage 预算 | 原型已实现；可选 input/output token 与 cost 上限，宿主累计 task usage，超限或声明预算下 usage 未知时保留 budget 证据并 fail-closed，不把未知 usage 当零（[ADR-0066](./adr/ADR-0066-goal-usage-budget.md)） |
 | 当前 Goal 资源观察 | 原型已实现；server 提供当前 run 的逐指标 totals/budget/unknown/exceeded/invalid，协调模型与控制台消费同一投影，冷恢复和来源跳转保持绑定（[ADR-0067](./adr/ADR-0067-goal-usage-observation.md)） |
