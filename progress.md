@@ -10,6 +10,7 @@
 - 真实CLI timeout测试300ms不足以保证shebang进程已进入fixture，改为2000ms并核验启动标记；进程退出使用PID查询，未重新启动超时未决任务。测试不调用付费模型，不操作原7306Draft；本阶段仍在完成补充验收。
 - 补充11项TCP/进程与2项ACP回归通过，最终全量1306项/88文件、typecheck/build:all/diff通过。证据/tmp/cord-stage65-final-tests.json。清理了本轮重复的阶段标题和两处过早/重复验收记录，保留历史提交与实际网络超时结果。
 - 隔离实际TCP验收共享CLI探测仅version/help一组，不同timeout409；同key重放不重做，新key在完成后重新探测。Fastify关闭实际CLI/ACP分别约2013ms/23ms、响应503、PID退出，未等10秒timeout；无新增需求/模型prompt。/tmp/cord-stage65-real-result.json定位临时root，PID28733/http://127.0.0.1:52389/#/agents健康预览，无付费模型，原Draft未操作。
+- 补充测试提交4b9c2a4（test: verify inspection lifecycle with real processes），包含11项真实TCP/进程和2项ACP回归、纠正服务mock范围与重复记录；127项相关文档链接通过。HTTP/1.1 push25秒与独立ls-remote12秒均达上限exit124，远端未确认；核心f56ad07、记录5771174和补充提交均保留本地，持续目标active。
 
 ## 2026-10-10（阶段64）
 
