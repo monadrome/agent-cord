@@ -106,7 +106,7 @@ flowchart LR
 | Goal 升级协调重试 | 原型已实现；修复配置/事实后按最新 token 重试同 blocker，持久父子来源/单子请求、冷恢复不重放，未答复问题仍可进入独立 Goal 授权（[ADR-0065](./adr/ADR-0065-goal-coordination-retry.md)） |
 | Goal 可观测 usage 预算 | 原型已实现；可选 input/output token 与 cost 上限，宿主累计 task usage，超限或声明预算下 usage 未知时保留 budget 证据并 fail-closed，不把未知 usage 当零（[ADR-0066](./adr/ADR-0066-goal-usage-budget.md)） |
 | 当前 Goal 资源观察 | 原型已实现；server 提供当前 run 的逐指标 totals/budget/unknown/exceeded/invalid，协调模型与控制台消费同一投影，冷恢复和来源跳转保持绑定（[ADR-0067](./adr/ADR-0067-goal-usage-observation.md)） |
-| 跨 driver 只读 worker 审计 | 原型已实现；readonly worker 的明确读工具/安全命令通过，写入/未知/危险工具 fail-closed 为不可重试 driver failure，不保存工具输入；不替代 OS 沙箱（[ADR-0068](./adr/ADR-0068-readonly-tool-audit.md)） |
+| 跨 driver 只读 worker 审计 | 原型已实现；明确读工具与具体命令/选项子集通过，写入/执行/未知flag或危险工具为不可重试driver failure；structured argv保留边界，策略绑定旧证明重验，不代替OS隔离（[ADR-0068](./adr/ADR-0068-readonly-tool-audit.md)、[ADR-0091](./adr/ADR-0091-readonly-command-option-audit.md)） |
 | 同 workspace agent lease | 原型已实现；单 RunService 只允许一个含 `node.run` 的活动执行器，启动冲突 409，冷恢复释放后自动续跑原 run/预算，执行收束或启动失败才释放；不冻结 review 版本，不替代 worktree 或 OS sandbox（[ADR-0069](./adr/ADR-0069-workspace-agent-lease.md)） |
 | 本地跨实例执行锁 | 原型已实现；SQLite 跨进程互斥，busy 原授权恢复自动重检，正常收束清 owner 标记，宿主崩溃/未知副作用保留标记并阻断派发；不保证同需求多 daemon 事件写入安全（[ADR-0070](./adr/ADR-0070-cross-process-workspace-lease.md)） |
 | 独立 Context Session Agent | 已实现最新快照提议、人工采用与受限 Goal 观察；声明 supervisor 后自动解释 blocker 并生成人工卡点，完整监督续跑仍待完善 |

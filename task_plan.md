@@ -27,11 +27,22 @@
 
 ## 错误记录
 
+- 阶段79启动远端查询仍15秒上限，阶段78最终记录push亦20秒上限；只读/验证/审批文件猜测路径不存在，已按rg --files实际路径定位。
 - 阶段78首全量1512/1513通过，既有关闭help查询等待超时；19项单独回归通过，补先终止查询的公共状态诊断后保持预算重跑。临时实际脚本误用snapshot()接口，实际为resolver()，已确认原PID结束后修正并重新执行。
 - 阶段78启动独立远端查询也达到15秒上限，阶段77同步仍未确认；两处猜测server测试路径不存在，已按rg --files实际路径定位。
 - 阶段77首次HTTP/1.1推送因连续15秒低于1 bytes/sec失败，HTTP/2重试达到25秒总上限；功能本地提交27f6514保留，独立核验远端，不把同步失败当实现失败。
 - 阶段77探索时猜测fixture/组件/模块/协议文档路径不存在；使用rg --files定位实际路径后继续，无文件修改或运行副作用。
 - Fastify 的 `reply` 是 thenable：handler 里 `await reply.code(201)` 会死锁（等响应发出，而响应要等 handler 返回）。一律 `reply.code(...)` 不 await。
+
+## 阶段79：只读命令参数与策略身份（已实现并验证，待同步）
+
+- [x] d45942e干净/ahead4，阶段78实现/1513项/实际HTTP为progress；远端独立查询仍超时
+- [x] 审查Goal总预算已有signal约束；转向已确认rg/git/find危险选项和argv语义丢失，ADR-0091先行
+- [x] 首47项30失败，复现危险flags/路径/argv/矛盾字段；简单字符串glob保守拒绝，改用structured覆盖真实literal
+- [x] 标准参数parser与命令allowlist/精准路径/structured边界；readonly执行/审批/协调身份与可写兼容通过
+- [x] 宿主不可重试/原稿、旧checkpoint重验/新结果复用；3项真实TCP危险命令修复/保留Goal/cold/最新协调与人工未决
+- [x] 完整1573项/113文件、typecheck/build:all/diff、60新回归/文档与人审指南、隔离实际HTTP/cold/最新PRD/doctor/人工未决
+- [ ] 小步提交/有界推送/独立远端核验，完整持续目标active
 
 ## 阶段78：Headless真实进程完成（已实现并验证，远端同步待核验）
 

@@ -12,6 +12,7 @@ import { buildCoordinationDocuments, COORDINATION_CONTEXT_POLICY, readCoordinati
 import { goalAcceptanceIsComplete } from "./goal-acceptance.js";
 import { usageBudgetExceeded } from "./goal-usage.js";
 import { readonly_mapping_satisfied, validate_coordination_agents } from "./agent-context.js";
+import { WORKER_READONLY_TOOL_POLICY } from "./readonly-tool-policy.js";
 
 function assertGoalAcceptance(def: WorkflowDef, execution_context?: CoordinationExecutionContext): void {
   for (const observation of execution_context?.goals ?? []) {
@@ -62,6 +63,7 @@ export function coordinationInputHash(def: WorkflowDef, snapshot: RequirementSna
       : execution_context === undefined ? (clarifications.length === 0 ? "cord.coordination-input.v5" : "cord.coordination-input.v6") : (clarifications.length === 0 ? "cord.coordination-input.v7" : "cord.coordination-input.v8"), context_policy: COORDINATION_CONTEXT_POLICY,
     ...(clarifications.length === 0 ? {} : { clarifications }),
     tool_policy: COORDINATION_TOOL_POLICY, workflow: def, configuration_hash, max_prompt_chars,
+    ...(def.spec.nodes.some(node => node.run?.readonly === true) ? { worker_readonly_tool_policy: WORKER_READONLY_TOOL_POLICY } : {}),
     ...(execution_context === undefined ? {} : { execution_context }),
     ...(agents === undefined ? {} : { agents: validate_coordination_agents(def, agents) }),
     ...(goal_blocker === undefined ? {} : { goal_blocker }),

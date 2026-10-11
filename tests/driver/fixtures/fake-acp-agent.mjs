@@ -96,6 +96,7 @@ function handlePrompt(params) {
     status: "pending",
     rawInput: { path: "src/core/ports.ts" },
   });
+  if (flagValue("--emit-command") !== undefined) update({ sessionUpdate: "tool_call", toolCallId: "command-audit", title: "command", kind: "execute", status: "pending", rawInput: JSON.parse(flagValue("--emit-command")) });
 
   if (mode === "hang") {
     // 永不作答：验证平台侧 wall-clock 超时 + session/cancel

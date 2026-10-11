@@ -139,7 +139,7 @@ worker agent 的来源：内置驱动清单（claude / codex / kimi 直连，ACP
 
 ACP `launch.option_ids.mode` 可将 mode 绑定新配置 ID，兼容无 category/纯 configOptions；否则走旧 modes/set_mode，空回执仅为协议确认。每次 session 独立记录完整配置/模式更新，按 mode、排序扩展、model、effort 设置并核验最新候选，最终冻结显式选择。执行中漂移为不可重试 configuration error，取消/收束并阻止成功产物/Goal ready/协调提议；已发生副作用不回滚，未选默认值不冻结。显式 launch 使用 v5 配置域绑定状态核验策略，旧默认无 launch 保留身份（[ADR-0075](./adr/ADR-0075-acp-launch-state-consistency.md)）。
 
-普通 `readonly` worker 还经过 coordinator 的跨 driver 工具审计：明确读工具与受限无副作用命令通过，写工具、未知工具和不可核验命令形成不可自动重试的 driver failure；不保存工具输入。它是事件级 fail-closed 兜底，不能撤销已经发生的副作用，也不取代 ACP permission 或 OS sandbox（ADR-0068）。
+普通 `readonly` worker经过coordinator的跨driver工具审计：明确读工具与具体命令/选项子集通过，写工具、未知选项、执行/写出参数和不可核验命令为不可重试driver failure；不保存工具输入。Node parseArgs保留structured argv边界，find按明确读表达式元数校验，非标准路径不借basename冒认；简单字符串不解析shell。worker-command-options.v2进入readonly execution v6/approval v3和含readonly流程协调身份，旧未退出证明重验，新完成可复用，可写身份/Agent hash不变。它是通知后的拒绝，不撤销副作用或证明PATH/Git配置可信，也不取代ACP permission或OS sandbox（[ADR-0068](./adr/ADR-0068-readonly-tool-audit.md)、[ADR-0091](./adr/ADR-0091-readonly-command-option-audit.md)）。
 
 自定义 headless args 支持 `readonly_args/readonly_resume_args` 完整分支和 `{{readonly}}` 文字占位，按任务模式与显式 session 选择唯一分支。所有声明分支保持 model/effort 映射与必要 prompt；resume 绑定 session ID，缺只读映射则拒绝派发，不开新会话。`readonly_launch/readonly_resume` 描述参数映射，外部模板必须显式声明支持，不能从普通 resume 推断。实际 argv/null 进入现有配置身份，流程 Agent 上下文、热重载快照、冷恢复与审批继续共用此身份；旧无映射只读 resume 的拒绝和身份变化属于保守兼容调整，不承诺权限隔离（[ADR-0080](./adr/ADR-0080-custom-readonly-launch.md)）。
 

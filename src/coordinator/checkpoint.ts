@@ -5,6 +5,7 @@ import type { WorkflowDef } from "../core/schema.js";
 import { readSnapshot, type RequirementSnapshot } from "./snapshot.js";
 import { nodeProducesArtifact } from "./artifact-policy.js";
 import { WORKER_CONTEXT_POLICY } from "./context-pack.js";
+import { WORKER_READONLY_TOOL_POLICY } from "./readonly-tool-policy.js";
 
 type Node = WorkflowDef["spec"]["nodes"][number];
 
@@ -18,7 +19,8 @@ export function executionInputHash(
 ): string {
   const clarifications = snapshot.clarifications ?? [];
   return sha256Hex(canonicalJson({
-    domain: clarifications.length === 0 ? "cord.execution-input.v4" : "cord.execution-input.v5", context_policy: WORKER_CONTEXT_POLICY,
+    domain: node.run?.readonly === true ? "cord.execution-input.v6" : clarifications.length === 0 ? "cord.execution-input.v4" : "cord.execution-input.v5", context_policy: WORKER_CONTEXT_POLICY,
+    ...(node.run?.readonly === true ? { readonly_tool_policy: WORKER_READONLY_TOOL_POLICY } : {}),
     ...(clarifications.length === 0 ? {} : { clarifications }),
     ...(source_hash === null ? {} : { source_hash }),
     agent_configuration_hash,
@@ -42,7 +44,8 @@ export async function readApprovalContextHash(def: WorkflowDef, node: Node, sess
     files: [...def.spec.nodes, node].flatMap((item) => item.artifact === undefined ? [] : [item.artifact]),
   });
   return sha256Hex(canonicalJson({
-    domain: (snapshot.clarifications?.length ?? 0) === 0 ? "cord.approval-context.v1" : "cord.approval-context.v2", workflow: def, node,
+    domain: node.run?.readonly === true ? "cord.approval-context.v3" : (snapshot.clarifications?.length ?? 0) === 0 ? "cord.approval-context.v1" : "cord.approval-context.v2", workflow: def, node,
+    ...(node.run?.readonly === true ? { readonly_tool_policy: WORKER_READONLY_TOOL_POLICY } : {}),
     ...((snapshot.clarifications?.length ?? 0) === 0 ? {} : { clarifications: snapshot.clarifications }),
     ...(workflow_revision !== undefined ? { workflow_revision } : {}),
     agent_configuration_hash,

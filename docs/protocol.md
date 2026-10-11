@@ -155,6 +155,8 @@ ADR-0067：`GET /requirements/:req_id/goal-usage` 和协调 view 的 `goal_usage
 
 ADR-0068：`run.readonly` 的普通 worker 由 coordinator 审计已归一化的 `tool_use`。明确读工具和可核验的无副作用命令允许，写工具、未知工具、危险参数或 shell 控制语法写入 `agent.task.completed{status: failed, failure_stage: driver, retryable: false}` 并停止当前迭代；不保存工具输入原文。该层不是 ACP permission、执行前 hook 或 OS 沙箱的替代品，可写 Goal 不受 allowlist 限制。
 
+ADR-0091将命令审计收紧为具体命令/子命令与读选项allowlist。Node标准parseArgs严格解析flags/值/short组合/`--`，find按已知读表达式元数处理，拒绝rg --pre/--hostname-bin、git --output/--ext-diff/--textconv、find写出与未知选项。command/cmd/shell_command/argv只能出现一个字段，structured数组最多64项/512字符且不含控制字符，保留字面量与参数边界；字符串保留原简单ASCII范围，不解析shell。只接受已知裸命令或精确/bin、/usr/bin入口，其他路径不以basename放行，错误只给类别。策略worker-command-options.v2进入readonly execution-input.v6/approval-context.v3及含readonly流程的worker_readonly_tool_policy协调输入，旧任务/审批/提议按现有新鲜度重验；可写节点和无readonly流程保持旧身份、Agent配置hash不变、已退出事实不回滚。该审计不证明PATH/Git配置/工具实现或OS隔离。
+
 ADR-0069：RunService 对含 `node.run` 的流程在 start、冷恢复和授权 Goal 派发前占用进程内 workspace lease。新启动/授权/显式恢复冲突返回 409，不写新请求事实；已有 run 的冷恢复保留状态和预算，释放后自动重检恢复，不创建新 run。启动失败释放，活动 executor 在 finally 收束后释放；无 agent 流程及无活动 executor 的冷人审等待不占 lease，未来恢复仍须获取。该 lease 不冻结审查版本，不能替代 git worktree、OS/network sandbox 或跨实例/daemon 锁。
 
 ADR-0070 替换上述内存锁载体：独立 `workspace-lease.sqlite` 的 BEGIN IMMEDIATE 在本地跨实例/进程互斥，获取后独占落盘 owner 标记，正常收束删除并 rollback/close。busy 返回 409，既有授权恢复每秒重检原身份/输入/预算，跨实例释放后自动继续；损坏/IO 返回 500。宿主强杀留下 owner 标记，未知副作用不自动重放；unresolved 为 409，需核验遗留进程后修复。活动期间禁止删除/替换 `.index` 或执行锁，不将此能力解释为同需求多 daemon 写事件、审批或协调的支持。
@@ -301,7 +303,7 @@ ADR-0052 增 coordinator.round.answered，严格 payload={round_id,workflow_id,w
 
 POST /requirements/:req_id/coordination/:round_id/answer 接收 {choice}，要求 Idempotency-Key。只接受当前有效未归档问题，额外字段/未知选项为 400，过期/非问题/不同已存选择/并发冲突为 409。每需求一个答复槽位，相同轮次/选择共享结果；已记录同选择可重放，不同选择须新有效轮次重新提问。轮次新增可缺省 DTO 字段 answer（event_id/choice/answered_at/completion_event_id）、answerable、answer_reason；原生 server 总是提供，旧 server/客户端仍可只展示问题。
 
-RequirementSnapshot.clarifications 是同批事实的最新 question/choice/event_id/round_id，不是完整对话历史。独立协调可使用 source=clarification 引用答复 event_id，worker 与审批读取同一材料；人工选择不意味着测试/gate/执行授权或对后续文档永远适用。存在澄清时协调域为 server v8 / 无 hook v6、worker execution-input v5、approval-context v2；空数组或老库缺省字段保留 v7/v5、worker v4、审批 v1。答复使旧依据失效，后续显式重新协调/执行；不写 human.decision.recorded、不放行 gate、不启动 run 或恢复模型会话。界面提供原生单选、记录中/失败保留选择/过期禁用/已答复与事件导航。
+RequirementSnapshot.clarifications是同批事实的最新question/choice/event_id/round_id，不是完整对话历史。独立协调可用source=clarification引用答复，worker与审批读取同一材料；人工选择不意味着验证/执行授权或永远适用。澄清进入既有分域身份，可写worker有澄清为execution v5/approval v2、无澄清为v4/v1；readonly使用v6/v3并同时绑定澄清与命令审计策略，流程协调继续绑定对应观察域与worker策略。答复使旧依据失效，后续显式重新协调/执行；不写human.decision.recorded、不放行gate、不启动run或恢复模型会话。界面提供单选、记录中/失败保留/过期/已答复与来源导航。
 
 ADR-0053 的 coordinator.round.answer_revoked 严格 payload={round_id,workflow_id,workflow_revision?,answer_event_id}，actor=human/correlation=round，引用同 session/scope/round 更早的合法答复。POST /requirements/:req_id/coordination/:round_id/answer/revoke 接收 {answer_event_id}，要求 Idempotency-Key；答复缺失、预期 ID 失效、被更新的同题答复替代为 409，坏格式/额外字段为 400。同撤回操作重放原结果；原问题 current=false 或材料变化仍允许撤回当前有效选择，不自动批准或启动。
 

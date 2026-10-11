@@ -1,5 +1,12 @@
 # 调研发现
 
+## 阶段79（2026-10-10）：只读命令按名称放行不足
+
+- Goal总时长已组合AbortSignal并在完成审计重检，未定位本轮新缺口。只读safeCommand仅拒绝少量flag，rg --pre/--hostname-bin、git diff/log --output/--ext-diff、find -fprint仍可通过；同名/tmp/git与argv join另有语义问题。
+- 用Node parseArgs做明确命令/选项allowlist，find仅接受已知只读表达式；structured argv保留数组，不重新解释pattern/空格。多个命令字段不能任选其一，未知选项/路径冒认/缺值均拒绝，错误不含原文。
+- 宿主审计变更须进入readonly执行/审批输入与含readonly流程的协调身份，旧无新策略的成功不能复用。只改未退出恢复证明，不改可写Goal/Agent hash/公开契约，且审计不证明外部命令/配置隔离。
+- 60新回归与完整1573项通过：只读执行/审批/协调旧身份失效、无readonly兼容，旧完整checkpoint重做后新完成复用；真实ACP/headless都拒绝危险参数且不重试/不覆写。实际HTTP保留上游Goal和一次自测，修复仅再评审，cold待人审不重复，最新PRD独立协调wait/doctor通过。
+
 ## 阶段78（2026-10-10）：候选result掩盖真实进程失败
 
 - Headless用sawResult阻断非零退出检查，成功JSON后包装器退出3/SIGTERM仍可成为agent.task.completed=ok；宿主Goal/独立协调消费完整流，但收不到这条失败事实。

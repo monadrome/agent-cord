@@ -1,5 +1,18 @@
 # 工作进度
 
+## 2026-10-10（阶段79）
+
+- d45942e干净/ahead4，前轮54affe8/1513项/16新回归与PID56978隔离实际HTTP为progress；上一轮最后记录push20秒上限，本轮独立HTTP/2 ls-remote仍15秒上限。实现不受网络故障阻塞，完整goal仍active。
+- 沿用agent-optimizer/planning-with-files审查Goal剩余时长，已有总signal与ready审计约束；发现更具体只读命令参数漏洞，转向危险rg/git/find选项、basename冒认与structured argv join。ADR-0091先行，未改核心schema/ports或Agent配置hash。
+- 猜测只读/verification/approval文件路径不存在，使用rg --files和实际run-service/checkpoint定位；不重复错误读取。准备标准Node parser与纯身份回归，不派生子agent、不调用付费模型或操作7306Draft。
+- 新47项首30失败，复现危险长选项/路径冒认/structured边界/矛盾字段/缺值；简单字符串glob原本保守拒绝，合法glob改由structured用例覆盖，字符串用明确无shell字符。首多文件patch因组合import不匹配整体失败，已核验无部分源码修改后纠正。已加Node parseArgs逐命令allowlist、find元数、精准系统路径与单字段输入；readonly execution v6/approval v3及含readonly流程协调绑定v2策略，可写identity不改。
+- 首162项/4文件通过。补find链接flag在起始路径前的合法位置和对象原型键不能冒认命令；一处含无实际修改的测试上下文补丁原子失败，核验后精确重发。追加旧执行/审批/协调域迁移、无readonly兼容、不可重试/原稿与新checkpoint复用回归，fixture仅报告命令不执行。
+- 新51项命令与完整旧checkpoint/不可重试回归通过；两项identity测试错误调用readCoordinationSnapshot，读取实际签名后改(def,session)，生产build通过。追加3项真实TCP危险rg/git/find→修复只读配置→不重做上游Goal/冷等待/最新PRD协调，工具fixture只向宿主报告命令、不运行任何危险输入。
+- 57项/3文件全部通过；新增包装Bash工具名的正文不落拒绝原因，以及两项真实ACP工具输入/归一化/不可重试/修复回归。错误只使用稳定命令类别，不将嵌入title的命令正文写入事实；fixture仍只报告工具、不执行危险参数。
+- 扩展60项/3文件全通过，本机rg帮助确认--pre/--hostname-bin执行语义。核心feature/当前架构/协议/README/ADR索引与新Human Review指南同步，保留通知后审计/环境与Git配置不可信的限制，开始完整build/test/typecheck，无新增UI行为不重复截图。
+- 最终npm test1573项/113文件、typecheck/build:all/git diff --check通过，JSON为/tmp/cord-stage79-tests.json；7份文档207个本地链接通过，ADR加入指南后再核验。生产代码在全量后未改，旧help关闭用例本轮通过但不宣称此前偶发原因已解决；无新增UI行为，现有浏览器证据沿用。
+- 隔离实际HTTP已通过，PID69913/http://127.0.0.1:50832，证据/tmp/cord-stage79-real-result.json：write(writer/high)→危险review(review/low)失败不可重试→修复只读配置review成功，上游Goal/自测1次/指南保持，cold不重复且审批ID保留；PRD更新B后独立协调同review/low无工具current/wait。审批1/人工决定0/采用0/仅deliver退出/doctor=true/付费0，fixture不执行危险命令；旧ready不冒称重新验收B，原7306Draft未操作，完整目标active。
+
 ## 2026-10-10（阶段78）
 
 - a8b2eff干净/ahead2，阶段77功能27f6514/验收记录a8b2eff与1497项/17反例为实际progress。独立HTTP/2 ls-remote本轮仍达到15秒上限；上一轮最终HTTP/1.1 push亦25秒上限，本地两提交保留，不把网络状态当整体goal阻塞。
