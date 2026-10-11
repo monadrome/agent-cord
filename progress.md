@@ -12,6 +12,7 @@
 - 扩展60项/3文件全通过，本机rg帮助确认--pre/--hostname-bin执行语义。核心feature/当前架构/协议/README/ADR索引与新Human Review指南同步，保留通知后审计/环境与Git配置不可信的限制，开始完整build/test/typecheck，无新增UI行为不重复截图。
 - 最终npm test1573项/113文件、typecheck/build:all/git diff --check通过，JSON为/tmp/cord-stage79-tests.json；7份文档207个本地链接通过，ADR加入指南后再核验。生产代码在全量后未改，旧help关闭用例本轮通过但不宣称此前偶发原因已解决；无新增UI行为，现有浏览器证据沿用。
 - 隔离实际HTTP已通过，PID69913/http://127.0.0.1:50832，证据/tmp/cord-stage79-real-result.json：write(writer/high)→危险review(review/low)失败不可重试→修复只读配置review成功，上游Goal/自测1次/指南保持，cold不重复且审批ID保留；PRD更新B后独立协调同review/low无工具current/wait。审批1/人工决定0/采用0/仅deliver退出/doctor=true/付费0，fixture不执行危险命令；旧ready不冒称重新验收B，原7306Draft未操作，完整目标active。
+- ADR加入指南后208个本地链接通过，暂存diff/check已审查，功能提交f72493f（fix: audit readonly command options and evidence）。HTTP/2 push成功（37920a5→f72493f），独立HTTP/2 ls-remote核验f72493f713abb3c7d6b83049d64e0753f47ff2ab，阶段77/78四项积压提交一并同步。隔离health200/审批1/最新协调ok/current/wait再核验；完整持续目标仍active，所有必需验收sessions已结束，仅预览服务保留。
 
 ## 2026-10-10（阶段78）
 

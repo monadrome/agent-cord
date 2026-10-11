@@ -34,7 +34,7 @@
 - 阶段77探索时猜测fixture/组件/模块/协议文档路径不存在；使用rg --files定位实际路径后继续，无文件修改或运行副作用。
 - Fastify 的 `reply` 是 thenable：handler 里 `await reply.code(201)` 会死锁（等响应发出，而响应要等 handler 返回）。一律 `reply.code(...)` 不 await。
 
-## 阶段79：只读命令参数与策略身份（已实现并验证，待同步）
+## 阶段79：只读命令参数与策略身份（已实现并验证，功能已同步）
 
 - [x] d45942e干净/ahead4，阶段78实现/1513项/实际HTTP为progress；远端独立查询仍超时
 - [x] 审查Goal总预算已有signal约束；转向已确认rg/git/find危险选项和argv语义丢失，ADR-0091先行
@@ -42,9 +42,9 @@
 - [x] 标准参数parser与命令allowlist/精准路径/structured边界；readonly执行/审批/协调身份与可写兼容通过
 - [x] 宿主不可重试/原稿、旧checkpoint重验/新结果复用；3项真实TCP危险命令修复/保留Goal/cold/最新协调与人工未决
 - [x] 完整1573项/113文件、typecheck/build:all/diff、60新回归/文档与人审指南、隔离实际HTTP/cold/最新PRD/doctor/人工未决
-- [ ] 小步提交/有界推送/独立远端核验，完整持续目标active
+- [x] 功能提交f72493f，HTTP/2 push成功（37920a5→f72493f），独立远端核验f72493f713abb3c7d6b83049d64e0753f47ff2ab；阶段77/78积压一并同步，完整持续目标active
 
-## 阶段78：Headless真实进程完成（已实现并验证，远端同步待核验）
+## 阶段78：Headless真实进程完成（已实现并验证，功能已同步）
 
 - [x] 核验a8b2eff干净/ahead2；阶段77为已验证progress，远端查询本轮仍超时
 - [x] 完成/恢复审查与execa结果契约，定位result掩盖晚退出失败；ADR-0090先行
@@ -53,9 +53,9 @@
 - [x] 新16项/3文件全部通过：TCP Goal自动恢复/失败边界/最新PRD协调/cold，人审未决；build:all通过
 - [x] 全量1513项/110文件、typecheck/build:all/diff、文档/人审指南；隔离实际HTTP原预算自动修复/最新协调/doctor/人工未决
 - [x] 功能提交54affe8，完整交付与人审指南保留；完整持续目标保持active
-- [ ] 远端同步：HTTP/1.1与HTTP/2 push连续15秒低速失败，独立HTTP/2 ls-remote15秒上限；本地实现/记录保留，最后可核验远端37920a5
+- [x] 远端同步：此前push/查询超时保留记录；阶段79 HTTP/2 push成功且独立核验f72493f，54affe8/d45942e实现/验收一并同步
 
-## 阶段77：Agent任务启动前校验（已实现并验证，远端同步待核验）
+## 阶段77：Agent任务启动前校验（已实现并验证，功能已同步）
 
 - [x] 独立远端核验37920a5a566503a1c027ed6bdbced8e00e74a426/干净工作树；继承阶段76完成证据与持续目标
 - [x] 原生恢复/取消审查，本机Codex帮助确认--last语义；ADR-0089先行
@@ -63,7 +63,7 @@
 - [x] 两driver任务前置校验，CLI帮助非法预算不探测；首71项定向回归通过，补自定义/编译中取消/ACP查询覆盖
 - [x] 完整1497项/107文件、typecheck/build:all/diff、真实离线子进程与人审指南；现有预览health200
 - [x] 功能提交27f6514与完整验收/人审指南完成；有界推送/独立查询已尝试，完整持续目标保持active
-- [ ] 远端同步核验：HTTP/1.1低速失败、HTTP/2 push25秒上限、独立ls-remote15秒上限，本地提交保留
+- [x] 远端同步核验：此前低速/有界超时保留记录；阶段79 HTTP/2 push成功且独立核验f72493f，27f6514/a8b2eff实现/验收一并同步
 
 ## 阶段 7：动态快照 provenance 与自定义 artifact 边界（已完成）
 
