@@ -1,5 +1,15 @@
 # 工作进度
 
+## 2026-10-10（阶段74）
+
+- 48f9bc4干净/ahead2，前轮1421项与实际stdio/六截图为progress，远端同步未确认。沿用planning-with-files/agent-optimizer，读取官方MCP SDK本地HTTP/SSE示例及close/terminateSession语义；ADR-0086先更新header边界，无付费模型/子agent。
+- 标准Headers构造并不拒绝所有控制字符，本地验证其允许U+0001；改用Node http.validateHeaderValue实际协议校验，先写控制字符/Unicode无进程反例。仅本地loopback工具服务，无外部工具写入或原7306Draft操作。
+- 两项header反例先复现错误接受，再使用标准Node validateHeaderValue固定configuration拒绝且无进程。官方SDK HTTP/SSE新任务/load实际认证/工具、服务拒绝、inspect/默认readonly无连接通过；HTTP取消初始错误要求远端session消失，实际请求收束但session保留（requests4/terminated0/session1），按SDK语义区分活动请求与远端记录，并显式测试保留session的agent行为，不声称取消回滚远端副作用。
+- 最终10项网络driver与4项TCP回归通过：HTTP/SSE同官方SDK本地认证/工具调用、指定load、服务拒绝、取消/超时请求收束、默认readonly/inspect无连接；Goal工具结果/宿主检查/指南、人审未决、最新PRD协调/cold等待不重放，凭据修复保持配置hash并按新run交付。header两失败反例修复后原16项MCP driver也通过。
+- 最终npm test1437项/102文件、typecheck/build:all/diff通过，证据/tmp/cord-stage74-tests.json。隔离实际验收PID26273，两预览HTTP http://127.0.0.1:62036、SSE http://127.0.0.1:62044均passed：认证/工具1次、活动请求/流/session为0、code连接1/报告与最新PRD协调plan连接0、审批1/人工决定0/仅deliver退出/doctor=true。成功fixture合作终止session不是平台远端撤销保证，取消反例保留远端记录，未连接第三方工具/真实LLM、原7306Draft未操作。
+- 临时结果/tmp/cord-stage74-real-result.json定位两工作区，脚本/数据不入仓库；本轮仅后端header边界和官方SDK网络fixture/测试变更，无新增UI行为，不重复阶段73桌面/移动截图。准备检查文档与diff、小步提交/有界同步，完整目标active。
+- 9份相关文档130个本地链接、git diff --check通过；HTTP/SSE健康/审批1/最新协调current=true与wait再次独立核验，保留人工gate未决，准备提交网络验证与header修复，不把第三方服务可用性或远端删除纳入本地结论。
+
 ## 2026-10-10（阶段73）
 
 - 1149bb9干净/tracking同步；阶段72全量1404项与TCP/截图/独立远端核验为progress。继续使用planning-with-files/agent-optimizer，Firecrawl读取官方session-setup（含stdio必需、HTTP/SSE协商）与本地SDK 1.5.0交叉核验；文档临时保存在/tmp/cord-stage73-acp-session-setup.md，不重新付费模型调用或派生agent。

@@ -239,6 +239,8 @@ inspect输入增加可选readonly boolean，仅ACP支持true；默认/false响�
 
 ADR-0086增加ACP `mcp_servers/readonly_mcp_servers` 完整列表（各≤16、名称唯一、规范化总字符≤65536）。type=stdio要求绝对command、args与env_from（目标变量→宿主变量）；http/sse要求无userinfo/fragment的http(s) URL、headers_from引用，header大小写重复拒绝。实际调用先解析env引用，缺值/NUL/header换行为spawn前configuration error；initialize后HTTP/SSE须mcpCapabilities明确true，否则session请求前拒绝，不回退空配置或新会话。只读列表缺省为空，session/new/load都传当前任务完整列表。session请求拒绝在非空MCP时固定错误，不将回显凭据原文入事件。
 
+header完整字符范围在spawn前以Node标准validateHeaderValue核验，控制字符与不可编码值固定拒绝，不局限CR/LF。HTTP/SSE取消/超时沿用宿主收束策略，不生成result或回放工具；MCP Client关闭/流退出不能推断远端session删除、工具回滚或未知副作用已处理。工具连接由ACP agent负责，远端session是否终止应以服务端事实为准（ADR-0086）。
+
 非空MCP定义使用v7配置身份并覆盖两套规范化列表、launch/readonly_launch和各自顺序策略；凭据引用名进入hash，值不参与，环境旋转/外部工具行为仍遵循context_revision。公开/CoordinationAgentCapabilities只增可选`mcp_configuration{writable_count,readonly_count,transports}`，不返回原文。inspect总传mcpServers=[]且不解析引用，观察增可选`mcp_transports{stdio:required,http:boolean,sse:boolean,connections:not_requested}`；传输能力与实际连接健康分开。没有MCP声明/空列表保持旧执行身份/能力字段，协议观察的新字段向后兼容；readonly工具审计/独立协调禁工具与人工gate不变。
 
 公开与 CoordinationAgentCapabilities 的可选 `readonly_launch: mapped/unmapped`、`readonly_resume: supported/unsupported` 仅描述 headless 参数映射，ACP 不设置这两个字段。外部 HeadlessCliTemplate 的 supports_readonly/supports_readonly_resume 必须显式声明，不从普通 supports_resume 推断；未声明只读恢复则在 spawn 前拒绝。实际四分支 argv/不可用恢复 null 进入配置 hash；旧新任务 argv 不变，但旧无只读恢复映射配置的 hash 可变化并触发现有新鲜度核验。只读工具审计仍独立，不保证 OS 沙箱或回滚副作用。

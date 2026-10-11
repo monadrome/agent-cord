@@ -71,6 +71,16 @@ describe("ACP MCP标准配置", () => {
     expect((await messages()).filter(row => row.event === "prompt")).toHaveLength(1);
   });
 
+  it.each(["PRIVATE\u0001TOKEN", "PRIVATE\u0100TOKEN"])("无法编码HTTP header值在spawn前固定拒绝且不泄露", async value => {
+    const worker = new AcpDriver({ bin: process.execPath, args: [fixture, "--record", record, "--mcp-http"],
+      mcp_servers: [{ type: "http", name: "tool", url: "http://127.0.0.1:1/mcp", headers_from: { Authorization: "CORD_MCP_BAD_HEADER" } }],
+      env: { CORD_MCP_BAD_HEADER: value } });
+    const events = await collect(worker.run({ prompt: "p", cwd }));
+    expect(events.find(event => event.type === "error")?.data).toMatchObject({ kind: "configuration", message: "MCP凭据环境引用缺失或无法验证" });
+    expect(events.some(event => event.type === "result")).toBe(false); expect(JSON.stringify(events)).not.toContain("PRIVATE");
+    await expect(readFile(record)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it.each([false, true])("session拒绝回显MCP凭据时归一固定错误，resume=%s", async resume => {
     const worker = driver([servers()[1]!], ["--mcp-http", "--reject-mcp"]);
     const events = await collect(resume ? worker.resume("fixed", { prompt: "p", cwd }) : worker.run({ prompt: "p", cwd }));

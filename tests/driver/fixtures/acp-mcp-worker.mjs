@@ -1,27 +1,40 @@
-// ACP替身通过官方MCP Client真实连接stdio工具，plan模式仅消费宿主快照。
+// ACP替身通过官方MCP Client真实连接工具，plan模式仅消费宿主快照。
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 
 const argv = process.argv.slice(2); const flag = name => argv.includes(name) ? argv[argv.indexOf(name) + 1] : undefined;
 const record = value => { if (flag("--record")) appendFileSync(flag("--record"), JSON.stringify(value) + "\n"); };
 const send = value => process.stdout.write(JSON.stringify(value) + "\n");
 let cwd = process.cwd(); let session_id = "acp-mcp-session"; let clients = [];
 const options = [{ id: "workflow", name: "Mode", type: "select", currentValue: "plan", options: [{ value: "plan", name: "Plan" }, { value: "code", name: "Code" }] }];
-const close = async () => { await Promise.allSettled(clients.map(client => client.close())); clients = []; };
+const close = async () => {
+  const current = clients; clients = [];
+  await Promise.allSettled(current.map(async ({ client, transport }) => {
+    try { if (transport instanceof StreamableHTTPClientTransport && !argv.includes("--retain-http-session")) await transport.terminateSession(); }
+    finally { await client.close(); }
+  }));
+};
 async function message({ id, method, params }) {
   const respond = result => send({ jsonrpc: "2.0", id, result });
-  if (method === "initialize") { respond({ protocolVersion: 1, agentCapabilities: { loadSession: true }, agentInfo: { name: "acp-mcp-fixture", version: "1" } }); return; }
+  if (method === "initialize") { respond({ protocolVersion: 1, agentCapabilities: { loadSession: true,
+    mcpCapabilities: { http: argv.includes("--network-transports"), sse: argv.includes("--network-transports") } }, agentInfo: { name: "acp-mcp-fixture", version: "1" } }); return; }
   if (method === "session/new" || method === "session/load") {
     cwd = params.cwd; session_id = params.sessionId ?? session_id;
     record({ event: method, session_id, mcp_names: params.mcpServers.map(server => server.name), transports: params.mcpServers.map(server => server.type ?? "stdio") });
     await close();
     for (const server of params.mcpServers) {
-      if (server.type !== undefined) throw new Error("离线MCP fixture仅真实连接stdio");
-      const client = new Client({ name: "acp-mcp-fixture", version: "1" }); clients.push(client);
-      await client.connect(new StdioClientTransport({ command: server.command, args: server.args, env: Object.fromEntries(server.env.map(value => [value.name, value.value])), cwd, stderr: "pipe" }));
+      const headers = server.type === undefined ? {} : Object.fromEntries(server.headers.map(value => [value.name, value.value]));
+      const transport = server.type === undefined ? new StdioClientTransport({ command: server.command, args: server.args,
+        env: Object.fromEntries(server.env.map(value => [value.name, value.value])), cwd, stderr: "pipe" })
+        : server.type === "http" ? new StreamableHTTPClientTransport(new URL(server.url), { requestInit: { headers } })
+          : new SSEClientTransport(new URL(server.url), { requestInit: { headers } });
+      const client = new Client({ name: "acp-mcp-fixture", version: "1" }); clients.push({ client, transport });
+      await client.connect(transport);
     }
     respond({ ...(method === "session/new" ? { sessionId: session_id } : {}), configOptions: options }); return;
   }
@@ -32,7 +45,7 @@ async function message({ id, method, params }) {
     record({ event: "prompt", mode, connections: clients.length, prompt });
     if (mode === "code") {
       if (clients.length !== 1) throw new Error("实现fixture需要一个MCP工具连接");
-      const result = await clients[0].callTool({ name: "lookup_value", arguments: {} });
+      const result = await clients[0].client.callTool({ name: "lookup_value", arguments: {} });
       const value = result.content.find(item => item.type === "text").text;
       send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: session_id, update: { sessionUpdate: "tool_call", toolCallId: "mcp-value", title: "MCP lookup_value", kind: "other", status: "completed" } } });
       writeFileSync(join(cwd, "value.txt"), value);

@@ -148,6 +148,8 @@ ACP可声明完整`readonly_launch`，避免同一别名的code/扩展设置被�
 
 ACP的MCP配置分别控制执行/只读连接列表，新任务与显式loadSession都传所选完整列表；只读不继承可写工具。stdio按协议必需，HTTP/SSE须initialize明确支持，缺凭据或不支持时不降级空工具。非空定义绑定v7身份，公开能力只给数量/传输，凭据值从环境引用解析，session配置拒绝回显时固定脱敏。inspect使用空列表且不解析所配凭据，返回`mcp_transports.connections=not_requested`；声明、传输支持和真实连接是独立证据，工具权限/独立协调禁工具仍不变（[ADR-0086](./adr/ADR-0086-acp-mcp-configuration.md)、[MCP人审指南](./research/2026-10-10-acp-mcp-configuration.md)）。
 
+HTTP/SSE已通过官方MCP SDK的本地真实认证/工具调用、指定session恢复与TCP SDLC验收；非法header控制字符/不可编码值在spawn前拒绝，不暴露原值。取消/超时会收束宿主调用，不产生成功结果，连接清理与远端session保留分别核验；远端记录或工具副作用不能由宿主取消推断撤销。
+
 自定义 headless 现已明确选择可写/只读与新会话/原生恢复四种完整 argv；模型/effort 映射须一致，恢复分支须绑定指定 session，替换一次且不经 shell。控制台与协调输入共用能力声明。旧新任务 argv 保留，旧无只读恢复映射的显式 resume 改为拒绝，配置身份可能变化；映射不证明 wrapper 已实施权限或工具执行前拦截，宿主只读审计继续生效（[ADR-0080](./adr/ADR-0080-custom-readonly-launch.md)、[配置与人审指南](./research/2026-10-10-custom-readonly-launch.md)）。
 
 Provider 是独立的 LLM 路由选择：ACP 必须通过 `option_ids.provider` 绑定真实 session 配置项并核验候选/回执；自定义 headless 在所有 argv 分支使用 `{{provider}}`；内置 CLI 没有统一 provider 旗标，配置会直接拒绝。它不从 model、环境变量或 prompt 推断，也不证明模型权限、额度或输出质量（[ADR-0082](./adr/ADR-0082-provider-launch-selection.md)）。

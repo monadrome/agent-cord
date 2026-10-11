@@ -1,5 +1,6 @@
 /** ACP MCP配置是结构化连接声明；凭据值仅在实际session派发时解析。 */
 import { isAbsolute } from "node:path";
+import { validateHeaderValue } from "node:http";
 import type { McpServer } from "@agentclientprotocol/sdk";
 import { z } from "zod";
 import { AcpLaunchConfigurationError } from "./acp-launch.js";
@@ -43,7 +44,11 @@ export function assert_acp_mcp_transports(servers: AcpMcpServers, capabilities: 
 export function compile_acp_mcp_servers(servers: AcpMcpServers, environment: Record<string, string | undefined>): McpServer[] {
   const variables = (references: Record<string, string>, header: boolean) => Object.entries(references).map(([name, reference]) => {
     const value = environment[reference];
-    if (value === undefined || value.includes("\0") || (header && (value.length === 0 || /[\r\n]/.test(value)))) throw new AcpLaunchConfigurationError("MCP凭据环境引用缺失或无法验证");
+    if (value === undefined || value.includes("\0") || (header && value.length === 0)) throw new AcpLaunchConfigurationError("MCP凭据环境引用缺失或无法验证");
+    if (header) {
+      try { validateHeaderValue(name, value); }
+      catch { throw new AcpLaunchConfigurationError("MCP凭据环境引用缺失或无法验证"); }
+    }
     return { name, value };
   });
   return servers.map(server => server.type === "stdio" ? { name: server.name, command: server.command, args: [...server.args], env: variables(server.env_from, false) }

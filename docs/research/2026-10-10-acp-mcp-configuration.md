@@ -26,7 +26,7 @@ agents:
 
 ## 执行、恢复与查询
 
-实际任务在spawn前解析凭据引用，缺值/NUL/header换行直接返回固定configuration错误；初始化后检查HTTP/SSE传输支持，未支持时不调用session/new/load、不发送prompt，也不退回空MCP。显式session ID恢复传当前任务所选完整列表，仍须loadSession支持。只读默认不继承可写列表；显式readonly_mcp_servers授权启动/连接对应工具，不证明工具只读，独立协调的禁止工具规则继续执行。
+实际任务在spawn前解析凭据引用，缺值/NUL/无效HTTP header值直接返回固定configuration错误；header使用Node标准validateHeaderValue核验控制字符与编码，不用只检查换行替代协议校验。初始化后检查HTTP/SSE传输支持，未支持时不调用session/new/load、不发送prompt，也不退回空MCP。显式session ID恢复传当前任务所选完整列表，仍须loadSession支持。只读默认不继承可写列表；显式readonly_mcp_servers授权启动/连接对应工具，不证明工具只读，独立协调的禁止工具规则继续执行。
 
 非空定义使用ACP配置hash v7，包含执行/只读完整列表、launch和只读launch/顺序策略；凭据变量名参与身份，值不参与。映射键序归一化，driver深拷贝配置；热重载不改变在途resolver，定义变更使旧协调/审批/checkpoint重新核验。凭据旋转或未声明外部工具行为变化不自动检测，后者由context_revision表达。空/未声明MCP保留旧身份/能力。
 
@@ -40,6 +40,7 @@ agents:
 4. [驱动测试](../../tests/driver/acp-mcp.test.ts)：14项实际ACP参数/两模式/显式load、引用失败无进程、未协商传输、错误回显脱敏、snapshot/hash兼容、官方MCP SDK stdio工具与子进程清理。
 5. [TCP SDLC测试](../../apps/server/tests/acp-mcp.test.ts)：查询没有MCP进程、代码消费实际工具结果、宿主验证/指南、readonly报告/最新PRD协调、冷等待不重复工具与热重载不污染原resolver。
 6. [AgentCapabilityDetails.tsx](../../apps/console/src/pages/AgentCapabilityDetails.tsx)：声明数量、传输协商与未请求连接分别呈现；UI无自动MCP探测或权限授予。
+7. [网络驱动测试](../../tests/driver/acp-mcp-network.test.ts)、[网络TCP交付测试](../../apps/server/tests/acp-mcp-network.test.ts)：官方SDK本地HTTP/SSE实际认证/工具/指定load、拒绝/取消/超时、inspect无请求、Goal宿主自测/readonly报告/最新PRD/cold等待与凭据修复。
 
 ## 实际证据
 
@@ -47,4 +48,6 @@ agents:
 
 实际预览`/#/agents`搜索mcp-capabilities，声明执行1/只读1（HTTP/SSE），查询只证明HTTP支持、SSE未声明支持、未请求连接；缺少服务凭据仍能做这种无连接查询。搜索mcp-worker展示stdio执行1/只读0，查询不会重新启动工具。临时证据`/tmp/cord-stage73-real-result.json`与`/tmp/cord-stage73-browser-result.json`，最终记录见[progress.md](../../progress.md)。
 
-实际连接验收范围为stdio；HTTP/SSE已验证标准参数传递、initialize拒绝和无连接诊断，未连接真实远端服务。MCP进程/连接生命周期由ACP agent管理，宿主进程树清理不覆盖远端副作用或工具OS隔离。readonly工具审计、ACP文件预授权、源码/产物核验与最终人工gate继续独立执行。离线fixture不调用真实LLM，原真实开发Draft未操作。
+阶段74补齐本地真实HTTP/SSE连接：10项网络driver和4项TCP回归覆盖认证、工具、指定session load、拒绝/取消/超时及完整Goal闭环，2项header失败反例先复现后修复；最终1437项/102文件、typecheck/build:all/diff通过。两套隔离预览均实际工具1次、code连接1/报告与最新协调plan连接0、审批1/人工决定0/仅deliver退出/doctor通过，证据`/tmp/cord-stage74-real-result.json`。当前没有新增UI行为，不重复既有截图验收。
+
+取消/超时用例证明活动请求和流收束、未写成功代码、工具没有自动重试；HTTP反例同时保留远端session记录。成功fixture显式terminateSession是agent的合作清理行为，不能推断任意agent或服务在宿主取消时删除远端记录。实际连接范围为stdio与本地loopback HTTP/SSE，未连接第三方托管服务。MCP进程/连接生命周期由ACP agent管理，宿主进程树清理不覆盖远端副作用或工具OS隔离。readonly工具审计、ACP文件预授权、源码/产物核验与最终人工gate继续独立执行。离线fixture不调用真实LLM，原真实开发Draft未操作。

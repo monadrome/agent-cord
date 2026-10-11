@@ -1,5 +1,11 @@
 # 调研发现
 
+## 阶段74（2026-10-10）：HTTP/SSE实际连接与header边界
+
+- 阶段73网络传输已验证标准参数与协商，但真实工具连接仅stdio。官方MCP SDK HTTP/SSE client/server可在本地完成认证、工具与连接清理验收，不引入真实远端或自写协议。
+- header值只检查NUL/CR/LF，其他控制字符或超Latin-1值仍会传给agent；Node http.validateHeaderValue能在spawn前做完整标准校验，错误固定返回，不暴露值。
+- SDK StreamableHTTPClientTransport.close只abort连接，terminateSession另为显式操作；关闭流不能声称远端session删除或工具副作用回滚。验收单列活动流/请求和保留服务状态。
+
 ## 阶段73（2026-10-10）：ACP MCP入口仍固定为空
 
 - session/new/load固定mcpServers=[]，无法通过agent配置接入工具。官方协议要求stdio基线支持、HTTP/SSE初始化协商；SDK 1.5.0类型验证此结构，unstable ACP MCP transport不纳入。
