@@ -18,3 +18,5 @@ if (args.includes("--emit-write-tool")) process.stdout.write(JSON.stringify({ ty
 const report = "# Human review\n\n## 变更\nvalue.txt已按当前目标修复。\n\n## 验收\n以宿主实测结果为准。\n\n## 风险\n仅验证示例业务值，最终gate保持人工。\n";
 const result = prompt.startsWith("# Context Session Agent") ? JSON.stringify({ summary: "当前交付等待最终人审", next_action: { kind: "wait", reason: "未决人工gate", evidence: [{ source: "workflow", id: "review" }] }, risks: [] }) : report;
 process.stdout.write(JSON.stringify({ type: "result", subtype: "success", session_id: "custom-mode-session", result }) + "\n");
+if (args.includes("--exit-code")) process.exitCode = Number(value("--exit-code"));
+if (args.includes("--fail-first-exit") && readFileSync(join(process.cwd(), ".mode-calls.jsonl"), "utf8").trim().split("\n").length === 1) process.exitCode = 3;

@@ -22,7 +22,7 @@ readonly任务及原生恢复中auto显式值强制false；bare保持显式值�
 
 ## 身份与恢复
 
-旧provider/model/effort-only的argv与hash不变。新增启动旋钮进入原四分支argv身份，变更角色、数值或bool会触发旧任务/协调/审批的新鲜度检查。driver深拷贝参数，reload不影响在途run；新协调固定最新resolver，cold相同输入复用合法任务，不重做有效工作，已退出事实不回滚。
+旧provider/model/effort-only的argv不变。完整启动定义摘要现进入headless.v4完成策略身份，旧hash按新鲜度重验；新增启动旋钮进入四分支argv定义，变更角色、数值或bool会触发旧任务/协调/审批的新鲜度检查。driver深拷贝参数，reload不影响在途run；新协调固定最新resolver，新策略下cold相同输入复用合法任务，不重做有效工作，已退出事实不回滚。迁移见[收尾人审指南](./2026-10-10-headless-process-completion.md)。
 
 显式session恢复仅选择完整resume分支并保留指定ID；没有只读恢复映射时拒绝，不回退可写会话或新session。原始args没有CLI帮助探测声明，公开能力只表明适配器声明/安装unchecked，不自动查询或启动模型。
 

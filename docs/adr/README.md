@@ -87,6 +87,7 @@ agent-cord 的设计决策分为四类，共 71 条，一条决策一个文件�
 | 62 | 跨进程 workspace 执行锁 | 独立 SQLite 事务 + 正常收束删除 owner 标记 + busy 原授权重检 | 第二个实例不能绕过内存锁，宿主强杀不证明 detached worker 已结束 | [ADR-0070](./ADR-0070-cross-process-workspace-lease.md) | 中高 |
 | 63 | Goal 宿主源码变更清单 | 首次 manifest 基线 + 完整 delta/重算 + 指南路径清单 + 推荐默认 | 自测 hash 与模型自述不能代替实际变更定位，恢复不借新基线隐藏旧变更 | [ADR-0071](./ADR-0071-goal-source-change-evidence.md) | 中高 |
 | 64 | Agent任务启动前校验 | 取消优先 + 有效定时器预算 + 明确session/CLI选项边界 | 已取消任务不启动进程，显式恢复不能转成最近会话或new | [ADR-0089](./ADR-0089-agent-task-launch-preflight.md) | 中高 |
+| 65 | Headless真实进程完成 | 完整迭代 + 实际failed/exitCode + v4完成策略身份 | 成功JSON不能覆盖晚退出失败，旧无退出证明的完成不能复用 | [ADR-0090](./ADR-0090-headless-process-completion.md) | 中高 |
 
 **置信度的含义**：高 = 有多条独立一手来源互证，方向性风险低；中高 = 推导链完整且有一手来源，个别参数需试点校准；中 = 方向由推理得出，无同构先例或需实验数据确认。所有 8 项决策的共同前提是：本平台的负载是 I/O 编排而非高并发服务，token 成本是噪声级（约占人力基线 2% 以内；换算口径：按配套调研（2026-09）Q8 的成本模型，把每需求的 token 费用按当时费率折算为等效人力分钟数，再除以人力基线），真正的成本是固定建设成本与人工介入时间——技术选型一律按这个前提取舍。
 

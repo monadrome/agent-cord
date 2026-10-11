@@ -10,6 +10,8 @@
 //   --pid-file <path>                              把自己的 pid 写进去（验证进程清理）
 //   --child-pid-file <path>                        派生一个孙进程并写 pid（验证进程树清理）
 //   --no-tools                                    Claude/Codex 模式仅输出文本/结果
+//   --exit-code / --exit-signal                    正常输出后以指定状态结束
+//   --post-result-sleep <ms>                       输出结束后静默，验证结果后的超时/取消
 //   --help                                         打印含 "acp" 的帮助（registry 探测用）
 import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
@@ -142,3 +144,9 @@ switch (mode) {
     process.exit(2);
   }
 }
+
+if (flagValue("--post-result-sleep") !== undefined) await sleep(Number(flagValue("--post-result-sleep")));
+if (flagValue("--exit-signal") !== undefined) {
+  await new Promise(resolve => process.stdout.write("", resolve));
+  process.kill(process.pid, flagValue("--exit-signal"));
+} else if (flagValue("--exit-code") !== undefined) process.exitCode = Number(flagValue("--exit-code"));

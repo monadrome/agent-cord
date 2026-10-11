@@ -120,8 +120,13 @@ describe("Headless独立profile TCP交付/查询", () => {
   });
 
   it("服务关闭取消只读help查询并清理进程，不继续后续步骤或调用模型", async () => {
-    await configure("review-a", "hang-help"); const pending = api("POST", "/agents/probe/inspect", { readonly: true, timeout_ms: 10000 });
-    await wait(async () => (await lines("probes.jsonl")).some(row => row.args[0] === "--help"));
+    await configure("review-a", "hang-help"); let settled: Awaited<ReturnType<typeof api>> | undefined;
+    const pending = api("POST", "/agents/probe/inspect", { readonly: true, timeout_ms: 10000 }).then(result => { settled = result; return result; });
+    await wait(async () => {
+      if ((await lines("probes.jsonl")).some(row => row.args[0] === "--help")) return true;
+      if (settled !== undefined) throw new Error(`help尚未启动，查询已结束：${JSON.stringify({ status: settled.status, code: settled.body.code, checks: settled.body.cli_observation?.checks })}`);
+      return false;
+    });
     const closing = server.agents.close(); expect(await pending).toMatchObject({ status: 503, body: { code: "service_closing" } }); await closing;
     const pid = Number(await readFile(join(root, "pid"), "utf8")); await wait(async () => { try { process.kill(pid, 0); return false; } catch { return true; } });
     expect((await lines("probes.jsonl")).map(row => row.args)).toEqual([["--version"], ["--help"]]);

@@ -1,5 +1,18 @@
 # 工作进度
 
+## 2026-10-10（阶段78）
+
+- a8b2eff干净/ahead2，阶段77功能27f6514/验收记录a8b2eff与1497项/17反例为实际progress。独立HTTP/2 ls-remote本轮仍达到15秒上限；上一轮最终HTTP/1.1 push亦25秒上限，本地两提交保留，不把网络状态当整体goal阻塞。
+- 沿用agent-optimizer/planning-with-files审查恢复与完整流，发现sawResult掩盖CLI晚退出失败，比回执语义待适配更直接影响Goal/最新快照协调。读取本地execa实际返回契约并先记录ADR-0090，不改核心ports/schema、不派生子agent或调用付费模型。
+- 两处server测试猜测路径不存在，实际为goal-delivery.test.ts等rg --files定位文件；继续基于真实fixture/源码，开始真实晚退出反例。
+- 新10项driver首轮7项失败，明确复现Claude/Codex候选result后退出3、SIGTERM/SIGINT仍为成功与旧v1/v2/v3身份未迁移；文本正常/失败、result后timeout/cancel对照通过。生产driver移除sawResult抑制，读取execa.failed/exitCode；v4策略包装原完整启动定义hash，原有效argv不改。两项旧golden按新协议迁移，不改变测试通过阈值；开始宿主/冷恢复/TCP验证。
+- 首73项driver/旧模板/完整旋钮回归通过。追加3项宿主与3项TCP：首轮4个测试失败为测试契约错误（失败完成可省略artifact_written/written_by，协调在途为pending）；原稿保存/旧checkpoint重跑/持续晚失败无自测实际已通过。按有效字段语义和明确终态等待修正断言，不增加生产行为或修改判定阈值。
+- 第二轮23项中22项通过；剩余错误为失败提议current实际null（无可核验提议），改按契约断言null/adoptable=false。自动重做仅成功进程执行一次宿主自测，冷等待不重复；原稿/旧checkpoint迁移已通过。同步当前v4协议、历史指南迁移提示与新Human Review入口，不改旧ADR历史决策。
+- 新16项/3文件最终全部通过，包含10项driver、3项宿主、3项真实TCP。build:all通过，源码实现未再改；开始全量回归/typecheck与隔离实际验收，现有UI布局/控制不变，不新增截图任务。完整目标仍active。
+- 首全量1512/1513通过，唯一旧headless只读help关闭测试在等--help记录时10秒超时；typecheck通过。19项相关TCP/关闭/新交付单独通过，尚无确定原因；添加查询先结束时的公共checks诊断，保持原10000ms预算重跑全量，未改生产逻辑或扩大超时。临时实际脚本调用不存在snapshot()，结果已落failed且PID38049确认不存在；读真实AgentService后改resolver()，不是观察超时重启。
+- 最终npm test1513项/110文件、typecheck/build:all/diff通过，证据/tmp/cord-stage78-final-tests.json；10份文档230个本地链接通过，ADR加入指南后再核验。源码自73项回归后未改，最后只加旧测试诊断/文档；首全量help超时原因仍未定位，单独19项和重跑全量通过，不隐去失败记录。
+- 隔离实际HTTP已通过，PID56978/http://127.0.0.1:49493，证据/tmp/cord-stage78-real-result.json：writer-model/high worker failed→ok，宿主自测1次、attempt2 ready、cold不重复/审批ID不变；B需求review-model/low协调failed→ok/current/wait，指南不改，审批1/人工决定0/采用0/仅deliver退出/doctor=true/付费0。旧ready只作历史，新的current协调不意味着已重新验收B交付；原7306真实Draft未操作，完整持续目标active。
+
 ## 2026-10-10（阶段77）
 
 - 37920a5干净/tracking同步，独立HTTP/2远端核验37920a5a566503a1c027ed6bdbced8e00e74a426；阶段76的1480项/实际HTTP/浏览器证据为已完成进展。读取当前Goal仍active，沿用agent-optimizer/planning-with-files，不派生子agent或调用付费模型。

@@ -229,9 +229,11 @@ ADR-0073 增 `AgentDriver.capabilities` 可选静态描述，清单同步公开 
 
 ADR-0089：ACP/headless任务迭代先观察signal；已经取消返回单个error，无MCP凭据解析/模板调用/spawn/result。有效timeout_ms须为1到2,147,483,647的整数，只有undefined才缺省，非法值为configuration error；直接CLI帮助查询也在probe前拒绝非法预算。显式resume要求非空/非全空白字符串且无C0/DEL，Headless另拒绝`-`前缀，ACP保持不透明ID。Headless参数错误仍抛出，ACP返回configuration error；错误不回显ID，resume(undefined)不降级new。Headless参数编译后重检signal，合法argv/配置身份不变，不证明远端历史加载或替代Goal/人工gate。
 
+ADR-0090：Headless候选result不覆盖真实进程failed/非零/未知退出状态，完整流结束前追加agent error；spawn错误与timeout/abort原分类保留。消费者必须读完整流，现有worker/独立协调在失败时不写报告或形成可用完成/提议。所有HeadlessDriver身份用cord.agent-config.headless.v4，包含completion_policy=process-exit-required.v1及launch_configuration_hash（原完整v1/v2/v3启动定义摘要），argv/env排除/context_revision与双profile映射不改。旧身份任务/审批/协调按现有恢复/新鲜度重验，已退出节点不回滚；ACP和外部独立driver不改。
+
 ADR-0080 为自定义 headless 条目增加完整 `readonly_args/readonly_resume_args`；`{{readonly}}` 替换为任务的 `true/false`。新会话选 args/readonly_args；恢复选 resume_args/readonly_resume_args，分支不相互追加。没有独立只读分支时，resume_args 必须使用 readonly 占位才支持只读恢复；声明 readonly_args 后必须另有 readonly_resume_args。后者要求同时声明前两种分支；恢复必须绑定 session，所有分支保持 model/effort 映射与基本 args 必需的 prompt。未知/漏映射拒绝别名，模板形态禁止混入这些分支。替换一次、不经 shell。
 
-ADR-0087将custom占位扩展到provider/model/effort/max_turns/budget_usd/system_prompt/agent/agents_json/bare/auto；基本args推导knobs，所有已声明完整分支须同旋钮集合。typed launch校验布尔/数字/字符串，缺占位值在构造配置argv/hash时拒绝，未映射选项拒绝注册。bool文字true/false、number用String确定转换，JSON/提示为单个argv，替换一次不递归；auto在readonly=true的新任务/原生恢复中强制false，但未声明值仍拒绝缺值。bare不默认开启，旧三旋钮argv/hash不变，新参数身份/固定resolver沿用既有规则；max_turns/budget_usd不替代Goal预算或证明wrapper真的限制模型。
+ADR-0087将custom占位扩展到provider/model/effort/max_turns/budget_usd/system_prompt/agent/agents_json/bare/auto；基本args推导knobs，所有已声明完整分支须同旋钮集合。typed launch校验布尔/数字/字符串，缺占位值在构造配置argv/hash时拒绝，未映射选项拒绝注册。bool文字true/false、number用String确定转换，JSON/提示为单个argv，替换一次不递归；auto在readonly=true的新任务/原生恢复中强制false，但未声明值仍拒绝缺值。bare不默认开启，旧三旋钮argv不变，启动定义摘要进入当前v4完成策略身份；max_turns/budget_usd不替代Goal预算或证明wrapper真的限制模型。
 
 `AgentLaunchSchema.provider` 是独立的 LLM 路由字段。ACP 的 `option_ids.provider` 必须存在且映射到 session/new/load 返回的 select 配置项；设置顺序稳定，候选/类型/currentValue 与后续 update 不一致时 fail-closed。自定义 headless 模板可用 `{{provider}}`，其完整新会话/恢复/只读分支必须与基本 args 保持同一 provider/model/effort 映射；内置模板未声明 provider 能力时拒绝。provider 进入 configuration_hash、任务/审批/协调输入身份，不由 model、环境或 prompt 推断。它不表示 provider 可用、模型有额度或输出质量（ADR-0082）。
 
@@ -241,7 +243,7 @@ ACP条目/options可声明完整`readonly_launch: AgentLaunch`，readonly新任�
 
 inspect输入增加可选readonly boolean；ACP及明确cli_help的headless支持true（ADR-0084/0088），原始args无help profile拒绝。默认/false响应形状不变，true响应增加readonly=true。任务mode进入共享key（缺省/false等价），跨mode在途冲突409，不缓存完成结果。查询不发送prompt或调用worker onSession，权限/工具仍拒绝；冷重载结果保持原revision/hash。console选择执行/只读查询，跨mode历史显示“其他任务配置”，实际mode标签来自响应，不能以同配置hash将执行候选冒充只读候选。
 
-Headless条目/options增加完整readonly_launch，readonly新任务/原生恢复替代knobs+launch而不合并。分别复用typed能力校验，自定义args缺必需占位值拒绝构造，未支持选项不降级。明确profile使用cord.agent-config.headless.v3，覆盖四argv/context_revision与声明存在，空profile与未声明身份区分；旧无声明保留v1/v2。公开readonly_configuration=explicit共享ACP/headless语义，不证明OS只读。CLI帮助的configured只表示所选配置是否提供该项，实际查询argv仍version/help，help未展示不表示不支持，模型额度未核验（ADR-0088）。
+Headless条目/options增加完整readonly_launch，readonly新任务/原生恢复替代knobs+launch而不合并。分别复用typed能力校验，自定义args缺必需占位值拒绝构造，未支持选项不降级。明确profile的启动定义覆盖四argv/context_revision与声明存在，空profile与未声明身份区分；当前v4策略绑定完整旧v1/v2/v3启动定义摘要。公开readonly_configuration=explicit共享ACP/headless语义，不证明OS只读。CLI帮助的configured只表示所选配置是否提供该项，实际查询argv仍version/help，help未展示不表示不支持，模型额度未核验（ADR-0088/0090）。
 
 ADR-0086增加ACP `mcp_servers/readonly_mcp_servers` 完整列表（各≤16、名称唯一、规范化总字符≤65536）。type=stdio要求绝对command、args与env_from（目标变量→宿主变量）；http/sse要求无userinfo/fragment的http(s) URL、headers_from引用，header大小写重复拒绝。实际调用先解析env引用，缺值/NUL/header换行为spawn前configuration error；initialize后HTTP/SSE须mcpCapabilities明确true，否则session请求前拒绝，不回退空配置或新会话。只读列表缺省为空，session/new/load都传当前任务完整列表。session请求拒绝在非空MCP时固定错误，不将回显凭据原文入事件。
 

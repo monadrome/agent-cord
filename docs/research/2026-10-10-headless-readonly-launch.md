@@ -30,7 +30,7 @@ agents:
 
 ## 身份、恢复与查询
 
-显式独立配置用headless.v3绑定四种有效argv及context_revision，空配置也与未声明区分。旧无readonly_launch的v1/v2身份、参数和能力元信息保持不变。模型/角色/有效参数变更使旧任务、协调和审批重检；热重载保留在途resolver，cold合法输入复用有效任务，历史已退出节点不回滚。
+显式独立启动定义绑定四种有效argv及context_revision，空配置也与未声明区分。当前headless.v4完成策略绑定旧v1/v2/v3完整启动定义摘要，旧身份按新鲜度重验；有效argv/能力元信息保持。模型/角色/有效参数变更使旧任务、协调和审批重检；热重载保留在途resolver，新策略下cold合法输入复用有效任务，历史已退出节点不回滚。迁移与完整进程结束规则见[收尾人审指南](./2026-10-10-headless-process-completion.md)。
 
 无prompt CLI帮助查询接受readonly=true。实际命令仍为固定version/help，模型/角色/预算原文不进入查询argv；cli_observation.configured按所选完整配置投影，advertised是CLI帮助证据，不能作为模型权限/额度、实际role加载或原生恢复成功的证明。原始args无明确帮助profile时server拒绝此模式，不猜--help语义。typed client旧name/key调用兼容，第三input可选择任务模式。
 
@@ -38,7 +38,7 @@ agents:
 
 ## 审查入口
 
-1. [headless.ts](../../src/driver/headless.ts)：独立typed配置、完整替换、new/resume argv选择、v3/旧hash兼容、help按profile投影而不发模型参数。
+1. [headless.ts](../../src/driver/headless.ts)：独立typed配置、完整替换、new/resume argv选择、v4绑定完整启动定义、help按profile投影而不发模型参数。
 2. [agents-yaml.ts](../../src/driver/agents-yaml.ts)、[ports.ts](../../src/core/ports.ts)：两种headless形态注册、能力共享语义、非法同名别名阻断。
 3. [agent-service.ts](../../apps/server/src/services/agent-service.ts)：readonly query仅接受ACP/明确cli_help，mode共享key/关闭/重载边界；原始args拒绝，默认响应兼容。
 4. [驱动测试](../../tests/driver/headless-readonly-profile.test.ts)：14项真实Claude/Codex/Kimi与custom参数、新任务/指定resume、未支持/缺值/空profile、旧hash/context_revision、所选帮助项。

@@ -93,6 +93,8 @@ Headless内置模板和自定义wrapper同样支持完整`readonly_launch`，独
 
 任务启动前拒绝已取消signal、非法超时与session ID；CLI恢复不接受`--last`等选项形式ID，不能静默选择最近会话或新会话。合法名称与ACP不透明ID保留，规则与复核见 [启动前校验指南](./docs/research/2026-10-10-agent-task-launch-preflight.md)。
 
+Headless必须读完真实进程结果，成功JSON不能覆盖晚退出失败。完成策略已纳入v4配置身份；旧任务按恢复/新鲜度规则重验，有效argv不改。自动修复、最新快照协调与迁移的人审入口见[进程完成指南](./docs/research/2026-10-10-headless-process-completion.md)。
+
 ACP 支持结构化 `mcp_servers` 和独立 `readonly_mcp_servers`：stdio、协商支持的 HTTP/SSE；凭据用环境变量引用，缺引用或不支持传输时拒绝，HTTP header值在启动前使用Node标准API核验。只读默认不继承执行工具，无 prompt 查询不连接所配 MCP，只展示数量和传输能力。实际 stdio及本地HTTP/SSE工具连接、宿主自测验收见 [MCP 配置与人审指南](./docs/research/2026-10-10-acp-mcp-configuration.md)。
 
 工作区 `cord/agents.yaml` 支持 ACP、内置 headless 模板和自定义参数三种形态：

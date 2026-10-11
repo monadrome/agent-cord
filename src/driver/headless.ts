@@ -664,7 +664,7 @@ export class HeadlessDriver implements AgentDriver {
       ...(this.readonly_knobs === undefined ? {} : { readonly_configuration: "explicit" as const }) });
     this.name = options.name ?? `headless:${template.name}`;
     const config_task = { prompt: "cord.configuration.prompt", cwd: "" };
-    this.configuration_hash = sha256Hex(canonicalJson({
+    const launch_configuration_hash = sha256Hex(canonicalJson({
       domain: this.readonly_knobs !== undefined ? "cord.agent-config.headless.v3" : options.context_revision === undefined ? "cord.agent-config.headless.v1" : "cord.agent-config.headless.v2",
       ...(options.context_revision === undefined ? {} : { context_revision: options.context_revision }),
       name: this.name,
@@ -673,6 +673,7 @@ export class HeadlessDriver implements AgentDriver {
       resume_argv: this.template.supports_resume === true ? this.buildArgv(config_task, "cord.configuration.session") : null,
       readonly_resume_argv: this.template.supports_resume === true && this.template.supports_readonly_resume === true ? this.buildArgv({ ...config_task, readonly: true }, "cord.configuration.session") : null,
     }));
+    this.configuration_hash = sha256Hex(canonicalJson({ domain: "cord.agent-config.headless.v4", completion_policy: "process-exit-required.v1", launch_configuration_hash }));
   }
 
   run(task: AgentTask): AsyncIterable<AgentEvent> {
@@ -774,7 +775,6 @@ export class HeadlessDriver implements AgentDriver {
 
     const queue = new AsyncQueue<AgentEvent>();
     let timedOut = false;
-    let sawResult = false;
     let active_session_id: string | null = resumeSessionId ?? null;
     const stderrTail: string[] = [];
 
@@ -795,7 +795,6 @@ export class HeadlessDriver implements AgentDriver {
         const data = isRecord(event.data) ? event.data : null;
         const receipt = event.session_id ?? (data === null ? null : extractSessionId(data) ?? (isRecord(data.raw) ? extractSessionId(data.raw) : null));
         if (typeof receipt === "string" && receipt.length > 0) active_session_id = receipt;
-        if (event.type === "result") sawResult = true;
         queue.push(active_session_id === null ? event : {
           ...event, session_id: active_session_id,
           ...(data !== null && (event.type === "result" || event.type === "error") && data.session_id == null
@@ -864,8 +863,10 @@ export class HeadlessDriver implements AgentDriver {
       let exitCode: number | undefined;
       let signal: NodeJS.Signals | undefined;
       let spawnFailure: string | undefined;
+      let process_failed = false;
       try {
         const result = await child;
+        process_failed = result.failed;
         exitCode = result.exitCode;
         signal = result.signal;
         if (result.failed && exitCode === undefined && signal === undefined) {
@@ -877,7 +878,7 @@ export class HeadlessDriver implements AgentDriver {
 
       if (spawnFailure !== undefined) {
         push([errorEvent(spawnFailure, "spawn")]);
-      } else if (!timedOut && !sawResult && exitCode !== 0) {
+      } else if (!timedOut && (process_failed || exitCode !== 0)) {
         const tail = stderrTail.join("").trim();
         push([
           errorEvent(

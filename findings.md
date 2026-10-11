@@ -1,5 +1,13 @@
 # 调研发现
 
+## 阶段78（2026-10-10）：候选result掩盖真实进程失败
+
+- Headless用sawResult阻断非零退出检查，成功JSON后包装器退出3/SIGTERM仍可成为agent.task.completed=ok；宿主Goal/独立协调消费完整流，但收不到这条失败事实。
+- execa实际结果有failed/exitCode/signal。修复必须以完整进程结束为准，保留先前候选文本/usage及timeout/cancel优先级，不把CLI终局JSON作为进程通过证明。
+- 旧Headless成功完成缺退出证据，不能仅改行为而继续复用旧配置身份。v4绑定新完成策略及旧完整启动定义摘要；argv不变，checkpoint/审批/协调保守重验，ACP的RPC完成后主动杀进程仍独立。
+- 16项新增与最终1513项通过；晚失败不覆写人工原稿/产生ok或可复用完成，旧完整未退出checkpoint升级重做，新完成随后不重复。实际HTTP两worker failed/ok且只验一次，最新PRD两readonly协调failed/ok，人审未决/doctor通过。候选文本可保留历史，失败current=null不能伪造当前提议。
+- 首全量旧help关闭测试一次超时未定位，单独19项与第二次全量通过；只补查询先结束时的公共状态诊断，不因暂时无法复现增加预算或声称已修复原因。
+
 ## 阶段77（2026-10-10）：显式恢复与启动前边界
 
 - Headless仅拒绝空session，`--last`会成为Codex exec resume的真实选项，违反明确恢复对象；本机帮助确认session也可为名称，因此不能强制UUID或修改原字符串。ACP使用JSON-RPC，不应继承CLI的`-`前缀限制。

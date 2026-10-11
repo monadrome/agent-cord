@@ -48,6 +48,7 @@ flowchart LR
 ```
 
 - driver 的 `end_turn`、退出码 0 或 `agent.task.completed=ok` 只说明一次调用结束；宿主审计尚未通过时继续执行。
+- Headless的流式result是候选；必须读完整流并确认正常进程结束，晚非零/信号错误不能被成功JSON覆盖。完成策略已纳入v4配置身份，旧证明按恢复/新鲜度规则重验（[ADR-0090](./adr/ADR-0090-headless-process-completion.md)）。
 - 宿主观察验证器的实际执行结果，核验必需检查、当前源码/依赖身份及交付产物。模型回复“已通过”或一份测试报告不能独立放行。
 - 完成判定必须同时满足约定验收条件、当前验证通过、交付包齐备、权限与新鲜度检查通过；无法判断时 fail-closed。机器验证证明声明范围内的结果，不能证明全部业务正确或代替最终人审。
 - 普通测试失败、缺文档或 Draft 不完整时，把结构化失败摘要和相关日志定位反馈给 worker，在剩余预算内修复，再运行受影响检查及要求的回归。不能靠删除必需测试、降低验收条件或把失败改成 warning 达成目标。
@@ -148,7 +149,7 @@ Headless运行时能力查询已接通，CLI版本、任务/恢复帮助、已�
 
 ACP可声明完整`readonly_launch`，避免同一别名的code/扩展设置被带入只读评审或Context Session Agent。新任务与指定session恢复都选择对应配置，注册拒绝危险/漏映射配置，session核验实际允许值和回执。两套配置共同绑定身份，在途保持原resolver，冷恢复重新核验；缺省保持旧语义。无prompt查询的readonly参数也进入在途共享key，控制台跨模式历史标“其他任务配置”，不能冒称当前所选结果（[ADR-0084](./adr/ADR-0084-acp-readonly-launch-profile.md)、[配置与人审指南](./research/2026-10-10-acp-readonly-launch.md)）。
 
-Headless也支持完整readonly_launch，单一别名可按任务选择不同模型/effort/角色/额度参数，不继承执行knobs或launch；只读权限参数/auto优先和宿主审计保留。新profile使用v3四argv身份、旧无声明identity兼容，固定resolver/cold新鲜度共用。明确cli_help模板可查询所选mode的configured标记，但实际probe仍只有version/help，无模型或角色参数；跨mode结果不当当前所选配置。原始args无help profile仍拒绝只读查询（[ADR-0088](./adr/ADR-0088-headless-readonly-launch-profile.md)、[Headless人审指南](./research/2026-10-10-headless-readonly-launch.md)）。
+Headless也支持完整readonly_launch，单一别名可按任务选择不同模型/effort/角色/额度参数，不继承执行knobs或launch；只读权限参数/auto优先和宿主审计保留。四argv与声明存在的启动定义进入当前v4完成策略身份，固定resolver/cold新鲜度共用。明确cli_help模板可查询所选mode的configured标记，但实际probe仍只有version/help，无模型或角色参数；跨mode结果不当当前所选配置。原始args无help profile仍拒绝只读查询（[ADR-0088](./adr/ADR-0088-headless-readonly-launch-profile.md)、[Headless人审指南](./research/2026-10-10-headless-readonly-launch.md)）。
 
 Agent任务执行在启动前处理已取消signal，再校验有效timeout/session。直接driver调用拒绝超出Node定时器范围的预算；显式resume(undefined)不变成new。Headless拒绝`--last`等选项形式session，ACP保留合法不透明ID，名称/Unicode原值保持；编译期间取消也不派发。错误固定脱敏，有效身份和Goal/人审边界不变；这是参数/派发保证，不能证明厂商正确恢复会话（[ADR-0089](./adr/ADR-0089-agent-task-launch-preflight.md)、[人审指南](./research/2026-10-10-agent-task-launch-preflight.md)）。
 

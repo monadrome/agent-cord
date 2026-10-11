@@ -41,6 +41,8 @@ agents:
 
 旧无分支的新任务 argv 不变；旧可写 resume 不变。旧配置只声明普通恢复而没有 readonly 映射时，显式只读恢复现在拒绝，configuration_hash 可能变化。添加真实分支或模式占位后显式 reload；新 run 使用新配置，在途 resolver 固定原配置。冷恢复、未退出 checkpoint、协调提议和审批按现有身份规则重新核验；不删除历史或回滚已退出节点。
 
+当前Headless收尾策略另用v4绑定完整启动定义摘要，拒绝成功JSON后的晚退出失败；旧缺进程退出证明的身份必须重验，有效argv保持。详见[进程完成与迁移指南](./2026-10-10-headless-process-completion.md)。
+
 参数映射不提供 OS 沙箱，也不能保证 wrapper 尊重模式。现有跨 driver 只读工具审计继续拒绝写工具与未知命令，违规落不可重试 driver failure；通知后的副作用不能撤销，未报告的工具不能由本层证明不存在。
 
 ## Human Review

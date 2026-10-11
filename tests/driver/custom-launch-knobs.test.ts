@@ -49,12 +49,13 @@ describe("自定义Wrapper完整旋钮", () => {
     }
   });
 
-  it("旧三旋钮配置argv/hash不变；未映射auto和协议配置仍拒绝同名别名", () => {
+  it("旧三旋钮配置argv不变、完成策略绑定启动定义；未映射auto和协议配置仍拒绝同名别名", () => {
     const template = custom_headless_template("old", process.execPath, [...base, "-p", "{{prompt}}", "--model", "{{model}}", "--effort", "{{effort}}"]);
     const old = new HeadlessDriver({ cli: "old", template, launch: { model: "model-id", effort: "high" } });
     const sample = { prompt: "cord.configuration.prompt", cwd: "" };
-    expect(old.configuration_hash).toBe(sha256Hex(canonicalJson({ domain: "cord.agent-config.headless.v1", name: "headless:old",
-      argv: old.buildArgv(sample), readonly_argv: old.buildArgv({ ...sample, readonly: true }), resume_argv: null, readonly_resume_argv: null })));
+    const launch_configuration_hash = sha256Hex(canonicalJson({ domain: "cord.agent-config.headless.v1", name: "headless:old",
+      argv: old.buildArgv(sample), readonly_argv: old.buildArgv({ ...sample, readonly: true }), resume_argv: null, readonly_resume_argv: null }));
+    expect(old.configuration_hash).toBe(sha256Hex(canonicalJson({ domain: "cord.agent-config.headless.v4", completion_policy: "process-exit-required.v1", launch_configuration_hash })));
     expect(old.capabilities.launch_options).toEqual(["model", "effort"]);
     for (const profile of [{ auto: true }, { mode: "code" }, { config_options: { extended: true } }]) {
       const registry = createAgentRegistry(parseAgentsYaml(JSON.stringify({ agents: { claude: { kind: "headless", bin: process.execPath, args: [fixture, "{{prompt}}"], launch: profile } } })).yaml);

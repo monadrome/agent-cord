@@ -151,7 +151,9 @@ custom-template从基本args的typed占位推导全部headless旋钮集合，新
 
 ACP定义的可选readonly_launch是完整AgentLaunch，task.readonly=true时替代可写launch，不合并，包含新session、loadSession和独立协调。构造时复用严格映射校验并拒绝非plan/扩展；允许值、回执和漂移仍按session动态核验。显式只读定义使用v6配置身份，纳入两套配置与顺序策略，公开readonly_configuration=explicit不暴露原文。无声明保留旧身份/能力；只读工具审计、权限和产物控制仍独立。AgentService查询的任务mode进入共享key，结果标明实际模式；UI还核对所选模式与revision/hash。查询不调用模型或worker会话hook（[ADR-0084](./adr/ADR-0084-acp-readonly-launch-profile.md)）。
 
-Headless的readonly_launch同为完整AgentLaunch，在只读新任务/指定session恢复中替代knobs+launch，基本/独立配置各自按模板能力校验，custom占位缺值在构造hash时拒绝。独立定义使用headless.v3绑定四种有效argv和context_revision，空独立配置也与未声明分开，旧无profile保留身份。AgentService接受ACP或明确cli_help的headless只读查询；CLI probe只发version/help，configured从所选profile派生，help advertised不证明真实LLM访问或额度。UI复用mode/identity核验，跨mode历史不冒称当前结果。资源/角色参数和只读映射均不替代Goal自测、OS隔离与人工gate（[ADR-0088](./adr/ADR-0088-headless-readonly-launch-profile.md)）。
+Headless的readonly_launch同为完整AgentLaunch，在只读新任务/指定session恢复中替代knobs+launch，基本/独立配置各自按模板能力校验，custom占位缺值在构造hash时拒绝。独立启动定义绑定四种有效argv和context_revision，空独立配置也与未声明分开；其摘要进入当前headless.v4完成策略身份。AgentService接受ACP或明确cli_help的headless只读查询；CLI probe只发version/help，configured从所选profile派生，help advertised不证明真实LLM访问或额度。UI复用mode/identity核验，跨mode历史不冒称当前结果。资源/角色参数和只读映射均不替代Goal自测、OS隔离与人工gate（[ADR-0088](./adr/ADR-0088-headless-readonly-launch-profile.md)）。
+
+Headless读完stdout与实际进程结果后才结束流；result之后的failed/非零/信号仍为agent error，timeout/abort保留原分类。宿主聚合完整流，晚失败不写报告、不复用完成或形成独立提议，Goal可在原预算内自动重做。配置v4绑定新完成策略及原完整启动定义hash，使缺退出证明的旧任务按现有未退出恢复规则重验；有效argv不变、已退出事实不回滚。ACP仍用RPC完成后主动关闭的独立语义（[ADR-0090](./adr/ADR-0090-headless-process-completion.md)）。
 
 任务启动前共享纯timeout/session校验，signal取消优先于参数和MCP解析；已取消任务零spawn。Headless参数编译后再次观察signal，CLI明确session拒绝选项前缀，ACP保留合法不透明ID，resume(undefined)不降级new。有效timeout不允许Node隐式截断/转换，错误固定不回显原值；有效argv/hash与宿主恢复/人工gate保持原规则（[ADR-0089](./adr/ADR-0089-agent-task-launch-preflight.md)）。
 

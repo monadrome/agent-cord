@@ -32,15 +32,16 @@ describe("Headless完整只读配置", () => {
     expect(driver.capabilities.readonly_configuration).toBe("explicit");
   });
 
-  it("空独立配置不继承旧knobs/launch；明确声明改变身份，旧无声明hash不变", () => {
+  it("空独立配置不继承旧knobs/launch；明确声明改变启动定义，完成策略绑定旧定义", () => {
     const legacy = new HeadlessDriver({ cli: "claude", knobs: { model: "old-model", bare: true }, launch: { effort: "high" } });
     const empty = new HeadlessDriver({ cli: "claude", knobs: { model: "old-model", bare: true }, launch: { effort: "high" }, readonly_launch: {} });
     expect(empty.buildArgv({ prompt: "p", cwd, readonly: true })).not.toContain("old-model"); expect(empty.buildArgv({ prompt: "p", cwd, readonly: true })).not.toContain("high");
     expect(empty.configuration_hash).not.toBe(legacy.configuration_hash); expect(legacy.capabilities).not.toHaveProperty("readonly_configuration");
     const sample = { prompt: "cord.configuration.prompt", cwd: "" };
-    expect(legacy.configuration_hash).toBe(sha256Hex(canonicalJson({ domain: "cord.agent-config.headless.v1", name: legacy.name,
+    const launch_configuration_hash = sha256Hex(canonicalJson({ domain: "cord.agent-config.headless.v1", name: legacy.name,
       argv: legacy.buildArgv(sample), readonly_argv: legacy.buildArgv({ ...sample, readonly: true }), resume_argv: legacy.buildArgv(sample, "cord.configuration.session"),
-      readonly_resume_argv: legacy.buildArgv({ ...sample, readonly: true }, "cord.configuration.session") })));
+      readonly_resume_argv: legacy.buildArgv({ ...sample, readonly: true }, "cord.configuration.session") }));
+    expect(legacy.configuration_hash).toBe(sha256Hex(canonicalJson({ domain: "cord.agent-config.headless.v4", completion_policy: "process-exit-required.v1", launch_configuration_hash })));
   });
 
   it.each(["claude", "codex", "kimi"])("%s只读配置未支持选项拒绝别名，不回退内置", name => {
