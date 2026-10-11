@@ -71,7 +71,7 @@
 - [x] server API/测试/文档与完整1602项/117文件回归、typecheck/build:all/diff
 - [x] 功能提交89fe1d2，接续交接确认已推送并独立核验，完整持续目标active
 
-## 阶段85：Supervisor有界自动重试（已实现并验证，待同步）
+## 阶段85：Supervisor有界自动重试（已实现并验证，已同步）
 
 - [x] 接续89fe1d2后四个未提交文件；新增测试多次复现首次失败后无子轮次
 - [x] 定位RunService等待升级完成时仍active/持lease，retry要求收束；system子请求与旧人工来源协议冲突，ADR-0095补先行
@@ -79,16 +79,16 @@
 - [x] 离线core/server/TCP成功失败恢复与人工预算/gate不变，文档/人审指南；双协议各supervisor2次、显式续跑后worker2次、审批1/决定0/退出0/doctor=true
 - [x] 全量1637项/117文件、build/typecheck/build:all/diff、最终201个本地链接与完整Goal示例解析；本轮无新增UI行为，不重复浏览器验收
 - [x] 本地小步提交ea54081与25fa8de完成；完整目标active
-- [ ] 远端同步待网络恢复：HTTP/2 push连续15秒低速失败，HTTP/1.1 push25秒上限，独立HTTP/2 ls-remote15秒上限；最后确认远端仍为接续基线89fe1d2，未冒称同步完成
+- [x] 先前HTTP/2低速/HTTP1.1总时长/独立查询超时记录保留；阶段86最后HTTP/2 push成功，独立ls-remote核验d328316adafe11fbb063054fc9d5a7a185372e6d，阶段85积压一并同步
 
-## 阶段86：独立Git工作树执行（已实现并验证，待远端同步）
+## 阶段86：独立Git工作树执行（已实现并验证，已同步）
 
 - [x] 核验65e7eb5/ahead3/干净，阶段85为实际进展；读取server-root/worker/验证/产物边界与Git帮助，ADR-0096先行
 - [x] 显式固定commit的worktree创建CLI、实际linked root识别、driver配置身份/cwd派发前后与resume/源码/checkpoint/人审核验
 - [x] 21项真实Git/CLI与5项ACP/headless双工作树TCP、最新需求/自测/冷恢复/人工gate回归与human review指南
 - [x] 全量1663项/119文件、typecheck/build:all/diff、文档链接、隔离并发预览与1440/390/320六截图；各审批1/决定0/退出0/doctor=true，无付费模型
 - [x] 功能提交795f32e（feat: run agent work units in linked worktrees）；保留共享Git元数据/验证器未OS隔离限制，完整目标active
-- [ ] 远端同步待网络恢复：HTTP/1.1 push达到25秒上限，独立HTTP/2 ls-remote达到15秒上限，远端hash未确认，不冒称已推送
+- [x] HTTP/2 push成功（89fe1d2→d328316），独立ls-remote核验d328316adafe11fbb063054fc9d5a7a185372e6d；功能795f32e与验收记录已同步，完整目标active
 
 ## 阶段79：只读命令参数与策略身份（已实现并验证，功能已同步）
 

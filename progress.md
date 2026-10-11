@@ -11,6 +11,7 @@
 - 最后checkpoint根核验后完整1663项/119文件再次通过，typecheck/build:all/diff通过，最终257个本地链接完整。尝试同步此前3个提交的HTTP/2 push再次连续15秒低速失败；不把网络故障当功能失败，阶段86准备本地提交后有界同步和独立核验。
 - 阶段86最终提交795f32e，包含CLI/真实linked worktree/driver身份包装、root/源码/验证/协调核验、21项创建/身份测试与5项双协议TCP测试。提交后HTTP/1.1 push达到25秒上限，分支本地ahead4，远端hash保持未确认；原验收PID66948已正常关闭并核验两个端口拒绝连接，持久Draft和人工审批保留。
 - 最终代码从既有ACP工作树冷启动查看预览PID91823/http://127.0.0.1:50939/#/agents，沿用原run/预算/审批，新只读fixture协调current=true，审批1/决定0/退出0/doctor=true/付费0；定位/tmp/cord-stage86-view-result.json。独立HTTP/2 ls-remote再次15秒上限，远端未确认；所有测试/构建/查询exec已结束，只有用于查看的detached预览服务。
+- 网络恢复后HTTP/2 push成功（89fe1d2→d328316），独立HTTP/2 ls-remote核验d328316adafe11fbb063054fc9d5a7a185372e6d，功能795f32e与阶段85/86全部积压提交同步；工作树同步记录后提交。预览50939健康、当前wait/人工未决保留；整体持续目标仍active，OS/验证器隔离与单server内按节点分配仍待完善。
 
 ## 2026-10-11（阶段85）
 
