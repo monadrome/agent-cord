@@ -925,14 +925,15 @@
 - [x] 全量1404项/98文件、typecheck/build:all/diff与122个本地文档链接通过，原真实Draft未操作
 - [x] 功能提交c3ea559；HTTP/1.1推送成功（9227ccb→c3ea559），独立HTTP/2 ls-remote核验c3ea5595873611a77d5e463aca8fbdf67e7f3738；完整目标active
 
-## 阶段73：ACP MCP配置与能力协商（已实现并验证，待提交同步）
+## 阶段73：ACP MCP配置与能力协商（已实现并验证，本地提交，远端未确认）
 
 - [x] 核验1149bb9干净/tracking同步，阶段72为progress；本地SDK/Firecrawl官方协议核验，ADR-0086先行
 - [x] 两套完整MCP配置/凭据引用、spawn前拒绝/传输协商/new-load、v7身份/公开元信息/无连接inspect
 - [x] 14项真实driver/SDK stdio与3项TCP Goal/readonly协调/热重载/冷等待回归通过
 - [x] 控制台声明/协商投影、1440/390/320六完成态截图无pageerror/溢出、示例/核心feature/人审指南
 - [x] 全量1421项/100文件、typecheck/build:all/diff与128个本地文档链接通过
-- [ ] 小步提交/有界同步/独立远端核验；完整目标active
+- [x] 功能提交6e0b28e，完整实现/测试/人审指南保留；原真实Draft未操作，完整目标active
+- [ ] 远端同步：HTTP/1.1 push低速超时exit128、HTTP/2 push25秒上限exit124；两协议独立ls-remote15/12秒上限exit124，实际远端hash未确认
 
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 

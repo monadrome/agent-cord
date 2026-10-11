@@ -8,6 +8,7 @@
 - 完整14项driver与3项TCP通过：官方MCP SDK实际连接/tool结果fixed进入代码、自测/指南；只读报告与最新PRD协调不继承工具、cold等待不重复，MCP配置变更/固定resolver身份有效。映射键序/深拷贝、显式只读工具列表启动/清理和严格URL补齐；结构化schema仅解析标准API，不手写MCP引擎。
 - 最终npm test1421项/100文件、typecheck/build:all/diff通过，证据/tmp/cord-stage73-tests.json。隔离HTTP PID39824/http://127.0.0.1:61030，实际stdio工具1次、子进程已退出，worker code连接1、报告/最新协调plan连接0，审批1/人工决定0/仅deliver退出/doctor=true；无prompt查询空列表且缺工具凭据仍返回HTTP/SSE能力，不等价连接健康。原7306Draft未操作，无真实LLM调用。
 - Playwright1440/390/320六截图通过，pageerror=[]/无横向溢出，配置数量/HTTP支持/SSE未声明/未请求连接与不泄露地址引用都核验。首次截图误以已有历史“未请求连接”作为新查询结束，查看发现busy；改等查询按钮恢复可用后重拍完成态，桌面/320/stdio截图已查看。证据/tmp/cord-stage73-browser-result.json，图/脚本/运行数据不入仓库；9份相关文档首127项链接，ADR追加指南后128项，完整目标active。
+- 功能提交6e0b28e（feat: configure acp mcp tools and negotiate transports）。HTTP/1.1 push报GitHub低于1bytes/sec持续15秒、exit128；HTTP/2 push25秒总上限exit124，两种协议独立ls-remote分别15/12秒上限exit124，实际远端hash未确认。本地完整功能保留；查询结束时并行ps曾看到收束窗口进程，随后核验PID68720/68735已不存在，不将并发读取窗口误判残留。完整目标active，预览health200/审批1/current协调wait仍健康。
 
 ## 2026-10-10（阶段72）
 
