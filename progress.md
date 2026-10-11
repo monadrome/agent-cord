@@ -14,6 +14,7 @@
 - 功能提交36aadcc（feat: support stdin prompt input for headless agents），git diff/check与浏览器截图已审查。HTTP/2 push和独立HTTP/1.1查询均以GitHub低速错误结束，本地领先1提交；此前7028a1f远端仍可核验，36aadcc远端未确认。推送命令已收束，无运行/测试session残留；隔离预览health200、审批1/current wait保留查看。
 - ADR加入指南后216个本地链接全部通过；新增core ports/schema能力字段、custom/template prompt_input与console标签已完成。生产实现全量后未再改，开始小步提交/推送；完整持续目标active。
 - 网络恢复后HTTP/2 push成功（7028a1f→68b484c），独立HTTP/2 ls-remote核验68b484c42ddc4534425132021639bc9d35d2ab33；36aadcc/68b484c及阶段80文档与验收记录已同步。工作树待记录本次同步后保持干净，完整目标active。
+- 补充流程Agent上下文回归：stdin/argv能力字段进入受限快照且差异可观察，环境/prompt不外泄；定向9项通过。当前仅新增测试，完整持续目标active。
 ## 2026-10-10（阶段79）
 
 - d45942e干净/ahead4，前轮54affe8/1513项/16新回归与PID56978隔离实际HTTP为progress；上一轮最后记录push20秒上限，本轮独立HTTP/2 ls-remote仍15秒上限。实现不受网络故障阻塞，完整goal仍active。
