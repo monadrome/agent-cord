@@ -33,7 +33,7 @@
 - 阶段77探索时猜测fixture/组件/模块/协议文档路径不存在；使用rg --files定位实际路径后继续，无文件修改或运行副作用。
 - Fastify 的 `reply` 是 thenable：handler 里 `await reply.code(201)` 会死锁（等响应发出，而响应要等 handler 返回）。一律 `reply.code(...)` 不 await。
 
-## 阶段78：Headless真实进程完成（已实现并验证，待同步）
+## 阶段78：Headless真实进程完成（已实现并验证，远端同步待核验）
 
 - [x] 核验a8b2eff干净/ahead2；阶段77为已验证progress，远端查询本轮仍超时
 - [x] 完成/恢复审查与execa结果契约，定位result掩盖晚退出失败；ADR-0090先行
@@ -41,7 +41,8 @@
 - [x] Headless完成策略v4身份、旧argv与ACP语义兼容；首73项通过，旧完整未退出checkpoint重跑后新完成可复用
 - [x] 新16项/3文件全部通过：TCP Goal自动恢复/失败边界/最新PRD协调/cold，人审未决；build:all通过
 - [x] 全量1513项/110文件、typecheck/build:all/diff、文档/人审指南；隔离实际HTTP原预算自动修复/最新协调/doctor/人工未决
-- [ ] 小步提交、有界推送与独立远端核验；完整持续目标保持active
+- [x] 功能提交54affe8，完整交付与人审指南保留；完整持续目标保持active
+- [ ] 远端同步：HTTP/1.1与HTTP/2 push连续15秒低速失败，独立HTTP/2 ls-remote15秒上限；本地实现/记录保留，最后可核验远端37920a5
 
 ## 阶段77：Agent任务启动前校验（已实现并验证，远端同步待核验）
 

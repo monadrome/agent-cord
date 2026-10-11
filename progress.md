@@ -12,6 +12,8 @@
 - 首全量1512/1513通过，唯一旧headless只读help关闭测试在等--help记录时10秒超时；typecheck通过。19项相关TCP/关闭/新交付单独通过，尚无确定原因；添加查询先结束时的公共checks诊断，保持原10000ms预算重跑全量，未改生产逻辑或扩大超时。临时实际脚本调用不存在snapshot()，结果已落failed且PID38049确认不存在；读真实AgentService后改resolver()，不是观察超时重启。
 - 最终npm test1513项/110文件、typecheck/build:all/diff通过，证据/tmp/cord-stage78-final-tests.json；10份文档230个本地链接通过，ADR加入指南后再核验。源码自73项回归后未改，最后只加旧测试诊断/文档；首全量help超时原因仍未定位，单独19项和重跑全量通过，不隐去失败记录。
 - 隔离实际HTTP已通过，PID56978/http://127.0.0.1:49493，证据/tmp/cord-stage78-real-result.json：writer-model/high worker failed→ok，宿主自测1次、attempt2 ready、cold不重复/审批ID不变；B需求review-model/low协调failed→ok/current/wait，指南不改，审批1/人工决定0/采用0/仅deliver退出/doctor=true/付费0。旧ready只作历史，新的current协调不意味着已重新验收B交付；原7306真实Draft未操作，完整持续目标active。
+- ADR加入指南后231个本地链接通过，暂存diff/check已审查，功能提交54affe8adf7c884dee9c2883b125b5ded4f8ebd5。HTTP/1.1 push连续15秒低速失败，继续HTTP/2有界重试及独立核验；阶段77两提交一并待同步，保留本地不改全局Git。隔离预览health200/审批1/最新协调ok/current/wait再核验，所有验收任务已终止，仅查看服务保留。
+- HTTP/2 push亦连续15秒低速失败，独立HTTP/2 ls-remote达到15秒总上限；远端同步未确认，最后可核验远端仍为阶段77轮初37920a5。验收/同步记录另提交后作一次有界推送，失败则保留，不据网络超时猜已上传。完整实现、1513项和真实TCP/HTTP证据均已完成，持续目标保持active而非complete/blocked。
 
 ## 2026-10-10（阶段77）
 
