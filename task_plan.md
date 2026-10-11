@@ -88,7 +88,7 @@
 - [x] 21项真实Git/CLI与5项ACP/headless双工作树TCP、最新需求/自测/冷恢复/人工gate回归与human review指南
 - [x] 全量1663项/119文件、typecheck/build:all/diff、文档链接、隔离并发预览与1440/390/320六截图；各审批1/决定0/退出0/doctor=true，无付费模型
 - [x] 功能提交795f32e（feat: run agent work units in linked worktrees）；保留共享Git元数据/验证器未OS隔离限制，完整目标active
-- [ ] 远端同步待网络恢复：HTTP/1.1 push达到25秒上限，独立远端hash未确认，不冒称已推送
+- [ ] 远端同步待网络恢复：HTTP/1.1 push达到25秒上限，独立HTTP/2 ls-remote达到15秒上限，远端hash未确认，不冒称已推送
 
 ## 阶段79：只读命令参数与策略身份（已实现并验证，功能已同步）
 

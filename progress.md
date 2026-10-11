@@ -9,7 +9,8 @@
 - 最终1663项/119文件全部通过（/tmp/cord-stage86-tests.json），root build/typecheck/build:all/git diff --check通过；README/核心Feature/协议/架构/ADR-0096/人审指南同步，255个本地链接完整。最后补checkpoint根核验，生产代码完整重验后提交。
 - 独立Git临时预览PID66948已健康：headless http://127.0.0.1:49657、ACP http://127.0.0.1:49660；并发Goal/current wait/实际自测/两套LLM配置/独立hash与lease/主树initial通过，各审批1/决定0/退出0/doctor=true，付费0。/tmp/cord-stage86-real-result.json保留根与运行定位；Playwright三视口六截图无pageerror/横向溢出，桌面/320已查看（/tmp/cord-stage86-browser-result.json）。未操作原7306真实Draft，无子agent；准备小步提交推送。
 - 最后checkpoint根核验后完整1663项/119文件再次通过，typecheck/build:all/diff通过，最终257个本地链接完整。尝试同步此前3个提交的HTTP/2 push再次连续15秒低速失败；不把网络故障当功能失败，阶段86准备本地提交后有界同步和独立核验。
-- 阶段86最终提交795f32e，包含CLI/真实linked worktree/driver身份包装、root/源码/验证/协调核验、20+创建/身份测试与5项双协议TCP测试。提交后HTTP/1.1 push达到25秒上限，分支本地ahead4，远端hash保持未确认；临时预览已由TCP验证后关闭计划执行。
+- 阶段86最终提交795f32e，包含CLI/真实linked worktree/driver身份包装、root/源码/验证/协调核验、21项创建/身份测试与5项双协议TCP测试。提交后HTTP/1.1 push达到25秒上限，分支本地ahead4，远端hash保持未确认；原验收PID66948已正常关闭并核验两个端口拒绝连接，持久Draft和人工审批保留。
+- 最终代码从既有ACP工作树冷启动查看预览PID91823/http://127.0.0.1:50939/#/agents，沿用原run/预算/审批，新只读fixture协调current=true，审批1/决定0/退出0/doctor=true/付费0；定位/tmp/cord-stage86-view-result.json。独立HTTP/2 ls-remote再次15秒上限，远端未确认；所有测试/构建/查询exec已结束，只有用于查看的detached预览服务。
 
 ## 2026-10-11（阶段85）
 
