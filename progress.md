@@ -9,6 +9,7 @@
 - 最终npm test1437项/102文件、typecheck/build:all/diff通过，证据/tmp/cord-stage74-tests.json。隔离实际验收PID26273，两预览HTTP http://127.0.0.1:62036、SSE http://127.0.0.1:62044均passed：认证/工具1次、活动请求/流/session为0、code连接1/报告与最新PRD协调plan连接0、审批1/人工决定0/仅deliver退出/doctor=true。成功fixture合作终止session不是平台远端撤销保证，取消反例保留远端记录，未连接第三方工具/真实LLM、原7306Draft未操作。
 - 临时结果/tmp/cord-stage74-real-result.json定位两工作区，脚本/数据不入仓库；本轮仅后端header边界和官方SDK网络fixture/测试变更，无新增UI行为，不重复阶段73桌面/移动截图。准备检查文档与diff、小步提交/有界同步，完整目标active。
 - 9份相关文档130个本地链接、git diff --check通过；HTTP/SSE健康/审批1/最新协调current=true与wait再次独立核验，保留人工gate未决，准备提交网络验证与header修复，不把第三方服务可用性或远端删除纳入本地结论。
+- 功能提交ae6bc1d（fix: validate mcp headers and verify network transports）。HTTP/1.1 push报低于1bytes/sec持续15秒、exit128；HTTP/2 push25秒上限exit124，两协议独立ls-remote分别15/12秒上限exit124。阶段73/74提交全部保留，本地当前ahead3/工作树干净，远端实际hash未确认。网络不阻塞可独立开展的实现，完整目标active。
 
 ## 2026-10-10（阶段73）
 

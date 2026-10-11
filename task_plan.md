@@ -935,7 +935,7 @@
 - [x] 功能提交6e0b28e，完整实现/测试/人审指南保留；原真实Draft未操作，完整目标active
 - [ ] 远端同步：HTTP/1.1 push低速超时exit128、HTTP/2 push25秒上限exit124；两协议独立ls-remote15/12秒上限exit124，实际远端hash未确认
 
-## 阶段74：MCP网络连接与header边界（已实现并验证，待提交同步）
+## 阶段74：MCP网络连接与header边界（已实现并验证，本地提交，远端未确认）
 
 - [x] 核验48f9bc4干净/ahead2，阶段73为真实progress；阅读本地官方MCP SDK HTTP/SSE接口与关闭语义，ADR-0086先更新
 - [x] 两项header控制字符/Unicode失败反例；标准API完整校验与spawn前无进程/脱敏通过
@@ -943,7 +943,8 @@
 - [x] 4项TCP Goal/自测/readonly报告/最新PRD协调/cold等待与凭据修复回归
 - [x] 真TCP Goal/自测/readonly/最新协调/cold回归；HTTP/SSE两隔离实际预览通过，文档/人审指南同步
 - [x] 全量1437项/102文件、typecheck/build:all/diff与130个本地文档链接通过，无新增UI行为不重复截图
-- [ ] 小步提交/有界同步/独立远端核验，阶段73积压同步；完整目标active
+- [x] 功能提交ae6bc1d，完整实现/自测/人审指南保留；完整目标active
+- [ ] 远端同步：HTTP/1.1 push低速超时exit128、HTTP/2 push25秒上限exit124，两协议独立ls-remote15/12秒上限exit124；阶段73积压提交保留，远端实际hash未确认
 
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
