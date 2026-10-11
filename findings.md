@@ -1,5 +1,11 @@
 # 调研发现
 
+## 阶段86（2026-10-11）：隔离必须覆盖整个工作单元
+
+- 当前worker cwd、源码扫描、宿主check和session产物共用server root。单独改变worker cwd会验证另一份代码；独立linked worktree应承载整个server工作单元，复用现有输入/审批/冷恢复契约。
+- Git工作树有独立源码与index但共享公共元数据；只能声明worktree，不能声明OS/网络隔离。显式commit避免暗中丢弃dirty输入；不自动复制旧session/依赖/凭据，不自动删除未知结果。
+- 能力包装放在工作区AgentService resolver，原ACP/headless inspect保留instanceof路径；只有实际linked根配置得到更强能力和独立身份，任务前重检cwd与Git身份。
+
 ## 阶段85（2026-10-11）：自动重试需要收束与来源协议
 
 - 用户的默认Goal和原子启动控制已在阶段41/59等实现与文档采纳。能力识别必须区分声明、运行时查询和实际执行证据；原生Goal/checkpoint、模型可访问性、权限执行前拦截和真实worktree/OS隔离仍需逐项适配，不能只增加枚举或从help/握手推断。

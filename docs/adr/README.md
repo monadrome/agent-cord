@@ -17,6 +17,8 @@ agent-cord 的设计决策分为四类，共 71 条，一条决策一个文件�
 
 后续执行决策：[ADR-0095：Supervisor 有界自动重试](./ADR-0095-bounded-supervisor-retry.md)，定义发布次数、连续父子来源与相同输入/配置核验；仅重试输出失败/超时，不增加 worker 预算或处理人工 gate。验收见 [Human Review 指南](../research/2026-10-11-bounded-supervisor-retry.md)。
 
+实际工作单元隔离：[ADR-0096：独立Git工作树执行](./ADR-0096-linked-worktree-execution.md)，定义显式commit创建、整个server-root绑定与真实worktree能力，保留Git公共元数据共享和人工gate；[Human Review指南](../research/2026-10-11-linked-worktree-execution.md)。
+
 设计决策先于技术决策成立：技术选型都是设计约束的推论，而不是流行度比较的结果。每份 ADR 的「理由」一节都给出从痛点出发的第一性原理推导链。
 
 ---

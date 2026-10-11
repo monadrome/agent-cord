@@ -99,7 +99,7 @@ Headless必须读完真实进程结果，成功JSON不能覆盖晚退出失败�
 
 内置Codex以标准输入接收完整任务，避免prompt被CLI解析成选项或子命令。custom args可明确声明`prompt_input: stdin`，所有分支禁止`{{prompt}}`；通道进入能力/恢复身份，旧argv wrapper保持原行为。配置与验收见[标准输入人审指南](./docs/research/2026-10-10-headless-stdin-prompt.md)。
 
-Agent能力详情明确显示当前工作区隔离为“共享工作区（lease）”。这不代表 Git worktree、容器或 OS sandbox；未来更强隔离需要独立执行器和实际验收，见[工作区隔离能力指南](./docs/research/2026-10-10-workspace-isolation-capability.md)。
+可用`cord worktree <path> [--base <ref>]`创建独立detached工作树，再以`CORD_ROOT`启动整个工作单元。server核验实际linked根后，Agent能力为`worktree`，配置/派发/验证/人审/协调共用绑定；普通根仍为`shared_lease`。它隔离源码和需求运行目录，Git公共元数据仍共享，OS/网络/验证器隔离待实现。配置、边界与人审见[独立工作树指南](./docs/research/2026-10-11-linked-worktree-execution.md)。
 
 ACP 支持结构化 `mcp_servers` 和独立 `readonly_mcp_servers`：stdio、协商支持的 HTTP/SSE；凭据用环境变量引用，缺引用或不支持传输时拒绝，HTTP header值在启动前使用Node标准API核验。只读默认不继承执行工具，无 prompt 查询不连接所配 MCP，只展示数量和传输能力。实际 stdio及本地HTTP/SSE工具连接、宿主自测验收见 [MCP 配置与人审指南](./docs/research/2026-10-10-acp-mcp-configuration.md)。
 

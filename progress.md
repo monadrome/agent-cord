@@ -1,5 +1,15 @@
 # 工作进度
 
+## 2026-10-11（阶段86）
+
+- 接续65e7eb5干净/ahead3，上一轮功能、1637项完整验证与TCP证据为实际进展；当前无必须等待的exec session。读取隔离/源码/产物/AgentService后确定整个server-root承载linked工作树，避免worker cwd与宿主验证分裂；Git 2.50.1帮助核对detach语义，ADR-0096先行，无子agent/付费模型/7306操作。
+- 新增真实Git/CLI/身份回归与worktree创建/识别/driver包装；首36项32通过，四个包装任务失败定位为调用task_timeout_error(undefined)，旧driver实际先取缺省；已修正undefined分支。root build通过，追加任务后metadata重检避免候选result掩盖工作树漂移；Git query统一截止时间，普通目录/主工作树不变。
+- 真实Git/CLI 19项与双工作树并发/等待元数据漂移TCP通过；两项cold旧协调current断言失败。初步归因为PRD/复用事实没有实测支持，已读取before/after与新增事件纠正：冷waiting_human保持持久等待，不重启runner，active从true变false且无新增事件；旧协调因执行观察变化过期，显式新协调读取最新观察。doctor漂移为正常尚未重建账本，使用既有getLedger后核验，不改生产恢复/投影语义，清理临时诊断。
+- 新增Git登记/反向引用与目录dev/ino摘要，拒绝伪造gitfile/物理目录替换，配置绑定副本避免调用方修改原对象；基线跟踪旧session/index/SDLC数据拒绝隐式复制授权。单任务/inspect核验耗时计入显式预算，取消/非法参数先判；CLI --help零创建，source/checkpoint钩子也验证根。
+- 最终1663项/119文件全部通过（/tmp/cord-stage86-tests.json），root build/typecheck/build:all/git diff --check通过；README/核心Feature/协议/架构/ADR-0096/人审指南同步，255个本地链接完整。最后补checkpoint根核验，生产代码完整重验后提交。
+- 独立Git临时预览PID66948已健康：headless http://127.0.0.1:49657、ACP http://127.0.0.1:49660；并发Goal/current wait/实际自测/两套LLM配置/独立hash与lease/主树initial通过，各审批1/决定0/退出0/doctor=true，付费0。/tmp/cord-stage86-real-result.json保留根与运行定位；Playwright三视口六截图无pageerror/横向溢出，桌面/320已查看（/tmp/cord-stage86-browser-result.json）。未操作原7306真实Draft，无子agent；准备小步提交推送。
+- 最后checkpoint根核验后完整1663项/119文件再次通过，typecheck/build:all/diff通过，最终257个本地链接完整。尝试同步此前3个提交的HTTP/2 push再次连续15秒低速失败；不把网络故障当功能失败，阶段86准备本地提交后有界同步和独立核验。
+
 ## 2026-10-11（阶段85）
 
 - 上轮不是已验证功能：四个dirty文件为未完成supervisor_max_attempts原型，37项中36项既有测试通过，新增1项连续等待12秒失败。logger/debug断言仅诊断修改，接续保留并修正，无付费模型/子agent/7306操作。

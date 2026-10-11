@@ -127,7 +127,7 @@ export class CoordinationService {
   private closing = false;
 
   constructor(private readonly sessions: SessionService, private readonly sdlcs: SdlcService,
-    private readonly options: { workspaceRoot: string; resolver: () => (name: string) => AgentDriver; runs: RunService; onError?: (error: unknown) => void }) {}
+    private readonly options: { workspaceRoot: string; resolver: () => (name: string) => AgentDriver; runs: RunService; onError?: (error: unknown) => void; assert_workspace?: () => Promise<void> }) {}
 
   start(req_id: string, input: StartCoordinationInput, goal_blocker?: GoalBlockerTrigger): Promise<CoordinationRoundView> {
     return this.startRound(req_id, input, goal_blocker);
@@ -351,6 +351,7 @@ export class CoordinationService {
   }
 
   private async read_source_hash(def: WorkflowDef): Promise<string | null> {
+    await this.options.assert_workspace?.();
     const inputs = [...new Set(def.spec.nodes.flatMap(verificationSourceInputs))].sort();
     return (await readVerificationSource(this.options.workspaceRoot, inputs)).source_hash;
   }

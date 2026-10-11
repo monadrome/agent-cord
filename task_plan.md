@@ -81,6 +81,14 @@
 - [x] 本地小步提交ea54081与25fa8de完成；完整目标active
 - [ ] 远端同步待网络恢复：HTTP/2 push连续15秒低速失败，HTTP/1.1 push25秒上限，独立HTTP/2 ls-remote15秒上限；最后确认远端仍为接续基线89fe1d2，未冒称同步完成
 
+## 阶段86：独立Git工作树执行（已实现并验证，待提交同步）
+
+- [x] 核验65e7eb5/ahead3/干净，阶段85为实际进展；读取server-root/worker/验证/产物边界与Git帮助，ADR-0096先行
+- [x] 显式固定commit的worktree创建CLI、实际linked root识别、driver配置身份/cwd派发前后与resume/源码/checkpoint/人审核验
+- [x] 21项真实Git/CLI与5项ACP/headless双工作树TCP、最新需求/自测/冷恢复/人工gate回归与human review指南
+- [x] 全量1663项/119文件、typecheck/build:all/diff、文档链接、隔离并发预览与1440/390/320六截图；各审批1/决定0/退出0/doctor=true，无付费模型
+- [ ] 小步提交推送/远端核验；保留共享Git元数据/验证器未OS隔离限制，完整目标active
+
 ## 阶段79：只读命令参数与策略身份（已实现并验证，功能已同步）
 
 - [x] d45942e干净/ahead4，阶段78实现/1513项/实际HTTP为progress；远端独立查询仍超时

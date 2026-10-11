@@ -239,7 +239,9 @@ ADR-0090：Headless候选result不覆盖真实进程failed/非零/未知退出�
 
 ADR-0092：HeadlessCliTemplate可选prompt_input=argv/stdin，缺省argv；内置Codex明确stdin，task/resume的prompt位置固定-，execa.input传完整UTF-8原文，不加换行/不用shell或临时文件。custom args条目可声明同字段，所有完整分支共用且禁止{{prompt}}，模板形态拒绝覆盖。未知枚举/混合配置拒绝别名。AgentCapabilities与CoordinationAgentCapabilitiesSchema增可选prompt_input，明确声明时公开/UI展示映射；stdin输入通道加入launch_configuration_hash，再绑定v4完成策略，旧argv-only摘要不加字段保持身份。查询仍stdin忽略/固定version/help，背压时timeout/abort沿原进程收束；有效双profile/revision/恢复/Goal与人工gate不改变。不证明厂商日志保密、工具隔离或model可用性。
 
-ADR-0093：AgentCapabilities与严格协调上下文增加必需`workspace_isolation`，枚举`shared_lease/worktree/os_sandbox`；当前ACP/headless固定声明shared_lease，并在控制台显示。它是能力事实，进入协调上下文但不改变当前configuration_hash/在途resolver；shared_lease只证明宿主执行 lease/跨进程互斥，不证明worktree、容器、网络或OS权限隔离。未来更强枚举必须实现对应执行器、清理/恢复和副作用对账后再声明，旧提议按能力快照变化失效。
+ADR-0096：`cord worktree <path> [--base <ref>]`为环境准备CLI，不追加授权或SDLC推进事件。目标须新目录，commit先解析；dirty缺省、已有目标、源树/公共Git目录内目标、已跟踪旧session/index/SDLC管理数据均拒绝。创建不force、不复制未提交/ignored材料，本次禁用Git checkout hooks与路径/config环境覆盖，未知结果保留现场。server实际linked根经toplevel/git-dir/common-dir、Git登记/反向引用与目录身份核验后，AgentService包装driver，cap=worktree、configuration_hash使用cord.agent-worktree.v1绑定原hash/规范路径/identity_hash；普通根保留原身份。新任务/resume取消和参数先判，再重检根，完整事件流后再核验，错误configuration不可重试；核验耗时计入显式task/inspect预算。宿主源码、人审和协调来源共用绑定核验，重载不允许换根；不改变既有事件payload/schema，HEAD变化仍以实际源码/context约束。工作树只隔离整个server-root工作单元，公共Git元数据共享；旧需求迁移、自动清理、OS/网络/验证器隔离尚未实现。
+
+ADR-0093：AgentCapabilities与严格协调上下文增加必需`workspace_isolation`，枚举`shared_lease/worktree/os_sandbox`；未包装ACP/headless声明shared_lease，普通根保持原configuration_hash/在途resolver。它是能力事实，进入协调上下文；shared_lease只证明宿主执行 lease/跨进程互斥，不证明worktree、容器、网络或OS权限隔离。ADR-0096实际linked-root包装才声明worktree并增加目录绑定身份；容器/OS能力仍需真实执行器，旧提议按能力快照变化失效。
 
 运行诊断 `GET /api/v1/workspace/lease` 只返回 `isolation=shared_lease`、状态free/held/unresolved/unavailable和最小owner。它不修改事件流或执行锁；unresolved不是授权恢复信号，必须人工核验遗留worker/验证进程与副作用后由既有恢复命令继续。
 

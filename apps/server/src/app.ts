@@ -93,8 +93,9 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
   const runs = new RunService(sessions, sdlcs, index, {
     driverResolverForRun: () => agents.resolver(),
     workspaceRoot: root,
+    assert_workspace: () => agents.assert_workspace(),
   });
-  const coordination = new CoordinationService(sessions, sdlcs, { workspaceRoot: root, resolver: () => agents.resolver(), runs, onError: (error) => app.log.error(error) });
+  const coordination = new CoordinationService(sessions, sdlcs, { workspaceRoot: root, resolver: () => agents.resolver(), runs, onError: (error) => app.log.error(error), assert_workspace: () => agents.assert_workspace() });
   runs.setGoalBlockedHandler(async (context) => {
     try { await coordination.escalateGoalBlocker(context); }
     catch (error) { app.log.error(error); }

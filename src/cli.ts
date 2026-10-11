@@ -19,6 +19,7 @@ import { initSession, openSession } from "./core/session.js";
 import { createVoteExecutor } from "./voting/executor.js";
 import { MockProvider } from "./voting/provider/mock.js";
 import { createBuiltinRegistry } from "./workflow/checkers.js";
+import { create_worktree, read_worktree } from "./workspace/worktree.js";
 
 const require_ = createRequire(import.meta.url);
 
@@ -293,7 +294,11 @@ async function checkMergeDriver(root: string): Promise<DoctorReport["checks"][nu
       detail: registered ? ".gitattributes 已注册；非 git 仓库，跳过 .git/config 检查" : "非 git 仓库：跳过",
     };
   }
-  const config_path = path.join(root, ".git", "config");
+  let config_path = path.join(root, ".git", "config");
+  try {
+    const worktree = await read_worktree(root);
+    if (worktree !== null) config_path = path.join(worktree.common_directory, "config");
+  } catch { return { name, ok: false, detail: "工作树Git身份不可验证，不能检查merge driver" }; }
   const driver = findMergeDriver(existsSync(config_path) ? await readFile(config_path, "utf8") : null);
   if (registered && driver !== null) {
     return { name, ok: true, detail: `driver 已挂上：${driver}` };
@@ -691,6 +696,7 @@ export const HELP = `cord —— 多 agent 共识协作基座 CLI
   cord doctor [--fix]       校验布局 / merge driver / 事件流 / 账本漂移（--fix 重建漂移账本）
   cord demo                 在临时目录跑 M2 最小闭环（纯离线）
   cord events <req-id>      按因果序打印事件流摘要
+  cord worktree <path> [--base <ref>] 创建独立detached工作树，输出JSON身份
   cord help                 显示本帮助
 `;
 
@@ -724,6 +730,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
         fix: { type: "boolean", default: false },
         help: { type: "boolean", short: "h" },
         version: { type: "boolean" },
+        base: { type: "string" },
       },
       allowPositionals: true,
     });
@@ -740,7 +747,16 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   const command = parsed.positionals[0] ?? (parsed.values.help === true ? "help" : undefined);
   const cwd = process.cwd();
 
+  if (parsed.values.base !== undefined && command !== "worktree") throw new Error("--base只用于cord worktree");
+
   switch (command) {
+    case "worktree": {
+      if (parsed.values.help === true) { process.stdout.write(HELP); return 0; }
+      const target = parsed.positionals[1];
+      if (target === undefined || parsed.positionals.length !== 2 || parsed.values.fix === true) throw new Error("用法：cord worktree <path> [--base <ref>]");
+      process.stdout.write(`${JSON.stringify(await create_worktree(cwd, target, parsed.values.base))}\n`);
+      return 0;
+    }
     case "init": {
       printInit(await runInit(cwd));
       return 0;

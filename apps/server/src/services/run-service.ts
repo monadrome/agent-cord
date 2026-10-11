@@ -93,6 +93,8 @@ export interface RunServiceOptions {
   driverResolverForRun?: () => (name: string) => AgentDriver;
   /** worker agent 的工作目录（工作区根，即 cord/ 的上级） */
   workspaceRoot?: string;
+  /** ADR-0096：源码/验证/人审输入读取前核验实际工作树绑定。 */
+  assert_workspace?: () => Promise<void>;
   /** ADR-0058：Goal 阻塞后的受限自动协调入口。 */
   onGoalBlocked?: (context: GoalBlockedContext) => Promise<void>;
 }
@@ -206,7 +208,7 @@ export class RunService {
     const inputs = verificationSourceInputs(node);
     if (inputs.length > 0 && this.options.workspaceRoot === undefined) throw new VerificationInputError("声明源码输入需要验证工作区根目录");
     let source;
-    try { source = await readVerificationSource(this.options.workspaceRoot ?? "", inputs, node.run?.goal?.review_changes === true); }
+    try { await this.options.assert_workspace?.(); source = await readVerificationSource(this.options.workspaceRoot ?? "", inputs, node.run?.goal?.review_changes === true); }
     catch (error) {
       if (error instanceof VerificationInputError) throw error;
       throw new VerificationInputError("无法读取声明的验证输入，请检查工作区文件与访问权限");
@@ -741,7 +743,7 @@ export class RunService {
     const nodeRunner = driverResolver !== undefined && workspaceRoot !== undefined ? createNodeRunner(def, {
       resolveDriver: driverResolver,
       workspaceRoot,
-      read_source_hash: async (node) => (await readVerificationSource(workspaceRoot, verificationSourceInputs(node))).source_hash,
+      read_source_hash: async (node) => { await this.options.assert_workspace?.(); return (await readVerificationSource(workspaceRoot, verificationSourceInputs(node))).source_hash; },
       read_verification_input: async (node, current_session, ctx) => this.readNodeInput(def, node, current_session,
         driverResolver(node.run!.agent).configuration_hash ?? null, ctx.workflow_revision),
     }) : undefined;

@@ -42,6 +42,8 @@ agent 外部行为：[2026-10-09 上下文版本](./2026-10-09-agent-context-rev
 
 Supervisor 自动重试：[2026-10-11 有界输出/超时重试](./2026-10-11-bounded-supervisor-retry.md)，记录 executor 收束、发布预算、连续来源、输入/配置漂移、写失败、取消与冷恢复的人审路径。
 
+工作单元隔离：[2026-10-11 独立Git工作树执行](./2026-10-11-linked-worktree-execution.md)，记录真实Git创建、root/目录身份、ACP/headless配置/检查/报告、双工作树TCP与冷恢复、人审边界。
+
 卡点处理后续跑：[2026-10-09 人工授权 Goal](./2026-10-09-human-goal-retry.md)，记录有效答复、当前输入 token、新预算来源、索引重建、真实 Codex 与浏览器恢复到最终人审。
 
 ACP 自主权限：[2026-10-09 文件范围预授权](./2026-10-09-acp-workspace-permissions.md)，记录结构化位置、一次授权、越界取消、固定配置与真实子进程/HTTP/浏览器验收。

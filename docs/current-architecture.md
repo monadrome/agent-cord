@@ -50,6 +50,8 @@ worker agent 子进程（ACP / 裸 headless CLI）
 
 ### 已采纳的 Goal 执行设计
 
+独立工作单元可以由`cord worktree <path> [--base <ref>]`准备，再以该root启动server。创建解析固定commit、拒绝dirty默认/既有目标/旧运行数据，不复制当前未提交输入；AgentService核验Git登记、反向引用和目录身份后包装ACP/headless，公开worktree能力并生成root绑定配置hash。driver前后、源码/验证/人审/协调重检同一物理绑定，整个root内的输入、检查、事件和产物沿用现有契约；普通根仍shared_lease。双工作树可独立运行，Git公共元数据和验证器可写环境仍共享，非OS隔离（[ADR-0096](./adr/ADR-0096-linked-worktree-execution.md)、[人审指南](./research/2026-10-11-linked-worktree-execution.md)）。
+
 [默认 Goal 驱动的自主 Draft 交付](./core-features.md) 是真实 agent 开发流程的核心设计基线：自主完成代码、实际自测与 human review 指南，正常执行无需中途人工干预，最终 review 与关键权限仍人工控制（[ADR-0055](./adr/ADR-0055-goal-driven-draft-delivery.md)）。
 
 ACP/headless 保持任务调用。coordinator/goal.ts 在 NodeRunner 内承载 run.goal：worker 产出代码与指南 → 宿主按声明 argv 执行检查 → 输入重检与指南审计 → 失败反馈修复或 ready。host-verification.ts 计算完整输出 hash、有界内存尾部并回收超时/取消进程组；失败原文不持久化。指南补入实际结果事件与命令元信息，当前源码与最终指南绑定验证输入。连续无进展、时长与尝试从 goal.attempt 事实恢复；卡点归 run failed 并公开原因。Context Session Agent 现在读取受限 Goal 状态；blocked/invalid/cancelled 会使 eligible_nodes 为空，只能产生带当前 Goal 事件证据的 ask_human/wait Draft，不会扩预算或放行 gate。
@@ -159,7 +161,7 @@ Headless读完stdout与实际进程结果后才结束流；result之后的failed
 
 Headless模板可声明prompt_input=argv/stdin。内置Codex在new/resume与readonly两套profile中以固定-读取stdin，execa.input发送完整原文；custom args可显式声明同一输入协议且所有分支禁止prompt占位，template形态不可覆盖。stdin字段进入完整启动定义hash/v4完成策略，旧argv-only身份保留，能力与严格流程Agent投影公开映射。CLI inspect仍stdin忽略/固定help；在途resolver/cold/task/审批/协调共用原身份规则，输入不是OS隔离或prompt日志保密证明（[ADR-0092](./adr/ADR-0092-headless-stdin-prompt-input.md)）。
 
-能力快照另公开 `workspace_isolation`：当前ACP/headless均为`shared_lease`，只表示同workspace执行 lease/跨进程锁；协调输入绑定该能力，控制台明确展示限制。真实worktree、容器或OS sandbox必须实现独立执行器、清理/恢复和副作用对账后再声明更强枚举，不能靠配置字段冒充（[ADR-0093](./adr/ADR-0093-workspace-isolation-capability.md)）。
+能力快照另公开 `workspace_isolation`：未包装的ACP/headless为`shared_lease`，只表示同workspace执行 lease/跨进程锁；实际linked根由工作区宿主包装为`worktree`并绑定物理身份，协调输入/派发/旧checkpoint/人审共用核验，控制台展示实际声明。容器或OS sandbox仍需真实执行器，不能靠配置字段冒充（[ADR-0093](./adr/ADR-0093-workspace-isolation-capability.md)、[ADR-0096](./adr/ADR-0096-linked-worktree-execution.md)）。
 
 任务启动前共享纯timeout/session校验，signal取消优先于参数和MCP解析；已取消任务零spawn。Headless参数编译后再次观察signal，CLI明确session拒绝选项前缀，ACP保留合法不透明ID，resume(undefined)不降级new。有效timeout不允许Node隐式截断/转换，错误固定不回显原值；有效argv/hash与宿主恢复/人工gate保持原规则（[ADR-0089](./adr/ADR-0089-agent-task-launch-preflight.md)）。
 

@@ -7,6 +7,7 @@ export * from "./workflow/index.js";
 export * from "./voting/index.js";
 export * from "./driver/index.js";
 export * from "./coordinator/index.js";
+export * from "./workspace/worktree.js";
 
 export { CORD_DIR, main, runDemo, runDoctor, runEvents, runInit, runNew } from "./cli.js";
 export {
