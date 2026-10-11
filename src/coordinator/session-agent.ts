@@ -11,7 +11,7 @@ import type { RequirementSnapshot } from "./snapshot.js";
 import { buildCoordinationDocuments, COORDINATION_CONTEXT_POLICY, readCoordinationSnapshot } from "./coordination-context.js";
 import { goalAcceptanceIsComplete } from "./goal-acceptance.js";
 import { usageBudgetExceeded } from "./goal-usage.js";
-import { readonly_mapping_satisfied, validate_coordination_agents } from "./agent-context.js";
+import { capability_requirements_satisfied, readonly_mapping_satisfied, validate_coordination_agents } from "./agent-context.js";
 import { WORKER_READONLY_TOOL_POLICY } from "./readonly-tool-policy.js";
 
 function assertGoalAcceptance(def: WorkflowDef, execution_context?: CoordinationExecutionContext): void {
@@ -85,7 +85,7 @@ function eligibleNodes(def: WorkflowDef, snapshot: RequirementSnapshot, executio
   const node = def.spec.nodes.find((item) => item.id === next_id);
   const agent = agents?.find(agent => agent.agent === node?.run?.agent);
   if (node?.run !== undefined && agents !== undefined && (agent?.resolution !== "resolved" || agent.configuration_hash === null)) return [];
-  if (node !== undefined && !readonly_mapping_satisfied(node, agent?.capabilities)) return [];
+  if (node !== undefined && (!readonly_mapping_satisfied(node, agent?.capabilities) || !capability_requirements_satisfied(node, agent?.capabilities))) return [];
   return node !== undefined && node.depends_on.every((id) => exited.has(id)) ? [node.id] : [];
 }
 

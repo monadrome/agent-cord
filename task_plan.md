@@ -58,6 +58,13 @@
 - [x] 定向79项、全量1595项/115文件、typecheck/build:all/diff；当前shared_lease事实与不隔离限制已验证
 - [ ] 提交推送/独立远端核验，完整持续目标active
 
+## 阶段83：Workflow通用Agent能力准入（已实现并验证，待同步）
+
+- [x] ADR-0094先行；require_capabilities支持transport/prompt_input/native_resume/workspace_isolation/readonly映射
+- [x] 协调eligible_nodes、NodeRunner派发、checkpoint复用共用准入；缺失/冲突只wait或configuration failure
+- [x] 定向31项、全量1600项/116文件、typecheck/build:all/diff通过
+- [ ] 提交推送/独立远端核验，完整持续目标active
+
 ## 阶段79：只读命令参数与策略身份（已实现并验证，功能已同步）
 
 - [x] d45942e干净/ahead4，阶段78实现/1513项/实际HTTP为progress；远端独立查询仍超时

@@ -1,5 +1,11 @@
 # 调研发现
 
+## 阶段83（2026-10-11）：Workflow能力准入统一
+
+- 只读映射有专用准入，但通道、stdin、native resume和workspace能力无法在workflow声明；新增严格require_capabilities并统一到协调、spawn前、checkpoint三层。
+- 缺失/冲突能力只产生wait或不可重试configuration failure，不调用driver、不代写、不推进advance；缺省字段保持旧流程兼容。
+- 定向31项与完整1600项通过；shared_lease仍只是事实声明，worktree/OS sandbox未实现。
+
 ## 阶段80（2026-10-10）：Prompt不应变成Codex CLI控制参数
 
 - Codex内置args把prompt放裸位置；task.prompt=--help或-会被CLI解释为选项或stdin sentinel，子命令字面量也可能改变路径。官方non-interactive/developer-commands已通过Firecrawl search --scrape实际取正文，确认codex exec -为完整stdin提示，而prompt-plus-stdin有不同语义。

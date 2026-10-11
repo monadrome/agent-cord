@@ -296,6 +296,15 @@ export const GoalConfigSchema = z.strictObject({
     && value.checks.every(check => value.acceptance!.some(condition => condition.checks.includes(check.id)))), "Goal 验收清单必须引用已声明检查且覆盖全部检查");
 export type GoalConfig = z.infer<typeof GoalConfigSchema>;
 export type GoalCommand = z.infer<typeof GoalCommandSchema>;
+export const AgentCapabilityRequirementSchema = z.strictObject({
+  transport: z.enum(["headless", "acp"]).optional(),
+  prompt_input: z.enum(["argv", "stdin"]).optional(),
+  native_resume: z.enum(["supported", "unsupported", "negotiated"]).optional(),
+  workspace_isolation: z.enum(["shared_lease", "worktree", "os_sandbox"]).optional(),
+  readonly_launch: z.enum(["mapped", "unmapped"]).optional(),
+  readonly_resume: z.enum(["supported", "unsupported"]).optional(),
+}).refine(value => Object.keys(value).length > 0, "至少需要声明一个Agent能力要求");
+export type AgentCapabilityRequirement = z.infer<typeof AgentCapabilityRequirementSchema>;
 
 export const WorkflowDefSchema = z.object({
   apiVersion: z.literal("agent-cord.dev/v1alpha1"),
@@ -318,6 +327,8 @@ export const WorkflowDefSchema = z.object({
               readonly: z.boolean().default(false),
               /** ADR-0081：要求headless显式只读启动映射；缺省保留旧语义。 */
               require_readonly_mapping: z.boolean().optional(),
+              /** ADR-0094：通用Agent能力准入；派发/协调/checkpoint共用。 */
+              require_capabilities: AgentCapabilityRequirementSchema.optional(),
               /** ADR-0038：text 仅返回完整文本，声明产物由 coordinator 代写；auto 保持原行为。 */
               output: z.enum(["auto", "text"]).optional(),
               timeout_ms: z.number().int().positive().optional(),

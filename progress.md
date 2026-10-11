@@ -1,5 +1,10 @@
 # 工作进度
 
+## 2026-10-11（阶段83）
+
+- 新增Workflow `run.require_capabilities`，覆盖transport/prompt_input/native_resume/workspace_isolation/readonly_launch/readonly_resume；协调eligible_nodes、NodeRunner派发、checkpoint复用共用能力匹配，缺失/冲突只wait或configuration failure。
+- 定向31项与全量npm test 1600项/116文件、typecheck/build:all/git diff --check通过；新增ADR-0094与Human Review指南，当前共享lease限制保持显式，提交/推送待续。
+
 ## 2026-10-10（阶段82）
 
 - workspace_isolation能力接入后旧只读能力fixture首轮4项失败，原因是严格能力schema要求手写caps补字段；补齐为shared_lease后定向79项和全量1595项/115文件通过，typecheck/build:all/git diff --check通过。

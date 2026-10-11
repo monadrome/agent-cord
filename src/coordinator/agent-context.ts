@@ -7,6 +7,14 @@ export function readonly_mapping_satisfied(node: WorkflowDef["spec"]["nodes"][nu
   return node.run?.require_readonly_mapping !== true || (node.run.readonly === true && capabilities?.transport === "headless" && capabilities.readonly_launch === "mapped");
 }
 
+/** 通用能力准入；未知能力、缺失声明和不匹配均拒绝，不推断默认值。 */
+export function capability_requirements_satisfied(node: WorkflowDef["spec"]["nodes"][number], capabilities: AgentCapabilities | null | undefined): boolean {
+  const required = node.run?.require_capabilities;
+  if (required === undefined) return true;
+  if (capabilities === null || capabilities === undefined) return false;
+  return Object.entries(required).every(([key, value]) => capabilities[key as keyof AgentCapabilities] === value);
+}
+
 export function workflow_agent_names(def: WorkflowDef): string[] {
   return [...new Set(def.spec.nodes.flatMap(node => node.run === undefined ? [] : [node.run.agent, ...(node.run.goal?.supervisor_agent === undefined ? [] : [node.run.goal.supervisor_agent])]))].sort();
 }
