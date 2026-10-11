@@ -77,8 +77,9 @@
 - [x] 定位RunService等待升级完成时仍active/持lease，retry要求收束；system子请求与旧人工来源协议冲突，ADR-0095补先行
 - [x] 原executor收束后调度，发布预算/连续父子来源/相同输入配置guard、取消关闭兼容；122项相关回归通过
 - [x] 离线core/server/TCP成功失败恢复与人工预算/gate不变，文档/人审指南；双协议各supervisor2次、显式续跑后worker2次、审批1/决定0/退出0/doctor=true
-- [x] 全量1637项/117文件、build/typecheck/build:all/diff、200个本地链接；本轮无新增UI行为，不重复浏览器验收
-- [ ] 小步提交推送/独立远端核验；完整目标active
+- [x] 全量1637项/117文件、build/typecheck/build:all/diff、最终201个本地链接与完整Goal示例解析；本轮无新增UI行为，不重复浏览器验收
+- [x] 本地小步提交ea54081与25fa8de完成；完整目标active
+- [ ] 远端同步待网络恢复：HTTP/2 push连续15秒低速失败，HTTP/1.1 push25秒上限，独立HTTP/2 ls-remote15秒上限；最后确认远端仍为接续基线89fe1d2，未冒称同步完成
 
 ## 阶段79：只读命令参数与策略身份（已实现并验证，功能已同步）
 

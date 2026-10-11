@@ -11,6 +11,8 @@
 - 首全量1637项中1636通过，stdin timeout背压的即时PID检查失败；单独17项全过。检查terminateProcessTree的50ms有界等待，SIGKILL已发但重负载下OS回收可能尚未可见；测试改为最多2秒观察实际PID消失，不放宽timeout错误/零result/原文不泄漏断言。root build通过，准备完整重验与隔离TCP证据。
 - 最终npm test 1637项/117文件全部通过（/tmp/cord-stage85-tests.json），root build/typecheck/build:all/git diff --check通过；200个本地文档链接无缺失。新增ADR-0095、人审指南与示例上限2已同步；未修改UI行为，不重复截图。
 - 隔离TCP typed client双协议通过（/tmp/cord-stage85-real-result.json）：supervisor非法输出→自动第二轮ok，冷不重复；answer本身零worker，独立retry-goal幂等授权后实际自测通过，最终审批1/人工决定0/节点退出0，再次cold审批身份不变，doctor=true/付费0。全部本轮TCP服务已关闭，不操作7306；指南包含验收映射、重点文件与共享lease/费用治理限制，开始小步提交推送。
+- 小步提交ea54081（stdin超时PID回收观察）与25fa8de（supervisor有界重试/核心能力设计/ADR/指南）完成。最终201个本地链接与完整Goal示例解析通过，构建产物与临时证据未入Git；首次HTTP/2 push因GitHub连续15秒低速失败，HTTP/1.1有界重试中，远端结果待核验。
+- HTTP/1.1 push达到25秒总上限，独立HTTP/2 ls-remote达到15秒上限；不能确认远端更新，保留本地功能提交和完整验收，当前功能不因网络失败回退。持续目标active，后续优先补真实worktree/验证器隔离和底层能力实际生效证据；不声称这些扩展已实现。
 
 ## 2026-10-11（阶段84）
 

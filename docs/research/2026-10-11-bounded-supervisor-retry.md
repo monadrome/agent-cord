@@ -60,7 +60,7 @@ npm run build:all
 git diff --check
 ```
 
-接续定向验证：71项协调升级、33项Goal续跑、18项workspace lease，共122项通过。完整`npm test`为1637项/117文件通过，root build、typecheck、build:all与diff检查通过；本轮文档200个本地链接无缺失。
+接续定向验证：71项协调升级、33项Goal续跑、18项workspace lease，共122项通过。完整`npm test`为1637项/117文件通过，root build、typecheck、build:all与diff检查通过；最终文档201个本地链接无缺失，完整Goal示例解析通过。
 
 隔离真实TCP验收对ACP/headless分别完成：首次worker失败 → supervisor输出失败后自动第二轮成功 → 重启不重复 → 人工答复后worker仍未调用 → 独立retry-goal授权后worker通过实际自测 → 最终人工gate挂起 → 再次重启保留审批。每种协议supervisor两次、worker两次（第二次来自显式续跑授权）、审批一项、人工gate决定零、节点退出零，doctor=true；调用相同幂等键不重复启动。临时脚本与证据留在`/tmp/cord-stage85-real.mjs`和`/tmp/cord-stage85-real-result.json`，所有TCP服务已关闭，不是可持续访问的预览URL。
 
