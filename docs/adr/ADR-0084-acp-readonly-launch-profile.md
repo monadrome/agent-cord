@@ -14,6 +14,8 @@ ACP定义/options增加可选 `readonly_launch: AgentLaunch`，是完整独立�
 
 控制台ACP独立配置提供执行/只读查询选择，结果标明真实查询配置，跨模式历史不冒称当前所选结果；仍核对最新revision/hash。查询不发prompt、回调worker session或授予工具权限。typed client以可选第三input参数保留旧name/key调用。
 
+后续 [ADR-0088](./ADR-0088-headless-readonly-launch-profile.md) 将完整readonly_launch与任务查询扩展至headless；具明确cli_help的headless可按模式查询帮助配置项，原始args仍拒绝。本ADR的ACP协商/权限与v6身份规则保持，readonly_configuration=explicit共享为独立配置声明语义。
+
 ## 验证与边界
 
 真实ACP子进程覆盖完整替换、模型/provider/effort/mode映射、新会话/原生恢复、无profile旧拒绝、注册错误/运行漂移/查询无prompt。真实TCP验证同别名Goal实现、readonly报告与最新快照独立协调、人审未决、两套身份/固定resolver/冷恢复、按任务查询幂等/共享/冲突。桌面/手机核验模式选择与历史结果。确定性fixture不证明真实LLM访问、wrapper权限隔离或跨模式原生session副作用；Goal宿主检查、readonly工具审计、最终gate仍独立执行。

@@ -30,7 +30,7 @@ bin/ID/值都是形态示例，必须使用wrapper真实协商结果。readonly_
 
 ## 查询与恢复
 
-`POST /api/v1/agents/:name/inspect`默认查询执行配置；body `{readonly: true}`查询ACP只读配置，必须带Idempotency-Key。结果增加readonly=true，默认响应维持旧形状；headless的只读任务配置查询拒绝，CLI帮助查询保留原规则。typed client第三参数传入该input，旧name/key调用保持兼容。
+`POST /api/v1/agents/:name/inspect`默认查询执行配置；body `{readonly: true}`查询ACP只读配置，必须带Idempotency-Key。结果增加readonly=true，默认响应维持旧形状；后续[Headless独立配置](./2026-10-10-headless-readonly-launch.md)也支持明确cli_help模板的按模式帮助查询，原始args仍拒绝。typed client第三参数传入该input，旧name/key调用保持兼容。
 
 查询同快照/超时/任务模式可以共享一个在途探测，跨模式冲突409；幂等键重放绑定原body，不替换查询模式。查询不发prompt、不授予工具或调用worker session回调。控制台选择“执行配置/只读配置”，候选和实际mode来自server；切换模式后上次不同模式结果标“其他任务配置”。
 

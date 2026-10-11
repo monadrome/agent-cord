@@ -50,6 +50,13 @@ agents:
 #     mode: plan
 #     option_ids: {model: llm, effort: thinking, mode: workflow}
 # 缺省readonly_launch继承原launch；明确只读分支不能声明非plan mode或config_options扩展。
+# Headless同样可用完整readonly_launch，能力按所选模板验证，缺省不改变已有配置：
+# dual-cli:
+#   kind: headless
+#   template: claude
+#   launch: {model: writer-model, effort: high, agent: writer, max_turns: 8, budget_usd: 3}
+#   readonly_launch: {model: review-model, effort: low, agent: reviewer, max_turns: 2, budget_usd: 1}
+# readonly配置不继承执行角色/JSON/额度；custom所有必需占位值仍须在独立配置完整提供。
 # ACP MCP连接示例（command替换为真实绝对路径；凭据只通过环境变量引用）：
 # mcp_servers:
 #   - type: stdio

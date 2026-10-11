@@ -42,7 +42,7 @@ export class AgentService {
     if (this.closing) return Promise.reject(service_closing());
     if (!this.registry.list().some(entry => entry.name === name)) return Promise.reject(notFound("agent 不在当前可用清单"));
     const driver = this.registry.resolve(name); const revision = this.revision;
-    if (readonly && !(driver instanceof AcpDriver)) throw badRequest("只读任务配置查询仅支持ACP");
+    if (readonly && !(driver instanceof AcpDriver) && !(driver instanceof HeadlessDriver && driver.capabilities.inspection === "cli_help")) throw badRequest("只读任务配置查询需要ACP或明确CLI帮助profile");
     const key = JSON.stringify([revision, driver.configuration_hash ?? driver.name, timeout_ms, readonly]);
     if (this.pending_inspection !== undefined) {
       if (this.pending_inspection.key !== key) return Promise.reject(conflict("已有不同配置、任务模式或超时的能力查询在进行，请稍后重试"));
@@ -65,7 +65,7 @@ export class AgentService {
       catch { if (this.closing || signal.aborted) throw service_closing(); throw badRequest("ACP 能力协商或启动配置核验失败"); }
     }
     if (driver instanceof HeadlessDriver) {
-      try { cli_observation = await driver.inspect(dirname(this.cord_root), timeout_ms, signal); }
+      try { cli_observation = await driver.inspect(dirname(this.cord_root), timeout_ms, signal, readonly); }
       catch (error) { if (this.closing || signal.aborted) throw service_closing(); throw error; }
     }
     if (this.closing || signal.aborted) throw service_closing();

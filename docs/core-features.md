@@ -123,7 +123,7 @@ flowchart LR
 | 执行生命周期 | `run.goal` 由宿主控制代码、自测、修复与 review 交付；普通单次调用仍可显式配置 |
 | 自主权限 | Claude `launch.auto` 使用厂商 auto 审批；ACP 使用协商 mode/文件范围预授权；readonly 优先，最终 gate 仍人工 |
 | 只读任务映射 | headless 能力分别声明 `readonly_launch/readonly_resume`；自定义 wrapper 用完整参数分支或 `{{readonly}}` 显式消费任务模式，缺只读恢复映射时启动前拒绝 |
-| ACP任务配置 | 可选 `readonly_launch` 是完整独立配置，readonly任务/原生恢复/独立协调共用；查询可明确选择执行/只读分支，公开 `readonly_configuration=explicit` 仅说明声明存在 |
+| 独立任务配置 | ACP/headless的 `readonly_launch` 是完整独立配置，readonly任务/原生恢复/独立协调共用；查询可明确选择执行/只读分支，公开 `readonly_configuration=explicit` 仅说明声明存在 |
 | ACP MCP工具 | 两套 `mcp_servers/readonly_mcp_servers` 支持stdio/HTTP/SSE，网络传输先协商；只读缺省为空，凭据引用值不入公开投影/身份，查询不连接所配服务 |
 | 节点能力准入 | `run.require_readonly_mapping: true` 要求 `readonly=true` 且当前 headless 能力声明 `readonly_launch=mapped`；协调、派发和 checkpoint 复用共同 fail-closed |
 | LLM 路由 | `launch.provider/model/effort` 是独立维度；headless 仅使用显式 argv 映射，ACP 使用 `option_ids` 和完整配置回执；内置 CLI 未声明 provider 时拒绝 |
@@ -146,6 +146,8 @@ Headless运行时能力查询已接通，CLI版本、任务/恢复帮助、已�
 能力查询受单服务实例生命周期控制：相同快照和timeout的并发查询共享一次探测，不同查询冲突返回稍后重试；完成结果不缓存。server关闭前取消在途ACP/CLI查询并等待进程收束，关闭后新查询返回service_closing，不占用worker执行槽位（[ADR-0079](./adr/ADR-0079-agent-inspection-lifecycle.md)）。
 
 ACP可声明完整`readonly_launch`，避免同一别名的code/扩展设置被带入只读评审或Context Session Agent。新任务与指定session恢复都选择对应配置，注册拒绝危险/漏映射配置，session核验实际允许值和回执。两套配置共同绑定身份，在途保持原resolver，冷恢复重新核验；缺省保持旧语义。无prompt查询的readonly参数也进入在途共享key，控制台跨模式历史标“其他任务配置”，不能冒称当前所选结果（[ADR-0084](./adr/ADR-0084-acp-readonly-launch-profile.md)、[配置与人审指南](./research/2026-10-10-acp-readonly-launch.md)）。
+
+Headless也支持完整readonly_launch，单一别名可按任务选择不同模型/effort/角色/额度参数，不继承执行knobs或launch；只读权限参数/auto优先和宿主审计保留。新profile使用v3四argv身份、旧无声明identity兼容，固定resolver/cold新鲜度共用。明确cli_help模板可查询所选mode的configured标记，但实际probe仍只有version/help，无模型或角色参数；跨mode结果不当当前所选配置。原始args无help profile仍拒绝只读查询（[ADR-0088](./adr/ADR-0088-headless-readonly-launch-profile.md)、[Headless人审指南](./research/2026-10-10-headless-readonly-launch.md)）。
 
 ACP的MCP配置分别控制执行/只读连接列表，新任务与显式loadSession都传所选完整列表；只读不继承可写工具。stdio按协议必需，HTTP/SSE须initialize明确支持，缺凭据或不支持时不降级空工具。非空定义绑定v7身份，公开能力只给数量/传输，凭据值从环境引用解析，session配置拒绝回显时固定脱敏。inspect使用空列表且不解析所配凭据，返回`mcp_transports.connections=not_requested`；声明、传输支持和真实连接是独立证据，工具权限/独立协调禁工具仍不变（[ADR-0086](./adr/ADR-0086-acp-mcp-configuration.md)、[MCP人审指南](./research/2026-10-10-acp-mcp-configuration.md)）。
 

@@ -1,5 +1,14 @@
 # 工作进度
 
+## 2026-10-10（阶段76）
+
+- 6f9670d干净/tracking同步，阶段75全量1461项与真实TCP/三截图/独立远端核验为progress。继续沿用planning-with-files/agent-optimizer，读取Headless/registry/inspect/UI后定位只读role/model配置共用；ADR-0088先于ports语义注释修改，不调用付费模型或子agent。
+- 新11项driver首轮8项失败，复现只读模型未切换/空配置仍继承/help configured错误；补Headless readonly_launch完整替换、v3四argv身份与明确能力、所选mode的help configured。server仅ACP/明确cli_help接受只读查询，控制台复用两mode/历史核验。原先断言headless profile一律拒绝的两旧测试改为未支持选项拒绝/CLI不可用独立观察，保留原始args拒绝探测。
+- 44项driver/CLI/ACP兼容通过；新增5项TCP验证writer实现与独立review模型/资源、cold等待不重复、最新PRD/只读role重载、固定resolver、typed query幂等/原始args拒绝、不同mode共享冲突与关闭PID收束。补Codex/Kimi指定session实际review参数、错误类型/context_revision隔离，共14项新driver回归。
+- 最终npm test1480项/106文件、typecheck/build:all/diff通过，证据/tmp/cord-stage76-tests.json。隔离实际HTTP PID40776/http://127.0.0.1:64019：writer-model/high/writer/turns8/budget3实现，review-model/low/reviewer/turns2/budget1评审与最新PRD独立协调，auto分别true/false/false；宿主自测/指南、审批1/人工决定0/仅deliver退出/doctor通过。帮助query只version/help，model configured执行true/只读false，幂等重放不重probe。无真实LLM、原7306Draft未操作。
+- Playwright首轮1440/390/320九状态截图/六mode查询通过，pageerror=[]/无横向溢出，桌面/320/跨mode历史已查看。表格按已有max-height300px内部滚动，不是文本被其他内容遮住；补滚动至auto底部选项的可见性检查与截图。生产代码未再改，custom补四种模式直接调用后14项driver再通过，不重复已通过全量。文档含ACP旧指南当前准入说明已同步。
+- 最终Playwright十二截图/六查询通过，含桌面/390/320的底部auto选项滚动可见，pageerror=[]/无横向溢出，最窄底部截图也已查看。11份相关文档首150项本地链接，ADR加入指南后151项，git diff --check通过；临时脚本/截图/运行数据不入仓库，原真实Draft未操作，完整目标active。
+
 ## 2026-10-10（阶段75）
 
 - 9892563干净/ahead4；前轮1437项与本地HTTP/SSE实际连接验收为progress，远端同步未确认。沿用planning-with-files/agent-optimizer，读取custom-template/typed launch/四分支hash后定位bare/auto/角色/预算缺映射；ADR-0087先行，无新增核心schema/ports，无子agent/付费模型。

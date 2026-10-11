@@ -149,7 +149,9 @@ custom-template从基本args的typed占位推导全部headless旋钮集合，新
 
 声明provider的ACP先设置mode/provider，再用完整回执处理扩展、model、effort，避免新路由解锁选项在切换前被误拒绝。设置期间反向重置也在seal时拒绝，执行中漂移继续取消。新顺序策略只改变provider配置身份，未声明provider保持原顺序/hash。真实TCP Goal验证宿主失败→修复→通过后等待人审；冷恢复路由变化使原run重新验证并使用剩余预算，不新增run、批准或合入（[ADR-0083](./adr/ADR-0083-provider-configuration-order.md)）。
 
-ACP定义的可选readonly_launch是完整AgentLaunch，task.readonly=true时替代可写launch，不合并，包含新session、loadSession和独立协调。构造时复用严格映射校验并拒绝非plan/扩展；允许值、回执和漂移仍按session动态核验。显式只读定义使用v6配置身份，纳入两套配置与顺序策略，公开readonly_configuration=explicit不暴露原文。无声明保留旧身份/能力；只读工具审计、权限和产物控制仍独立。AgentService查询的任务mode进入共享key，仅ACP接受readonly=true，结果标明实际模式；UI还核对所选模式与revision/hash。查询不调用模型或worker会话hook（[ADR-0084](./adr/ADR-0084-acp-readonly-launch-profile.md)）。
+ACP定义的可选readonly_launch是完整AgentLaunch，task.readonly=true时替代可写launch，不合并，包含新session、loadSession和独立协调。构造时复用严格映射校验并拒绝非plan/扩展；允许值、回执和漂移仍按session动态核验。显式只读定义使用v6配置身份，纳入两套配置与顺序策略，公开readonly_configuration=explicit不暴露原文。无声明保留旧身份/能力；只读工具审计、权限和产物控制仍独立。AgentService查询的任务mode进入共享key，结果标明实际模式；UI还核对所选模式与revision/hash。查询不调用模型或worker会话hook（[ADR-0084](./adr/ADR-0084-acp-readonly-launch-profile.md)）。
+
+Headless的readonly_launch同为完整AgentLaunch，在只读新任务/指定session恢复中替代knobs+launch，基本/独立配置各自按模板能力校验，custom占位缺值在构造hash时拒绝。独立定义使用headless.v3绑定四种有效argv和context_revision，空独立配置也与未声明分开，旧无profile保留身份。AgentService接受ACP或明确cli_help的headless只读查询；CLI probe只发version/help，configured从所选profile派生，help advertised不证明真实LLM访问或额度。UI复用mode/identity核验，跨mode历史不冒称当前结果。资源/角色参数和只读映射均不替代Goal自测、OS隔离与人工gate（[ADR-0088](./adr/ADR-0088-headless-readonly-launch-profile.md)）。
 
 ACP可选mcp_servers与readonly_mcp_servers分别声明最多16项stdio/http/sse连接，stdio用绝对command/argv/env_from，网络传输用URL/headers_from；凭据引用在实际spawn前解析，初始化后核验HTTP/SSE支持，再传给session/new/load。只读缺省空列表，不合并工具；inspect始终空MCP列表、不解析引用，返回协商传输与not_requested连接状态。非空配置v7身份覆盖两套完整定义/凭据变量名，值不入hash，空列表保留旧身份；清单/协调仅mcp_configuration数量/传输投影，未知/漏凭据/未支持传输fail-closed。工具启动/连接由ACP agent管理，宿主不保证OS或远端隔离（[ADR-0086](./adr/ADR-0086-acp-mcp-configuration.md)）。
 

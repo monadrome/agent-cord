@@ -58,7 +58,7 @@ export function AgentCapabilityDetails({ id, agent, inspection, current, catalog
           <ScanSearch size={18} className={inspecting ? "agent-spinning" : undefined} aria-hidden="true" />
         </button><span id={tip_id} role="tooltip" className="agent-tooltip">{query_label}</span></span>
       </header>
-      {agent.kind === "acp" && capabilities?.readonly_configuration === "explicit" ? <div className="field agent-inspection-mode">
+      {capabilities?.readonly_configuration === "explicit" ? <div className="field agent-inspection-mode">
         <label htmlFor={mode_id}>查询配置</label><select id={mode_id} className="select" value={readonly ? "readonly" : "writable"} disabled={disabled} onChange={event => onReadonlyChange(event.target.value === "readonly")}>
           <option value="writable">执行配置</option><option value="readonly">只读配置</option>
         </select>

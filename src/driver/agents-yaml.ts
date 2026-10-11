@@ -57,6 +57,7 @@ const AgentEntrySchema = z.discriminatedUnion("kind", [
     agent: z.string().min(1).optional(),
     agents_json: z.string().min(1).optional(),
     launch: AgentLaunchSchema.optional(),
+    readonly_launch: AgentLaunchSchema.optional(),
   }),
 ]);
 
@@ -185,6 +186,7 @@ function compileAgentsYaml(yaml: AgentsYaml | null): {
           name: `headless:${name}`,
           knobs,
           ...(entry.launch === undefined ? {} : { launch: entry.launch }),
+          ...(entry.readonly_launch === undefined ? {} : { readonly_launch: entry.readonly_launch }),
           ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }),
         }));
       } else {
@@ -206,6 +208,7 @@ function compileAgentsYaml(yaml: AgentsYaml | null): {
           }),
           ...(entry.launch === undefined ? {} : { launch: entry.launch }),
           ...(entry.env !== undefined ? { env: entry.env } : {}),
+          ...(entry.readonly_launch === undefined ? {} : { readonly_launch: entry.readonly_launch }),
           name: `headless:${name}`,
           ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }),
         }));

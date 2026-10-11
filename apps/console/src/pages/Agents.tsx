@@ -96,7 +96,7 @@ export function Agents(): ReactElement {
   }, [catalog, query, source, protocol, capability]);
   const available_options = useMemo(() => [...new Set(catalog?.agents.flatMap(agent => agent.capabilities?.launch_options ?? []) ?? [])].sort(), [catalog]);
   const busy = phase !== "idle" || inspecting !== null;
-  const readonly_query = (agent: AgentCatalogView["agents"][number]) => agent.kind === "acp" && agent.capabilities?.readonly_configuration === "explicit" && inspection_modes.get(agent.name) === true;
+  const readonly_query = (agent: AgentCatalogView["agents"][number]) => (agent.kind === "acp" || agent.capabilities?.inspection === "cli_help") && agent.capabilities?.readonly_configuration === "explicit" && inspection_modes.get(agent.name) === true;
 
   return (
     <div className="agent-workspace">

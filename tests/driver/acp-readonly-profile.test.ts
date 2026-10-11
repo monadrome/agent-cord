@@ -81,7 +81,7 @@ describe("ACP完整只读启动配置", () => {
     const legacy = new AcpDriver({ bin: process.execPath, args: args(), launch });
     expect(legacy.configuration_hash).toBe(sha256Hex(canonicalJson({ domain: "cord.agent-config.acp.v5", launch_state_policy: "explicit-session-selections.provider-first.v1",
       launch, name: `acp:${process.execPath}`, bin: process.execPath, args: args() })));
-    const headless = createAgentRegistry(parseAgentsYaml('agents: { x: { kind: headless, template: claude, readonly_launch: {} } }').yaml);
+    const headless = createAgentRegistry(parseAgentsYaml('agents: { x: { kind: headless, template: claude, readonly_launch: { mode: plan } } }').yaml);
     expect(headless.rejected).toContain("x");
   });
 });

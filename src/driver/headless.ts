@@ -611,6 +611,8 @@ export interface HeadlessDriverOptions {
   /** 参数旋钮；不支持的配置拒绝启动。 */
   knobs?: HeadlessKnobs;
   launch?: AgentLaunch;
+  /** ADR-0088：完整只读启动配置，不继承knobs/launch。 */
+  readonly_launch?: AgentLaunch;
 }
 
 /** 模板旋钮值集（HeadlessArgInput 里除 prompt/readonly/resume 外的部分） */
@@ -631,6 +633,7 @@ export class HeadlessDriver implements AgentDriver {
   private readonly env: Record<string, string>;
   private readonly killGraceMs: number;
   private readonly knobs: HeadlessKnobs;
+  private readonly readonly_knobs: HeadlessKnobs | undefined;
 
   constructor(options: HeadlessDriverOptions) {
     if (options.context_revision !== undefined && (!Number.isSafeInteger(options.context_revision) || options.context_revision <= 0)) throw new Error("context_revision 必须是正安全整数");
@@ -653,13 +656,15 @@ export class HeadlessDriver implements AgentDriver {
       if (key in launch && options.knobs![key as AgentKnob] !== launch[key as keyof AgentLaunch]) throw new Error(`启动选项重复且不一致：${key}`);
     }
     this.knobs = { ...options.knobs, ...launch } as HeadlessKnobs;
+    this.readonly_knobs = options.readonly_launch === undefined ? undefined : validate_agent_launch(options.readonly_launch, supported) as HeadlessKnobs;
     this.capabilities = Object.freeze({ transport: "headless", evidence: "adapter", installation: "unchecked", inspection: template.inspection_profile === undefined ? "unsupported" : "cli_help", launch_options: Object.freeze([...supported]),
       native_resume: template.supports_resume === true ? "supported" : "unsupported", readonly_launch: template.supports_readonly === true ? "mapped" : "unmapped",
-      readonly_resume: template.supports_resume === true && template.supports_readonly_resume === true ? "supported" : "unsupported", goal: "host", workflow_resume: "authorized_unexited_goal" });
+      readonly_resume: template.supports_resume === true && template.supports_readonly_resume === true ? "supported" : "unsupported", goal: "host", workflow_resume: "authorized_unexited_goal",
+      ...(this.readonly_knobs === undefined ? {} : { readonly_configuration: "explicit" as const }) });
     this.name = options.name ?? `headless:${template.name}`;
     const config_task = { prompt: "cord.configuration.prompt", cwd: "" };
     this.configuration_hash = sha256Hex(canonicalJson({
-      domain: options.context_revision === undefined ? "cord.agent-config.headless.v1" : "cord.agent-config.headless.v2",
+      domain: this.readonly_knobs !== undefined ? "cord.agent-config.headless.v3" : options.context_revision === undefined ? "cord.agent-config.headless.v1" : "cord.agent-config.headless.v2",
       ...(options.context_revision === undefined ? {} : { context_revision: options.context_revision }),
       name: this.name,
       argv: this.buildArgv(config_task),
@@ -678,12 +683,13 @@ export class HeadlessDriver implements AgentDriver {
   }
 
   /** 显式查询只执行版本/帮助，不混入prompt、模型选择或角色参数。 */
-  async inspect(cwd: string, timeout_ms = 5_000, signal?: AbortSignal): Promise<HeadlessCapabilityObservation | null> {
+  async inspect(cwd: string, timeout_ms = 5_000, signal?: AbortSignal, readonly = false): Promise<HeadlessCapabilityObservation | null> {
     const profile = this.template.inspection_profile;
     if (profile === undefined) return null;
+    const knobs = readonly ? this.readonly_knobs ?? this.knobs : this.knobs;
     const deadline = Date.now() + timeout_ms;
     const result: HeadlessCapabilityObservation = { evidence: "cli_help", profile, status: "passed", version: null, help_hash: null,
-      checks: [], launch_options: this.capabilities.launch_options.map(id => ({ id, configured: this.knobs[id as AgentKnob] !== undefined, advertised: null })), native_resume: "unknown" };
+      checks: [], launch_options: this.capabilities.launch_options.map(id => ({ id, configured: knobs[id as AgentKnob] !== undefined, advertised: null })), native_resume: "unknown" };
     const commands = [{ id: "version" as const, args: ["--version"] }, { id: "task_help" as const, args: profile === "codex" ? ["exec", "--help"] : ["--help"] },
       ...(profile === "codex" ? [{ id: "resume_help" as const, args: ["exec", "resume", "--help"] }] : [])];
     let help: string | null = null; let resume_help: string | null = null;
@@ -700,7 +706,7 @@ export class HeadlessDriver implements AgentDriver {
       if (status !== "passed") { result.status = status; break; }
     }
     if (help !== null) Object.assign(result, cli_help_observation(profile, help, resume_help, this.capabilities.launch_options,
-      Object.keys(this.knobs).filter(id => this.knobs[id as AgentKnob] !== undefined)));
+      Object.keys(knobs).filter(id => knobs[id as AgentKnob] !== undefined)));
     return result;
   }
 
@@ -741,7 +747,7 @@ export class HeadlessDriver implements AgentDriver {
         prompt: task.prompt,
         readonly: task.readonly === true,
         resume_session_id: resumeSessionId,
-        ...this.knobs,
+        ...(task.readonly === true ? this.readonly_knobs ?? this.knobs : this.knobs),
       }),
     ];
   }

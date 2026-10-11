@@ -15,7 +15,7 @@ export function CliCapabilityObservation({ inspection, current, result_state, hi
   if (observed == null) return null;
   return <div className="agent-observation-result">
     <div className={`agent-result-state ${current && observed.status === "passed" ? "agent-result-current" : "agent-result-stale"}`} role="status">
-      <strong>{historical ? "上次查询" : STATUS_TEXT[observed.status]}</strong>{historical ? <span>{STATUS_TEXT[observed.status]}</span> : null}<span>{result_state}</span><code title={inspection.configuration_hash ?? "未提供"}>{inspection.configuration_hash?.slice(0, 12) ?? "未提供"}</code><span>配置版本 {inspection.revision}</span>
+      <strong>{historical ? "上次查询" : STATUS_TEXT[observed.status]}</strong>{historical ? <span>{STATUS_TEXT[observed.status]}</span> : null}<span>{result_state}</span><span>{inspection.readonly === true ? "只读配置" : "执行配置"}</span><code title={inspection.configuration_hash ?? "未提供"}>{inspection.configuration_hash?.slice(0, 12) ?? "未提供"}</code><span>配置版本 {inspection.revision}</span>
     </div>
     <dl className="agent-capability-facts">
       <div><dt>CLI</dt><dd>{observed.profile}</dd></div><div><dt>版本</dt><dd><code>{observed.version ?? "未核验"}</code></dd></div>

@@ -89,6 +89,8 @@ Agent 能力识别与启动控制是平台原子能力：严格 `launch` 配置�
 
 ACP 可声明完整 `readonly_launch`，让同一别名分别承担可写实现与只读评审/协调；两套配置不合并。控制台可选择查询执行或只读配置，接口使用 `{readonly: true}` 核验只读分支，结果标明实际任务模式。两套配置共同绑定恢复与协调身份，说明与人审入口见 [ACP 只读配置指南](./docs/research/2026-10-10-acp-readonly-launch.md)。
 
+Headless内置模板和自定义wrapper同样支持完整`readonly_launch`，独立选择评审/协调模型、effort、角色与资源参数，不继承可写配置。显式CLI帮助查询按所选任务配置投影configured标记，原始args仍不自动探测；两套参数/恢复身份与人审说明见 [Headless只读配置指南](./docs/research/2026-10-10-headless-readonly-launch.md)。
+
 ACP 支持结构化 `mcp_servers` 和独立 `readonly_mcp_servers`：stdio、协商支持的 HTTP/SSE；凭据用环境变量引用，缺引用或不支持传输时拒绝，HTTP header值在启动前使用Node标准API核验。只读默认不继承执行工具，无 prompt 查询不连接所配 MCP，只展示数量和传输能力。实际 stdio及本地HTTP/SSE工具连接、宿主自测验收见 [MCP 配置与人审指南](./docs/research/2026-10-10-acp-mcp-configuration.md)。
 
 工作区 `cord/agents.yaml` 支持 ACP、内置 headless 模板和自定义参数三种形态：

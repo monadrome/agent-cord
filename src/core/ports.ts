@@ -275,7 +275,7 @@ export interface AgentCapabilities {
   /** ADR-0080：仅描述headless实参映射，不证明工具/OS隔离。 */
   readonly_launch?: "mapped" | "unmapped";
   readonly_resume?: "supported" | "unsupported";
-  /** ADR-0084：ACP完整只读配置声明，不证明只读权限隔离。 */
+  /** ADR-0084/0088：完整只读配置声明，不证明只读权限隔离。 */
   readonly_configuration?: "explicit";
   /** MCP数量/传输只描述配置，实际连接与权限不由声明证明。 */
   mcp_configuration?: { writable_count: number; readonly_count: number; transports: readonly ("stdio" | "http" | "sse")[] };

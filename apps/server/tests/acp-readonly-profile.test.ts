@@ -100,7 +100,7 @@ describe("ACP只读配置HTTP交付与查询", () => {
     expect(readonly.observation!.config_options.find(option => option.id === "llm")?.values).toEqual(["small"]);
     const count = (await probes()).length; expect(await client.inspectAgent("worker", key, { readonly: true })).toEqual(readonly); expect(await probes()).toHaveLength(count);
     await expect(client.inspectAgent("worker", key)).rejects.toMatchObject({ status: 409 });
-    expect((await api("POST", "/agents/headless/inspect", { readonly: true })).status).toBe(400);
+    expect(await api("POST", "/agents/headless/inspect", { readonly: true })).toMatchObject({ status: 200, body: { readonly: true, cli_observation: { status: "unavailable" } } });
     expect((await api("POST", "/agents/worker/inspect", { readonly: "true" })).status).toBe(400);
     expect((await probes()).some(row => row.event === "prompt")).toBe(false); expect(await server.sessions.listIds()).toEqual([]);
   });

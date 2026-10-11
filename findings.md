@@ -1,5 +1,11 @@
 # 调研发现
 
+## 阶段76（2026-10-10）：Headless仍共用执行模型与角色
+
+- ACP独立readonly_launch已实现；Headless buildArgv无论readonly/new/resume都spread同一knobs，不能明确给评审/协调不同模型、effort、角色/资源。自定义wrapper新增完整旋钮后这一缺口更明显。
+- 完整readonly_launch复用typed校验与四argv identity；不能合并可写参数或因占位缺值回退。新domain只影响明确独立定义，旧identity保持。
+- CLI帮助不调用模型，只读查询应按所选配置呈现configured boolean，仍不把advertised或static profile当模型权限/额度证明。原始args无help协议继续拒绝探测。
+
 ## 阶段75（2026-10-10）：自定义Wrapper能力映射仍局限三项LLM参数
 
 - HeadlessArgInput已有bare/auto/角色/轮次/费用等typed旋钮，custom_headless_template只允许provider/model/effort，因此不能用launch明确控制任意wrapper已有的这些能力。

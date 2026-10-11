@@ -237,7 +237,9 @@ ADR-0087将custom占位扩展到provider/model/effort/max_turns/budget_usd/syste
 
 ACP条目/options可声明完整`readonly_launch: AgentLaunch`，readonly新任务、原生session恢复和独立协调以此替代launch，字段不继承。注册核验ACP支持项、精确ID/重复映射并拒绝非plan mode或非空config_options；实际session仍核验候选、回执/更新。公开与严格CoordinationAgentCapabilities增可选`readonly_configuration: explicit`；它不等价于headless的readonly_launch映射或OS权限。v6身份覆盖两套launch与各自顺序策略，无声明保留旧域/参数/能力。
 
-inspect输入增加可选readonly boolean，仅ACP支持true；默认/false响应形状不变，true响应增加readonly=true。任务mode进入共享key（缺省/false等价），跨mode在途冲突409，不缓存完成结果。查询不发送prompt或调用worker onSession，权限/工具仍拒绝；冷重载结果保持原revision/hash。console选择执行/只读查询，跨mode历史显示“其他任务配置”，实际mode标签来自响应，不能以同配置hash将执行候选冒充只读候选（ADR-0084）。
+inspect输入增加可选readonly boolean；ACP及明确cli_help的headless支持true（ADR-0084/0088），原始args无help profile拒绝。默认/false响应形状不变，true响应增加readonly=true。任务mode进入共享key（缺省/false等价），跨mode在途冲突409，不缓存完成结果。查询不发送prompt或调用worker onSession，权限/工具仍拒绝；冷重载结果保持原revision/hash。console选择执行/只读查询，跨mode历史显示“其他任务配置”，实际mode标签来自响应，不能以同配置hash将执行候选冒充只读候选。
+
+Headless条目/options增加完整readonly_launch，readonly新任务/原生恢复替代knobs+launch而不合并。分别复用typed能力校验，自定义args缺必需占位值拒绝构造，未支持选项不降级。明确profile使用cord.agent-config.headless.v3，覆盖四argv/context_revision与声明存在，空profile与未声明身份区分；旧无声明保留v1/v2。公开readonly_configuration=explicit共享ACP/headless语义，不证明OS只读。CLI帮助的configured只表示所选配置是否提供该项，实际查询argv仍version/help，help未展示不表示不支持，模型额度未核验（ADR-0088）。
 
 ADR-0086增加ACP `mcp_servers/readonly_mcp_servers` 完整列表（各≤16、名称唯一、规范化总字符≤65536）。type=stdio要求绝对command、args与env_from（目标变量→宿主变量）；http/sse要求无userinfo/fragment的http(s) URL、headers_from引用，header大小写重复拒绝。实际调用先解析env引用，缺值/NUL/header换行为spawn前configuration error；initialize后HTTP/SSE须mcpCapabilities明确true，否则session请求前拒绝，不回退空配置或新会话。只读列表缺省为空，session/new/load都传当前任务完整列表。session请求拒绝在非空MCP时固定错误，不将回显凭据原文入事件。
 

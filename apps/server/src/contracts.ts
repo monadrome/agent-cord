@@ -48,7 +48,7 @@ export interface AgentInspectionView {
   capabilities: AgentCapabilities | null;
   observation: AcpCapabilityObservation | null;
   cli_observation?: HeadlessCapabilityObservation | null;
-  /** ADR-0084：true表示只读任务配置查询；旧缺省表示执行配置。 */
+  /** ADR-0084/0088：true表示只读任务配置查询；旧缺省表示执行配置。 */
   readonly?: boolean;
 }
 
