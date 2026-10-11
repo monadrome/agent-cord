@@ -15,6 +15,7 @@
 - ADR加入指南后216个本地链接全部通过；新增core ports/schema能力字段、custom/template prompt_input与console标签已完成。生产实现全量后未再改，开始小步提交/推送；完整持续目标active。
 - 网络恢复后HTTP/2 push成功（7028a1f→68b484c），独立HTTP/2 ls-remote核验68b484c42ddc4534425132021639bc9d35d2ab33；36aadcc/68b484c及阶段80文档与验收记录已同步。工作树待记录本次同步后保持干净，完整目标active。
 - 补充流程Agent上下文回归：stdin/argv能力字段进入受限快照且差异可观察，环境/prompt不外泄；定向9项通过。当前仅新增测试，完整持续目标active。
+- 阶段81提交3cf039d（test: cover prompt input in agent context snapshots）；HTTP/2 push与独立查询再次低速/总时长失败，远端最后确认8db8df8，本地领先1提交。工作树干净，未重复全量回归；新增仅测试且定向9项已通过。
 ## 2026-10-10（阶段79）
 
 - d45942e干净/ahead4，前轮54affe8/1513项/16新回归与PID56978隔离实际HTTP为progress；上一轮最后记录push20秒上限，本轮独立HTTP/2 ls-remote仍15秒上限。实现不受网络故障阻塞，完整goal仍active。
