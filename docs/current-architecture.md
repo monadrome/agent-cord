@@ -157,6 +157,8 @@ Headless读完stdout与实际进程结果后才结束流；result之后的failed
 
 Headless模板可声明prompt_input=argv/stdin。内置Codex在new/resume与readonly两套profile中以固定-读取stdin，execa.input发送完整原文；custom args可显式声明同一输入协议且所有分支禁止prompt占位，template形态不可覆盖。stdin字段进入完整启动定义hash/v4完成策略，旧argv-only身份保留，能力与严格流程Agent投影公开映射。CLI inspect仍stdin忽略/固定help；在途resolver/cold/task/审批/协调共用原身份规则，输入不是OS隔离或prompt日志保密证明（[ADR-0092](./adr/ADR-0092-headless-stdin-prompt-input.md)）。
 
+能力快照另公开 `workspace_isolation`：当前ACP/headless均为`shared_lease`，只表示同workspace执行 lease/跨进程锁；协调输入绑定该能力，控制台明确展示限制。真实worktree、容器或OS sandbox必须实现独立执行器、清理/恢复和副作用对账后再声明更强枚举，不能靠配置字段冒充（[ADR-0093](./adr/ADR-0093-workspace-isolation-capability.md)）。
+
 任务启动前共享纯timeout/session校验，signal取消优先于参数和MCP解析；已取消任务零spawn。Headless参数编译后再次观察signal，CLI明确session拒绝选项前缀，ACP保留合法不透明ID，resume(undefined)不降级new。有效timeout不允许Node隐式截断/转换，错误固定不回显原值；有效argv/hash与宿主恢复/人工gate保持原规则（[ADR-0089](./adr/ADR-0089-agent-task-launch-preflight.md)）。
 
 ACP可选mcp_servers与readonly_mcp_servers分别声明最多16项stdio/http/sse连接，stdio用绝对command/argv/env_from，网络传输用URL/headers_from；凭据引用在实际spawn前解析，初始化后核验HTTP/SSE支持，再传给session/new/load。只读缺省空列表，不合并工具；inspect始终空MCP列表、不解析引用，返回协商传输与not_requested连接状态。非空配置v7身份覆盖两套完整定义/凭据变量名，值不入hash，空列表保留旧身份；清单/协调仅mcp_configuration数量/传输投影，未知/漏凭据/未支持传输fail-closed。工具启动/连接由ACP agent管理，宿主不保证OS或远端隔离（[ADR-0086](./adr/ADR-0086-acp-mcp-configuration.md)）。

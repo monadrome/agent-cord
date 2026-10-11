@@ -272,6 +272,8 @@ export interface AgentCapabilities {
   inspection?: "acp_handshake" | "cli_help" | "unsupported";
   /** ADR-0092：明确的headless输入映射，不证明厂商读取或隔离。 */
   prompt_input?: "argv" | "stdin";
+  /** ADR-0093：工作区隔离事实；shared_lease不等于worktree/OS sandbox。 */
+  workspace_isolation: "shared_lease" | "worktree" | "os_sandbox";
   launch_options: readonly string[];
   native_resume: "supported" | "unsupported" | "negotiated";
   /** ADR-0080：仅描述headless实参映射，不证明工具/OS隔离。 */

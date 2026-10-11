@@ -51,6 +51,13 @@
 - [x] 核验8db8df8干净/tracking同步；补充stdin/argv能力快照差异与脱敏回归，定向9项通过
 - [x] 推送成功（8db8df8→7a8ab15），独立远端核验7a8ab1564e85b01853e9c9483348d9bceddbc9f5；测试与记录已同步
 
+## 阶段82：工作区隔离能力声明（已实现并验证，待同步）
+
+- [x] 复核7a8ab15同步状态；定位shared workspace lease被文档说明但未进入能力快照，ADR-0093先行
+- [x] ACP/headless/schema/ports/协调/console/文档接入，shared_lease值与未来枚举边界回归
+- [x] 定向79项、全量1595项/115文件、typecheck/build:all/diff；当前shared_lease事实与不隔离限制已验证
+- [ ] 提交推送/独立远端核验，完整持续目标active
+
 ## 阶段79：只读命令参数与策略身份（已实现并验证，功能已同步）
 
 - [x] d45942e干净/ahead4，阶段78实现/1513项/实际HTTP为progress；远端独立查询仍超时

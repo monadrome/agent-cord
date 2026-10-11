@@ -227,7 +227,7 @@ export class AcpDriver implements AgentDriver {
     this.mcp_servers = mcp.data; this.readonly_mcp_servers = readonly_mcp.data;
     const has_mcp = this.mcp_servers.length + this.readonly_mcp_servers.length > 0;
     if (this.readonly_launch !== undefined) new AcpLaunchState(this.readonly_launch, true);
-    this.capabilities = Object.freeze({ transport: "acp", evidence: "adapter", installation: "unchecked", inspection: "acp_handshake",
+    this.capabilities = Object.freeze({ transport: "acp", evidence: "adapter", installation: "unchecked", inspection: "acp_handshake", workspace_isolation: "shared_lease" as const,
       launch_options: ACP_LAUNCH_OPTIONS, native_resume: "negotiated", goal: "host", workflow_resume: "authorized_unexited_goal",
       ...(this.readonly_launch === undefined ? {} : { readonly_configuration: "explicit" as const }),
       ...(has_mcp ? { mcp_configuration: Object.freeze({ writable_count: this.mcp_servers.length, readonly_count: this.readonly_mcp_servers.length,

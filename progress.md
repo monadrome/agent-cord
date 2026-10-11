@@ -1,5 +1,10 @@
 # 工作进度
 
+## 2026-10-10（阶段82）
+
+- workspace_isolation能力接入后旧只读能力fixture首轮4项失败，原因是严格能力schema要求手写caps补字段；补齐为shared_lease后定向79项和全量1595项/115文件通过，typecheck/build:all/git diff --check通过。
+- 当前ACP/headless与协调上下文明确报告shared_lease，控制台展示共享工作区（lease），不伪造worktree/OS sandbox；ADR-0093/人审指南/核心Feature/协议同步，开始提交与远端同步，完整目标active。
+
 ## 2026-10-10（阶段80）
 
 - 7028a1f干净/tracking同步，独立HTTP/2 ls-remote核验7028a1fae48109381aa86c86b07ce0b321f2eccc；阶段79实现f72493f/1573项/60新回归与PID69913实际HTTP为progress，完整目标active。
@@ -16,6 +21,7 @@
 - 网络恢复后HTTP/2 push成功（7028a1f→68b484c），独立HTTP/2 ls-remote核验68b484c42ddc4534425132021639bc9d35d2ab33；36aadcc/68b484c及阶段80文档与验收记录已同步。工作树待记录本次同步后保持干净，完整目标active。
 - 补充流程Agent上下文回归：stdin/argv能力字段进入受限快照且差异可观察，环境/prompt不外泄；定向9项通过。当前仅新增测试，完整持续目标active。
 - 阶段81提交3cf039d（test: cover prompt input in agent context snapshots）；HTTP/2 push与独立查询再次低速/总时长失败，远端最后确认8db8df8，本地领先1提交。工作树干净，未重复全量回归；新增仅测试且定向9项已通过。
+- 阶段82开始：能力审计发现工作区隔离一直只在文档限制中存在；为避免误导，新增workspace_isolation=shared_lease能力字段、schema/ports/driver/协调投影/console声明与ADR-0093，明确未来worktree/os_sandbox必须有真实执行器；开始定向回归。
 - 网络恢复后HTTP/2 push成功（8db8df8→7a8ab15），独立远端核验7a8ab1564e85b01853e9c9483348d9bceddbc9f5；阶段81测试与记录已同步，工作树保持干净。
 ## 2026-10-10（阶段79）
 

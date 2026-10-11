@@ -18,7 +18,7 @@ const workflow = () => WorkflowDefSchema.parse({ apiVersion: "agent-cord.dev/v1a
   spec: { nodes: [{ id: "review", artifact: "review.md", run: { agent: "worker", readonly: true, require_readonly_mapping: true, output: "text",
     retry: { max_attempts: 3, backoff_ms: 0 } } }] } });
 const caps: AgentCapabilities = { transport: "headless", evidence: "adapter", installation: "unchecked", launch_options: [],
-  native_resume: "unsupported", readonly_launch: "mapped", goal: "host", workflow_resume: "authorized_unexited_goal" };
+  native_resume: "unsupported", readonly_launch: "mapped", workspace_isolation: "shared_lease", goal: "host", workflow_resume: "authorized_unexited_goal" };
 const advance: CoordinationProposal = { summary: "按当前需求评审", next_action: { kind: "advance", node_id: "review", reason: "参数映射已声明",
   evidence: [{ source: "workflow", id: "review" }] }, risks: [] };
 let root: string; let session: SessionHandle;

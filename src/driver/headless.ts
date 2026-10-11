@@ -662,7 +662,7 @@ export class HeadlessDriver implements AgentDriver {
     }
     this.knobs = { ...options.knobs, ...launch } as HeadlessKnobs;
     this.readonly_knobs = options.readonly_launch === undefined ? undefined : validate_agent_launch(options.readonly_launch, supported) as HeadlessKnobs;
-    this.capabilities = Object.freeze({ transport: "headless", evidence: "adapter", installation: "unchecked", inspection: template.inspection_profile === undefined ? "unsupported" : "cli_help", launch_options: Object.freeze([...supported]),
+    this.capabilities = Object.freeze({ transport: "headless", evidence: "adapter", installation: "unchecked", inspection: template.inspection_profile === undefined ? "unsupported" : "cli_help", workspace_isolation: "shared_lease" as const, launch_options: Object.freeze([...supported]),
       native_resume: template.supports_resume === true ? "supported" : "unsupported", readonly_launch: template.supports_readonly === true ? "mapped" : "unmapped",
       readonly_resume: template.supports_resume === true && template.supports_readonly_resume === true ? "supported" : "unsupported", goal: "host", workflow_resume: "authorized_unexited_goal",
       ...(this.readonly_knobs === undefined ? {} : { readonly_configuration: "explicit" as const }),

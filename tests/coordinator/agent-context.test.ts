@@ -35,7 +35,7 @@ describe("流程Agent受限上下文", () => {
     const stdin = read_coordination_agents(
       { spec: { nodes: [{ id: "first", run: { agent: "writer" } }] } } as WorkflowDef,
       () => ({ name: "writer", configuration_hash: "a".repeat(64), capabilities: {
-        transport: "headless", evidence: "adapter", installation: "unchecked", prompt_input: "stdin", launch_options: ["model"], native_resume: "supported", goal: "host", workflow_resume: "authorized_unexited_goal",
+        transport: "headless", evidence: "adapter", installation: "unchecked", prompt_input: "stdin", workspace_isolation: "shared_lease", launch_options: ["model"], native_resume: "supported", goal: "host", workflow_resume: "authorized_unexited_goal",
       } } as AgentDriver),
     );
     expect(stdin[0]).toMatchObject({ capabilities: { prompt_input: "stdin" } });

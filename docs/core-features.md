@@ -121,6 +121,7 @@ flowchart LR
 |---|---|
 | 通道 | `kind: acp/headless` 或显式 driver 前缀；裸 agent 名遵循 registry 选择规则 |
 | 任务输入 | 内置Codex以固定`-`+stdin发送完整prompt；custom args可显式`prompt_input: stdin`，禁止prompt占位，通道绑定身份且与通信协议分开 |
+| 工作区隔离 | 当前 ACP/headless 能力声明为 `shared_lease`；只提供同 workspace lease/跨进程锁，不冒称 Git worktree、容器或 OS sandbox |
 | 上下文 | Claude `launch.bare` 明确关闭部分自动加载；会改变仓库指令/认证加载，不默认开启 |
 | 执行生命周期 | `run.goal` 由宿主控制代码、自测、修复与 review 交付；普通单次调用仍可显式配置 |
 | 自主权限 | Claude `launch.auto` 使用厂商 auto 审批；ACP 使用协商 mode/文件范围预授权；readonly 优先，最终 gate 仍人工 |
