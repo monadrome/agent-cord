@@ -35,7 +35,7 @@
 - 阶段77探索时猜测fixture/组件/模块/协议文档路径不存在；使用rg --files定位实际路径后继续，无文件修改或运行副作用。
 - Fastify 的 `reply` 是 thenable：handler 里 `await reply.code(201)` 会死锁（等响应发出，而响应要等 handler 返回）。一律 `reply.code(...)` 不 await。
 
-## 阶段80：Headless标准输入Prompt（已实现并验证，远端同步待核验）
+## 阶段80：Headless标准输入Prompt（已实现并验证，功能已同步）
 
 - [x] 7028a1f干净/同步，独立远端核验7028a1fae48109381aa86c86b07ce0b321f2eccc；阶段79为progress
 - [x] OpenAI Docs/firecrawl官方文档正文确认完整stdin prompt，发现Codex裸参数特殊语义；ADR-0092先行
@@ -44,7 +44,7 @@
 - [x] 4项TCP Goal/只读profile/最新PRD/cold/热重载/查询/错误修复，背压取消/timeout与空原文通过
 - [x] 全量1594项/115文件、typecheck/build:all/diff、文档/人审指南与实际HTTP/desktop/mobile UI验收；stdin bytes/probe/cold/最新PRD/doctor/人工未决
 - [x] 功能提交36aadcc，完整验收/人审指南/三视口截图完成
-- [ ] HTTP/2 push低速失败、独立远端核验待重试；本地提交保留，完整持续目标active
+- [x] HTTP/2 push成功（7028a1f→68b484c），独立远端核验68b484c42ddc4534425132021639bc9d35d2ab33；stdin实现/验收记录已同步，完整持续目标active
 
 ## 阶段79：只读命令参数与策略身份（已实现并验证，功能已同步）
 
