@@ -10,6 +10,8 @@
 - 新fixture显式version/help分支记录零stdin probe，不执行工作；新增4项TCP覆盖内置Codex/custom的Goal实现、readonly评审、最新PRD协调、cold不重复/模型重载失效、幂等无prompt查询与错误声明修复、在途固定profile。
 - 首95项driver与84项跨module定向全部通过；21项新增实际参数/字节/背压/TCP验证通过。README/协议/核心feature/架构/示例/ADR索引与新Human Review指南同步，开始完整test/build/typecheck与隔离HTTP/1440/390/320 UI验收；输入通道不作为凭据保密或OS隔离证明。
 - 最终npm test1594项/115文件、typecheck/build:all/git diff --check通过，证据/tmp/cord-stage80-tests.json；stdin文档链接在新增后待复核。隔离HTTP PID41358/http://127.0.0.1:51602证据/tmp/cord-stage80-real-result.json：writer/high→review/low、stdin精确UTF-8、argv无原文、probe stdin空、cold不重复、B PRD后旧协调失效/新模型current wait、审批1/人工决定0/采用0/仅deliver退出/doctor=true/付费0。Playwright 1440/390/320三视口证据/tmp/cord-stage80-browser-result.json和截图，无溢出/pageerror。完整持续目标active。
+- ADR加入指南后216个本地链接通过；新增core ports/schema能力字段、custom/template prompt_input与console标签已完成。生产实现全量后未再改，开始小步提交/推送；完整持续目标active。
+- 功能提交36aadcc（feat: support stdin prompt input for headless agents），git diff/check与浏览器截图已审查。HTTP/2 push和独立HTTP/1.1查询均以GitHub低速错误结束，本地领先1提交；此前7028a1f远端仍可核验，36aadcc远端未确认。推送命令已收束，无运行/测试session残留；隔离预览health200、审批1/current wait保留查看。
 - ADR加入指南后216个本地链接全部通过；新增core ports/schema能力字段、custom/template prompt_input与console标签已完成。生产实现全量后未再改，开始小步提交/推送；完整持续目标active。
 ## 2026-10-10（阶段79）
 
