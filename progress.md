@@ -9,6 +9,9 @@
 - 首71项/4文件定向通过，包含旧timeout/cancel进程树与两套readonly配置。追加custom完整resume、编译期间abort、ACP inspect无prompt/非法预算以及Unicode/空格/字面量实际session参数覆盖；协议文档实际为docs/protocol.md，纠正探索路径。
 - 扩展后102项/4文件通过，其中新17项全部通过。README/核心feature/协议/架构/ADR索引与人审指南同步；开始最终完整验证，无新增UI行为，不重复浏览器截图。
 - 最终npm test1497项/107文件、typecheck/build:all/git diff --check通过，JSON为/tmp/cord-stage77-tests.json；7份文档196个本地链接通过，ADR新增指南链接后再核验。原有TCP Goal/自测/readonly/最新协调/cold与人工等待全覆盖，无付费模型调用或原7306Draft操作。现有隔离64019预览health200；仅文档在全量后更新，生产实现未再改，完整目标active。
+- ADR加入指南后197个本地链接全部通过，暂存diff/check已审查，功能提交27f651400ed27ebe7af0ece03e3b292f56469439。首次HTTP/1.1 push报连续15秒低速失败，保留本地提交；改用HTTP/2有界重试并独立核验远端，不修改全局Git配置。
+- HTTP/2 push达到25秒上限后收束，未得到成功结果；开始独立远端查询，不据此推断是否已上传。工作区只保留本轮同步记录，功能实现与1497项验证不受网络故障影响。
+- 独立HTTP/2 ls-remote也达到15秒上限，远端同步尚未确认；最后可确定远端为轮初37920a5。功能和全部验收/197链接完成，记录另行提交后再作一次有界推送；失败时保留本地，不假称远端已更新。所有必需build/test/typecheck/查询sessions已结束，仅既有隔离预览保留；完整持续目标active。
 
 ## 2026-10-10（阶段76）
 
