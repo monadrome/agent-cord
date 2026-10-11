@@ -69,6 +69,9 @@ agents:
 # 声明readonly_args后，只读恢复另需readonly_resume_args；缺失时启动前拒绝。
 # 不用独立分支时，可在args/resume_args同时传{{readonly}}，由wrapper处理true/false。
 # wrapper 自己负责只读权限和结果输出；需要协议权限请求时优先 ACP。
+# custom占位还支持{{bare}}/{{auto}}/{{agent}}/{{agents_json}}/{{system_prompt}}/{{max_turns}}/{{budget_usd}}。
+# 所有完整argv分支须保留基本args旋钮集合；bool传true/false，readonly任务auto=false。
+# launch中的每个值必须映射；资源参数是底层wrapper额度，不能替代run.goal宿主预算。
 # 以下是配置形态示意，需替换成wrapper实际支持的命令后再加入agents：
 # custom:
 #   kind: headless

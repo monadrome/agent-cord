@@ -1,5 +1,14 @@
 # 工作进度
 
+## 2026-10-10（阶段75）
+
+- 9892563干净/ahead4；前轮1437项与本地HTTP/SSE实际连接验收为progress，远端同步未确认。沿用planning-with-files/agent-optimizer，读取custom-template/typed launch/四分支hash后定位bare/auto/角色/预算缺映射；ADR-0087先行，无新增核心schema/ports，无子agent/付费模型。
+- 13项新driver回归首轮12项因未知新占位失败，证明wrapper不能映射现有bare/auto/角色/资源旋钮。增加统一typed旋钮集合、所有完整分支一致校验，String转换保留false/数值，readonly auto显式值强制false，替换一次/不经shell；原三旋钮identity回归保留。
+- 首48项driver回归和build/typecheck通过；增加typed非法值/仅其他分支声明与3项TCP自测/readonly/最新协调/在途固定snapshot。无效别名Goal在准备输入身份时即blocked，不产生worker任务事实；初次测试错误预期agent.task.completed，按实际早拒绝事实修正，保留无进程/无自测/无人审断言。
+- 最终21项driver/3项TCP新增回归和完整npm test1461项/104文件、typecheck/build:all/diff通过，证据/tmp/cord-stage75-tests.json。只读auto明确false、角色JSON与prompt单次传入，cold合法等待不重做/重载角色使旧提议失效/固定resolver原角色均核验，底层资源限制不冒称宿主已执行。
+- 隔离实际HTTP PID82443/http://127.0.0.1:62779：write/auto=true、review/auto=false、最新PRD独立协调review/auto=false，bare=true/turns7/budget2.5/角色architect保持，宿主测试/指南、审批1/人工决定0/仅deliver退出/doctor=true。新协调current=true基于新PRD，旧ready不冒称当前交付；无真实LLM/原7306Draft操作。
+- Playwright1440/390/320三截图能力展示通过，pageerror=[]/无横向溢出/inspect请求0，桌面与最窄已查看，角色原文不入公开清单。证据/tmp/cord-stage75-browser-result.json；9份相关文档首130个链接，ADR增加指南后131个，临时脚本/图/运行数据不入仓库，完整目标active。
+
 ## 2026-10-10（阶段74）
 
 - 48f9bc4干净/ahead2，前轮1421项与实际stdio/六截图为progress，远端同步未确认。沿用planning-with-files/agent-optimizer，读取官方MCP SDK本地HTTP/SSE示例及close/terminateSession语义；ADR-0086先更新header边界，无付费模型/子agent。

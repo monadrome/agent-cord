@@ -128,6 +128,7 @@ flowchart LR
 | 节点能力准入 | `run.require_readonly_mapping: true` 要求 `readonly=true` 且当前 headless 能力声明 `readonly_launch=mapped`；协调、派发和 checkpoint 复用共同 fail-closed |
 | LLM 路由 | `launch.provider/model/effort` 是独立维度；headless 仅使用显式 argv 映射，ACP 使用 `option_ids` 和完整配置回执；内置 CLI 未声明 provider 时拒绝 |
 | 角色与资源 | Claude 支持 `launch.agent/agents_json/system_prompt/max_turns/budget_usd`；Goal 有宿主时长、尝试、无进展和可靠 usage 预算 |
+| 自定义Wrapper旋钮 | args显式映射bare/auto/角色/系统提示/JSON/轮次/费用，完整分支须同集合；布尔/数值文字确定，只读auto=false，不替代宿主Goal |
 | 原生会话恢复 | 必须显式 session ID；内置 headless 模板、ACP 协商 loadSession、自定义 `resume_args` 分别负责 |
 | 固定流程节点恢复 | 原授权 Goal recovery 加 `node_id`，限定原 token 绑定的未退出节点；保持 checkpoint、输入/配置身份、原预算和人工 gate |
 | 扩展 | ACP `config_options` 支持 select/boolean；自定义 argv 显式绑定 model/effort/session；外部行为变化用 `context_revision` |
@@ -151,6 +152,8 @@ ACP的MCP配置分别控制执行/只读连接列表，新任务与显式loadSes
 HTTP/SSE已通过官方MCP SDK的本地真实认证/工具调用、指定session恢复与TCP SDLC验收；非法header控制字符/不可编码值在spawn前拒绝，不暴露原值。取消/超时会收束宿主调用，不产生成功结果，连接清理与远端session保留分别核验；远端记录或工具副作用不能由宿主取消推断撤销。
 
 自定义 headless 现已明确选择可写/只读与新会话/原生恢复四种完整 argv；模型/effort 映射须一致，恢复分支须绑定指定 session，替换一次且不经 shell。控制台与协调输入共用能力声明。旧新任务 argv 保留，旧无只读恢复映射的显式 resume 改为拒绝，配置身份可能变化；映射不证明 wrapper 已实施权限或工具执行前拦截，宿主只读审计继续生效（[ADR-0080](./adr/ADR-0080-custom-readonly-launch.md)、[配置与人审指南](./research/2026-10-10-custom-readonly-launch.md)）。
+
+自定义Wrapper已支持完整HeadlessArgInput旋钮的显式占位：provider/model/effort、bare/auto、max_turns/budget_usd、system_prompt/agent/agents_json。基本args推导能力集合，所有声明新会话/恢复/只读分支保持相同映射，缺值/错误类型/漏分支直接拒绝；替换一次，布尔/数值转文字，角色JSON为单个argv。只读auto=false、bare不默认启用，资源参数仅底层映射，宿主Goal完成审计/预算仍独立（[ADR-0087](./adr/ADR-0087-custom-launch-knobs.md)、[Wrapper人审指南](./research/2026-10-10-custom-launch-knobs.md)）。
 
 Provider 是独立的 LLM 路由选择：ACP 必须通过 `option_ids.provider` 绑定真实 session 配置项并核验候选/回执；自定义 headless 在所有 argv 分支使用 `{{provider}}`；内置 CLI 没有统一 provider 旗标，配置会直接拒绝。它不从 model、环境变量或 prompt 推断，也不证明模型权限、额度或输出质量（[ADR-0082](./adr/ADR-0082-provider-launch-selection.md)）。
 

@@ -1,5 +1,11 @@
 # 调研发现
 
+## 阶段75（2026-10-10）：自定义Wrapper能力映射仍局限三项LLM参数
+
+- HeadlessArgInput已有bare/auto/角色/轮次/费用等typed旋钮，custom_headless_template只允许provider/model/effort，因此不能用launch明确控制任意wrapper已有的这些能力。
+- 保持显式argv映射、完整分支同集合和现有hash，不用独立launch状态机；布尔/数值用确定文字，readonly的auto=false与内置Claude只读优先语义一致。
+- 参数映射不证明wrapper执行了限制。底层max_turns/budget_usd不能替代宿主Goal预算或人工gate，bare不自动开启，未知协议选项仍拒绝。
+
 ## 阶段74（2026-10-10）：HTTP/SSE实际连接与header边界
 
 - 阶段73网络传输已验证标准参数与协商，但真实工具连接仅stdio。官方MCP SDK HTTP/SSE client/server可在本地完成认证、工具与连接清理验收，不引入真实远端或自写协议。

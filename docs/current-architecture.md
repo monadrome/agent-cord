@@ -143,6 +143,8 @@ ACP `launch.option_ids.mode` 可将 mode 绑定新配置 ID，兼容无 category
 
 自定义 headless args 支持 `readonly_args/readonly_resume_args` 完整分支和 `{{readonly}}` 文字占位，按任务模式与显式 session 选择唯一分支。所有声明分支保持 model/effort 映射与必要 prompt；resume 绑定 session ID，缺只读映射则拒绝派发，不开新会话。`readonly_launch/readonly_resume` 描述参数映射，外部模板必须显式声明支持，不能从普通 resume 推断。实际 argv/null 进入现有配置身份，流程 Agent 上下文、热重载快照、冷恢复与审批继续共用此身份；旧无映射只读 resume 的拒绝和身份变化属于保守兼容调整，不承诺权限隔离（[ADR-0080](./adr/ADR-0080-custom-readonly-launch.md)）。
 
+custom-template从基本args的typed占位推导全部headless旋钮集合，新增bare/auto、角色/JSON/系统提示、max_turns/budget_usd；每个完整分支保持同集合，未知/未映射/缺值与非法launch值拒绝。单次String转换保留false/数值，readonly任务/原生恢复的auto显式值强制false；裸JSON/用户prompt不二次展开，不经过shell。旧三旋钮参数/hash兼容，新参数沿现有四argv身份；底层参数约束不能替代宿主Goal/工具审计/人工gate（[ADR-0087](./adr/ADR-0087-custom-launch-knobs.md)）。
+
 启动 resolver 将 `provider` 与 model/effort 一样纳入配置身份。ACP 通过明确 `option_ids.provider` 在 session/new/load 后设置并核验最新候选；自定义 headless 只有在 args、resume_args、readonly_args、readonly_resume_args 全部分支消费 `{{provider}}` 才注册该旋钮。内置模板没有 provider 映射则拒绝，旧未声明 provider 的配置不变；后续回执漂移会取消 ACP 会话，不能形成成功任务或当前协调提议（ADR-0082）。
 
 声明provider的ACP先设置mode/provider，再用完整回执处理扩展、model、effort，避免新路由解锁选项在切换前被误拒绝。设置期间反向重置也在seal时拒绝，执行中漂移继续取消。新顺序策略只改变provider配置身份，未声明provider保持原顺序/hash。真实TCP Goal验证宿主失败→修复→通过后等待人审；冷恢复路由变化使原run重新验证并使用剩余预算，不新增run、批准或合入（[ADR-0083](./adr/ADR-0083-provider-configuration-order.md)）。

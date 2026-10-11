@@ -31,6 +31,8 @@ agents:
 
 支持统一模式参数的 wrapper 可仅声明 args/resume_args，两者都传 `--readonly, '{{readonly}}'`。替换值是文字 true/false，不推断其他枚举。模型/effort 必须在所有声明分支一致；基本 args 使用 prompt 时，其他分支也必须保留。readonly_resume_args 要求同时声明 readonly_args 与 resume_args。未知占位、缺 session、分支漏映射或模板形态混入自定义分支均拒绝别名。
 
+完整启动旋钮现还支持provider、bare/auto、角色/系统提示/JSON和轮次/费用参数；基本args声明的所有旋钮须在其他完整分支一致映射。只读auto值强制false，未配置占位值仍拒绝；参数不证明OS隔离或底层额度执行，宿主Goal保持独立。详见 [完整Wrapper配置与人审指南](./2026-10-10-custom-launch-knobs.md)。
+
 参数直接传 subprocess，不经过 shell，仅替换一次；prompt 内的占位或 shell 文字不执行。缺只读恢复映射时，driver.resume 在 spawn 前拒绝，不开新会话或回退可写恢复。库的外部 HeadlessCliTemplate 必须显式声明 supports_readonly/supports_readonly_resume，普通 supports_resume 不作推断。
 
 ## 能力与迁移

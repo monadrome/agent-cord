@@ -6,8 +6,12 @@ const args = process.argv.slice(2);
 const value = flag => args[args.indexOf(flag) + 1];
 const action = value("--operation"); const readonly = value("--readonly") === "true";
 const prompt = value("--prompt"); const model = value("--model"); const effort = value("--effort");
+const launch_profile = args.includes("--bare") ? { bare: value("--bare"), auto: value("--auto"), max_turns: value("--max-turns"), budget_usd: value("--budget-usd"),
+  agent: value("--agent"), agents_json: value("--agents-json"), system_prompt: value("--system-prompt") } : undefined;
 if (!prompt || !model || !effort || !["write", "review"].includes(action) || (action === "write") === readonly) process.exit(2);
-appendFileSync(join(process.cwd(), ".mode-calls.jsonl"), JSON.stringify({ action, readonly, model, effort, prompt, args }) + "\n");
+if (launch_profile && (launch_profile.bare !== "true" || launch_profile.auto !== String(!readonly) || !launch_profile.agent || !launch_profile.agents_json || !launch_profile.system_prompt
+  || !(Number(launch_profile.max_turns) > 0) || !(Number(launch_profile.budget_usd) > 0))) process.exit(4);
+appendFileSync(join(process.cwd(), ".mode-calls.jsonl"), JSON.stringify({ action, readonly, model, effort, prompt, args, ...(launch_profile === undefined ? {} : { launch_profile }) }) + "\n");
 if (action === "write") writeFileSync(join(process.cwd(), "value.txt"), "fixed");
 else if (readFileSync(join(process.cwd(), "value.txt"), "utf8") !== "fixed") process.exit(3);
 if (args.includes("--emit-write-tool")) process.stdout.write(JSON.stringify({ type: "item.completed", item: { type: "file_change", changes: [{ path: "value.txt" }] } }) + "\n");

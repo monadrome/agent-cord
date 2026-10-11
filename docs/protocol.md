@@ -229,6 +229,8 @@ ADR-0073 增 `AgentDriver.capabilities` 可选静态描述，清单同步公开 
 
 ADR-0080 为自定义 headless 条目增加完整 `readonly_args/readonly_resume_args`；`{{readonly}}` 替换为任务的 `true/false`。新会话选 args/readonly_args；恢复选 resume_args/readonly_resume_args，分支不相互追加。没有独立只读分支时，resume_args 必须使用 readonly 占位才支持只读恢复；声明 readonly_args 后必须另有 readonly_resume_args。后者要求同时声明前两种分支；恢复必须绑定 session，所有分支保持 model/effort 映射与基本 args 必需的 prompt。未知/漏映射拒绝别名，模板形态禁止混入这些分支。替换一次、不经 shell。
 
+ADR-0087将custom占位扩展到provider/model/effort/max_turns/budget_usd/system_prompt/agent/agents_json/bare/auto；基本args推导knobs，所有已声明完整分支须同旋钮集合。typed launch校验布尔/数字/字符串，缺占位值在构造配置argv/hash时拒绝，未映射选项拒绝注册。bool文字true/false、number用String确定转换，JSON/提示为单个argv，替换一次不递归；auto在readonly=true的新任务/原生恢复中强制false，但未声明值仍拒绝缺值。bare不默认开启，旧三旋钮argv/hash不变，新参数身份/固定resolver沿用既有规则；max_turns/budget_usd不替代Goal预算或证明wrapper真的限制模型。
+
 `AgentLaunchSchema.provider` 是独立的 LLM 路由字段。ACP 的 `option_ids.provider` 必须存在且映射到 session/new/load 返回的 select 配置项；设置顺序稳定，候选/类型/currentValue 与后续 update 不一致时 fail-closed。自定义 headless 模板可用 `{{provider}}`，其完整新会话/恢复/只读分支必须与基本 args 保持同一 provider/model/effort 映射；内置模板未声明 provider 能力时拒绝。provider 进入 configuration_hash、任务/审批/协调输入身份，不由 model、环境或 prompt 推断。它不表示 provider 可用、模型有额度或输出质量（ADR-0082）。
 
 声明provider的ACP按mode → provider → ID排序扩展 → model → effort设置，每步使用最新完整回执。新路由解锁的模型/扩展可以正常设置，扩展或effort反向重置provider仍拒绝。配置身份绑定`explicit-session-selections.provider-first.v1`；旧provider身份变化触发现有新鲜度检查。未声明provider保留旧`explicit-session-selections.v1`与顺序（ADR-0083）。

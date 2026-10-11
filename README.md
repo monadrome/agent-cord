@@ -114,7 +114,7 @@ agents:
     args: [run, "{{prompt}}", --json]
 ```
 
-节点通过 `run: { agent: implementer }` 选择 agent。模板形态可省略 `bin`，使用模板默认二进制；自定义 args 必须声明 `bin`，可显式绑定 `{{prompt}}`、`{{model}}`、`{{effort}}`、`{{readonly}}`。`resume_args`、`readonly_args`、`readonly_resume_args` 是完整参数分支；缺少只读恢复映射时在启动前拒绝，不回退可写会话。参数映射不提供 OS 隔离，配置示例与迁移、人审说明见 [自定义只读启动指南](./docs/research/2026-10-10-custom-readonly-launch.md)。
+节点通过 `run: { agent: implementer }` 选择 agent。模板形态可省略 `bin`，使用模板默认二进制；自定义 args 必须声明 `bin`，可绑定prompt/readonly/session及provider/model/effort、bare/auto、角色/系统提示/JSON、轮次/费用上限。仅显式占位声明的旋钮才接受launch值，所有完整参数分支须同一映射集合；只读auto强制false，缺只读恢复映射时启动前拒绝。参数映射不提供OS隔离或宿主Goal预算，配置/迁移/人审见 [只读启动指南](./docs/research/2026-10-10-custom-readonly-launch.md) 与 [完整Wrapper启动指南](./docs/research/2026-10-10-custom-launch-knobs.md)。
 
 计划或评审 worker 可声明 `readonly: true, output: text`，并在节点上声明 artifact：worker 保持只读，在最终回复返回完整 Markdown，由 coordinator 校验后原子代写 Draft，供后置 gate/人工审核使用。产物变化冲突、空内容、失败和取消不会作为成功报告；缺省 output=auto 保留原 readonly 不写文档行为。参见 [开发 Draft 示例](./examples/development-sdlc.yaml) 和 [ADR-0038](./docs/adr/ADR-0038-readonly-report-artifacts.md)。
 

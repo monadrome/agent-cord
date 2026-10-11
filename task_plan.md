@@ -946,6 +946,15 @@
 - [x] 功能提交ae6bc1d，完整实现/自测/人审指南保留；完整目标active
 - [ ] 远端同步：HTTP/1.1 push低速超时exit128、HTTP/2 push25秒上限exit124，两协议独立ls-remote15/12秒上限exit124；阶段73积压提交保留，远端实际hash未确认
 
+## 阶段75：自定义Wrapper完整启动旋钮（已实现并验证，待提交同步）
+
+- [x] 核验9892563干净/ahead4，阶段74为progress；定位自定义bare/auto/角色/预算不能映射，ADR-0087先行
+- [x] 新占位12项失败反例后修复；21项typed/four-branch/readonly-auto/single-pass/旧identity回归
+- [x] 3项真实TCP Goal+readonly评审/最新快照协调、热重载固定resolver/cold不重做/无效配置修复
+- [x] 核心feature/协议/示例/人审指南；实际HTTP与1440/390/320三截图通过，无pageerror/溢出/inspect请求
+- [x] 全量1461项/104文件、typecheck/build:all/diff与131个本地文档链接通过；原真实Draft未操作
+- [ ] 小步提交/有界同步/独立远端核验，阶段73/74积压保留；完整目标active
+
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
 - [x] 核验当前分支与阶段 10；上一轮实现和远端同步属于已验证进展
