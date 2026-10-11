@@ -270,6 +270,8 @@ export interface AgentCapabilities {
   evidence: "adapter";
   installation: "unchecked";
   inspection?: "acp_handshake" | "cli_help" | "unsupported";
+  /** ADR-0092：明确的headless输入映射，不证明厂商读取或隔离。 */
+  prompt_input?: "argv" | "stdin";
   launch_options: readonly string[];
   native_resume: "supported" | "unsupported" | "negotiated";
   /** ADR-0080：仅描述headless实参映射，不证明工具/OS隔离。 */

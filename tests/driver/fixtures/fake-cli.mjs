@@ -48,7 +48,11 @@ if (pidFile !== undefined) writeFileSync(pidFile, String(process.pid));
 const mode = flagValue("--mode") ?? "claude";
 const sleepMs = Number(flagValue("--sleep") ?? 0);
 const sessionId = "fake-session-1";
-const prompt = flagValue("-p") ?? argv[argv.length - 1] ?? "";
+let prompt = flagValue("-p") ?? argv[argv.length - 1] ?? "";
+if (argv.includes("exec") && argv.at(-1) === "-") {
+  const chunks = []; for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
+  prompt = Buffer.concat(chunks).toString("utf8");
+}
 
 write({
   type: "system",

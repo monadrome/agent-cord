@@ -71,6 +71,17 @@ agents:
 # readonly_mcp_servers: []  # 缺省为空，不继承可写MCP；连接声明不等于只读权限。
 # HTTP/SSE须实际握手支持；inspect不连接声明服务，也不检查其凭据。
 # 自定义 wrapper 的 args 可绑定 {{prompt}}/{{model}}/{{effort}}/{{readonly}}。
+# Codex内置模板默认stdin，task/resume以固定-接收完整原文，template形态不可覆盖。
+# 支持完整stdin的custom可声明prompt_input: stdin，全部argv分支禁止{{prompt}}：
+# stdin-wrapper:
+#   kind: headless
+#   bin: /absolute/path/to/your-wrapper
+#   prompt_input: stdin
+#   args: [run, --model, '{{model}}', --readonly, '{{readonly}}', '-']
+#   resume_args: [resume, '{{resume_session_id}}', --model, '{{model}}', --readonly, '{{readonly}}', '-']
+#   launch: {model: writer-model}
+#   readonly_launch: {model: review-model}
+# '-'或专有stdin参数必须由wrapper实际支持，宿主不猜测，不修改原文/增加换行。
 # 原生恢复须给完整 resume_args 并显式绑定 {{resume_session_id}}；无映射则拒绝恢复。
 # readonly_args 是完整只读新会话argv，不追加args。
 # 声明readonly_args后，只读恢复另需readonly_resume_args；缺失时启动前拒绝。

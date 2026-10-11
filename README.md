@@ -97,6 +97,8 @@ Headless必须读完真实进程结果，成功JSON不能覆盖晚退出失败�
 
 只读worker按具体命令选项审计，拒绝rg预处理程序、Git写出/外部diff和未知flag，structured argv保留原边界；违规不可重试，修复后沿用原流程重验。策略身份迁移与参数子集见[只读命令人审指南](./docs/research/2026-10-10-readonly-command-options.md)，该审计不替代执行前hook或OS沙箱。
 
+内置Codex以标准输入接收完整任务，避免prompt被CLI解析成选项或子命令。custom args可明确声明`prompt_input: stdin`，所有分支禁止`{{prompt}}`；通道进入能力/恢复身份，旧argv wrapper保持原行为。配置与验收见[标准输入人审指南](./docs/research/2026-10-10-headless-stdin-prompt.md)。
+
 ACP 支持结构化 `mcp_servers` 和独立 `readonly_mcp_servers`：stdio、协商支持的 HTTP/SSE；凭据用环境变量引用，缺引用或不支持传输时拒绝，HTTP header值在启动前使用Node标准API核验。只读默认不继承执行工具，无 prompt 查询不连接所配 MCP，只展示数量和传输能力。实际 stdio及本地HTTP/SSE工具连接、宿主自测验收见 [MCP 配置与人审指南](./docs/research/2026-10-10-acp-mcp-configuration.md)。
 
 工作区 `cord/agents.yaml` 支持 ACP、内置 headless 模板和自定义参数三种形态：

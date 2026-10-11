@@ -392,7 +392,7 @@ describe("HeadlessDriver CLI 参数", () => {
       'sandbox_mode="workspace-write"',
       "-c",
       'approval_policy="never"',
-      "p",
+      "-",
     ]);
     expect(driver.buildArgv({ prompt: "p", cwd: "/w", readonly: true })).toEqual([
       "codex",
@@ -402,7 +402,7 @@ describe("HeadlessDriver CLI 参数", () => {
       'sandbox_mode="read-only"',
       "-c",
       'approval_policy="never"',
-      "p",
+      "-",
     ]);
     expect(driver.buildArgv({ prompt: "p", cwd: "/w" }, "s1")).toEqual([
       "codex",
@@ -414,7 +414,7 @@ describe("HeadlessDriver CLI 参数", () => {
       'sandbox_mode="workspace-write"',
       "-c",
       'approval_policy="never"',
-      "p",
+      "-",
     ]);
   });
 
@@ -502,7 +502,7 @@ describe("HeadlessDriver CLI 参数", () => {
       'sandbox_mode="workspace-write"',
       "-c",
       'approval_policy="never"',
-      "p",
+      "-",
     ]);
   });
 

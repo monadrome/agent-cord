@@ -233,6 +233,8 @@ ADR-0089：ACP/headless任务迭代先观察signal；已经取消返回单个err
 
 ADR-0090：Headless候选result不覆盖真实进程failed/非零/未知退出状态，完整流结束前追加agent error；spawn错误与timeout/abort原分类保留。消费者必须读完整流，现有worker/独立协调在失败时不写报告或形成可用完成/提议。所有HeadlessDriver身份用cord.agent-config.headless.v4，包含completion_policy=process-exit-required.v1及launch_configuration_hash（原完整v1/v2/v3启动定义摘要），argv/env排除/context_revision与双profile映射不改。旧身份任务/审批/协调按现有恢复/新鲜度重验，已退出节点不回滚；ACP和外部独立driver不改。
 
+ADR-0092：HeadlessCliTemplate可选prompt_input=argv/stdin，缺省argv；内置Codex明确stdin，task/resume的prompt位置固定-，execa.input传完整UTF-8原文，不加换行/不用shell或临时文件。custom args条目可声明同字段，所有完整分支共用且禁止{{prompt}}，模板形态拒绝覆盖。未知枚举/混合配置拒绝别名。AgentCapabilities与CoordinationAgentCapabilitiesSchema增可选prompt_input，明确声明时公开/UI展示映射；stdin输入通道加入launch_configuration_hash，再绑定v4完成策略，旧argv-only摘要不加字段保持身份。查询仍stdin忽略/固定version/help，背压时timeout/abort沿原进程收束；有效双profile/revision/恢复/Goal与人工gate不改变。不证明厂商日志保密、工具隔离或model可用性。
+
 ADR-0080 为自定义 headless 条目增加完整 `readonly_args/readonly_resume_args`；`{{readonly}}` 替换为任务的 `true/false`。新会话选 args/readonly_args；恢复选 resume_args/readonly_resume_args，分支不相互追加。没有独立只读分支时，resume_args 必须使用 readonly 占位才支持只读恢复；声明 readonly_args 后必须另有 readonly_resume_args。后者要求同时声明前两种分支；恢复必须绑定 session，所有分支保持 model/effort 映射与基本 args 必需的 prompt。未知/漏映射拒绝别名，模板形态禁止混入这些分支。替换一次、不经 shell。
 
 ADR-0087将custom占位扩展到provider/model/effort/max_turns/budget_usd/system_prompt/agent/agents_json/bare/auto；基本args推导knobs，所有已声明完整分支须同旋钮集合。typed launch校验布尔/数字/字符串，缺占位值在构造配置argv/hash时拒绝，未映射选项拒绝注册。bool文字true/false、number用String确定转换，JSON/提示为单个argv，替换一次不递归；auto在readonly=true的新任务/原生恢复中强制false，但未声明值仍拒绝缺值。bare不默认开启，旧三旋钮argv不变，启动定义摘要进入当前v4完成策略身份；max_turns/budget_usd不替代Goal预算或证明wrapper真的限制模型。

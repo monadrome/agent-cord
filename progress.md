@@ -1,5 +1,16 @@
 # 工作进度
 
+## 2026-10-10（阶段80）
+
+- 7028a1f干净/tracking同步，独立HTTP/2 ls-remote核验7028a1fae48109381aa86c86b07ce0b321f2eccc；阶段79实现f72493f/1573项/60新回归与PID69913实际HTTP为progress，完整目标active。
+- 沿用agent-optimizer/planning-with-files检查CLI输入，发现Codex裸位置prompt可成为flag/sentinel/子命令；采用OpenAI Docs与firecrawl，官方主题搜索2条带scrape实际取正文，non-interactive与developer-commands确认stdin完整prompt。缓存缺失改隔离目录，无仓库数据/凭据变更；未重复fetch或调用付费模型。
+- ADR-0092先于core能力schema/ports修改，准备明确template/custom prompt_input、stdin配置hash/能力UI与真实四分支验证；无子agent、无7306真实Draft操作。
+- 首14项9失败，真实子进程确认stdin为空/原文仍在argv/相同argv通道hash未变；非法声明原strict schema预先拒绝。已接通内置Codex固定-与execa.input、custom显式通道/全分支禁止prompt占位、能力schema/ports/注册/UI、stdin启动身份，旧argv配置兼容。fake-cli按Codex协议读stdin，旧args精确断言更新；execa不存在的猜测路径已纠正为实际options.d.ts。
+- 14项新driver全部通过，首66项中65通过，遗漏的旧Codex旋钮精确argv期望已按新- sentinel补齐；root build通过。追加空原文/明确argv身份兼容、stdin背压timeout/abort进程回收与无prompt帮助查询，开始TCP跨profile/cold/热重载验证。
+- 新fixture显式version/help分支记录零stdin probe，不执行工作；新增4项TCP覆盖内置Codex/custom的Goal实现、readonly评审、最新PRD协调、cold不重复/模型重载失效、幂等无prompt查询与错误声明修复、在途固定profile。
+- 首95项driver与84项跨module定向全部通过；21项新增实际参数/字节/背压/TCP验证通过。README/协议/核心feature/架构/示例/ADR索引与新Human Review指南同步，开始完整test/build/typecheck与隔离HTTP/1440/390/320 UI验收；输入通道不作为凭据保密或OS隔离证明。
+- 最终npm test1594项/115文件、typecheck/build:all/git diff --check通过，证据/tmp/cord-stage80-tests.json；stdin文档链接在新增后待复核。隔离HTTP PID41358/http://127.0.0.1:51602证据/tmp/cord-stage80-real-result.json：writer/high→review/low、stdin精确UTF-8、argv无原文、probe stdin空、cold不重复、B PRD后旧协调失效/新模型current wait、审批1/人工决定0/采用0/仅deliver退出/doctor=true/付费0。Playwright 1440/390/320三视口证据/tmp/cord-stage80-browser-result.json和截图，无溢出/pageerror。完整持续目标active。
+- ADR加入指南后216个本地链接全部通过；新增core ports/schema能力字段、custom/template prompt_input与console标签已完成。生产实现全量后未再改，开始小步提交/推送；完整持续目标active。
 ## 2026-10-10（阶段79）
 
 - d45942e干净/ahead4，前轮54affe8/1513项/16新回归与PID56978隔离实际HTTP为progress；上一轮最后记录push20秒上限，本轮独立HTTP/2 ls-remote仍15秒上限。实现不受网络故障阻塞，完整goal仍active。

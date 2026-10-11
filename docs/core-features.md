@@ -120,6 +120,7 @@ flowchart LR
 | 维度 | 当前控制与边界 |
 |---|---|
 | 通道 | `kind: acp/headless` 或显式 driver 前缀；裸 agent 名遵循 registry 选择规则 |
+| 任务输入 | 内置Codex以固定`-`+stdin发送完整prompt；custom args可显式`prompt_input: stdin`，禁止prompt占位，通道绑定身份且与通信协议分开 |
 | 上下文 | Claude `launch.bare` 明确关闭部分自动加载；会改变仓库指令/认证加载，不默认开启 |
 | 执行生命周期 | `run.goal` 由宿主控制代码、自测、修复与 review 交付；普通单次调用仍可显式配置 |
 | 自主权限 | Claude `launch.auto` 使用厂商 auto 审批；ACP 使用协商 mode/文件范围预授权；readonly 优先，最终 gate 仍人工 |
@@ -152,6 +153,8 @@ ACP可声明完整`readonly_launch`，避免同一别名的code/扩展设置被�
 Headless也支持完整readonly_launch，单一别名可按任务选择不同模型/effort/角色/额度参数，不继承执行knobs或launch；只读权限参数/auto优先和宿主审计保留。四argv与声明存在的启动定义进入当前v4完成策略身份，固定resolver/cold新鲜度共用。明确cli_help模板可查询所选mode的configured标记，但实际probe仍只有version/help，无模型或角色参数；跨mode结果不当当前所选配置。原始args无help profile仍拒绝只读查询（[ADR-0088](./adr/ADR-0088-headless-readonly-launch-profile.md)、[Headless人审指南](./research/2026-10-10-headless-readonly-launch.md)）。
 
 Agent任务执行在启动前处理已取消signal，再校验有效timeout/session。直接driver调用拒绝超出Node定时器范围的预算；显式resume(undefined)不变成new。Headless拒绝`--last`等选项形式session，ACP保留合法不透明ID，名称/Unicode原值保持；编译期间取消也不派发。错误固定脱敏，有效身份和Goal/人审边界不变；这是参数/派发保证，不能证明厂商正确恢复会话（[ADR-0089](./adr/ADR-0089-agent-task-launch-preflight.md)、[人审指南](./research/2026-10-10-agent-task-launch-preflight.md)）。
+
+Headless的明确prompt_input为argv/stdin，Codex默认stdin的新任务/指定恢复/只读均用完整UTF-8原文，不加换行/不经shell/不写临时文件，避免特殊prompt被CLI当选项/sentinel/子命令。custom完整分支可声明stdin但不能混入prompt占位，template形态不可覆盖。能力投影/控制台显示输入映射，stdin绑定启动身份，旧argv-only身份兼容；帮助查询仍无prompt，热重载/cold共用原规则。stdin不证明日志保密/厂商读取或OS隔离（[ADR-0092](./adr/ADR-0092-headless-stdin-prompt-input.md)、[人审指南](./research/2026-10-10-headless-stdin-prompt.md)）。
 
 ACP的MCP配置分别控制执行/只读连接列表，新任务与显式loadSession都传所选完整列表；只读不继承可写工具。stdio按协议必需，HTTP/SSE须initialize明确支持，缺凭据或不支持时不降级空工具。非空定义绑定v7身份，公开能力只给数量/传输，凭据值从环境引用解析，session配置拒绝回显时固定脱敏。inspect使用空列表且不解析所配凭据，返回`mcp_transports.connections=not_requested`；声明、传输支持和真实连接是独立证据，工具权限/独立协调禁工具仍不变（[ADR-0086](./adr/ADR-0086-acp-mcp-configuration.md)、[MCP人审指南](./research/2026-10-10-acp-mcp-configuration.md)）。
 

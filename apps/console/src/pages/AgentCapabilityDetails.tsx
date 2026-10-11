@@ -34,6 +34,7 @@ export function AgentCapabilityDetails({ id, agent, inspection, current, catalog
     {capabilities === undefined ? <p className="muted small">未提供能力声明</p> : <>
       <dl className="agent-capability-facts">
         <div><dt>原生会话恢复</dt><dd>{RESUME_TEXT[capabilities.native_resume]}</dd></div>
+        {capabilities.prompt_input !== undefined ? <div><dt>任务输入</dt><dd>{capabilities.prompt_input === "stdin" ? "标准输入" : "命令参数"}</dd></div> : null}
         {capabilities.readonly_launch !== undefined ? <div><dt>只读启动</dt><dd>{capabilities.readonly_launch === "mapped" ? "已映射" : "未声明映射"}</dd></div> : null}
         {capabilities.readonly_resume !== undefined ? <div><dt>只读会话恢复</dt><dd>{RESUME_TEXT[capabilities.readonly_resume]}</dd></div> : null}
         {capabilities.readonly_configuration === "explicit" ? <div><dt>只读启动配置</dt><dd>已独立声明</dd></div> : null}

@@ -27,12 +27,23 @@
 
 ## 错误记录
 
+- 阶段80研究缓存/tmp/.firecrawl不存在，改用隔离/tmp/cord-stage80-research/.firecrawl；官方页面search --scrape已抓正文，不重复抓取。
 - 阶段79启动远端查询仍15秒上限，阶段78最终记录push亦20秒上限；只读/验证/审批文件猜测路径不存在，已按rg --files实际路径定位。
 - 阶段78首全量1512/1513通过，既有关闭help查询等待超时；19项单独回归通过，补先终止查询的公共状态诊断后保持预算重跑。临时实际脚本误用snapshot()接口，实际为resolver()，已确认原PID结束后修正并重新执行。
 - 阶段78启动独立远端查询也达到15秒上限，阶段77同步仍未确认；两处猜测server测试路径不存在，已按rg --files实际路径定位。
 - 阶段77首次HTTP/1.1推送因连续15秒低于1 bytes/sec失败，HTTP/2重试达到25秒总上限；功能本地提交27f6514保留，独立核验远端，不把同步失败当实现失败。
 - 阶段77探索时猜测fixture/组件/模块/协议文档路径不存在；使用rg --files定位实际路径后继续，无文件修改或运行副作用。
 - Fastify 的 `reply` 是 thenable：handler 里 `await reply.code(201)` 会死锁（等响应发出，而响应要等 handler 返回）。一律 `reply.code(...)` 不 await。
+
+## 阶段80：Headless标准输入Prompt（已实现并验证，待同步）
+
+- [x] 7028a1f干净/同步，独立远端核验7028a1fae48109381aa86c86b07ce0b321f2eccc；阶段79为progress
+- [x] OpenAI Docs/firecrawl官方文档正文确认完整stdin prompt，发现Codex裸参数特殊语义；ADR-0092先行
+- [x] 首14项9失败，复现内置/custom无stdin与相同argv通道不绑定；声明反例预先保守拒绝
+- [x] 内置Codex/stdin可配置wrapper、能力投影/控制台、完整hash与旧argv兼容；17 driver与旧回归通过
+- [x] 4项TCP Goal/只读profile/最新PRD/cold/热重载/查询/错误修复，背压取消/timeout与空原文通过
+- [x] 全量1594项/115文件、typecheck/build:all/diff、文档/人审指南与实际HTTP/desktop/mobile UI验收；stdin bytes/probe/cold/最新PRD/doctor/人工未决
+- [ ] 小步提交/推送/独立远端核验，完整持续目标active
 
 ## 阶段79：只读命令参数与策略身份（已实现并验证，功能已同步）
 

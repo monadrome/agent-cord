@@ -464,6 +464,8 @@ export interface HeadlessCliTemplate {
   readonly supports_readonly_resume?: boolean;
   /** 显式兼容的版本/帮助查询；自定义 args 缺省不猜测。 */
   readonly inspection_profile?: HeadlessInspectionProfile;
+  /** ADR-0092：缺省argv；stdin模板args须声明CLI自己的完整输入入口。 */
+  readonly prompt_input?: "argv" | "stdin";
   args(input: HeadlessArgInput): string[];
 }
 
@@ -548,12 +550,13 @@ const BUILTIN_TEMPLATES: readonly HeadlessCliTemplate[] = [
     // codex exec --json（NDJSON 为 item/turn 事件流）
     name: "codex",
     inspection_profile: "codex",
+    prompt_input: "stdin",
     bin: "codex",
     knobs: ["model", "effort"],
     supports_resume: true,
     supports_readonly: true,
     supports_readonly_resume: true,
-    args: ({ prompt, readonly, resume_session_id, model, effort }) => [
+    args: ({ readonly, resume_session_id, model, effort }) => [
       "exec",
       ...(resume_session_id !== undefined ? ["resume", resume_session_id] : []),
       "--json",
@@ -566,7 +569,7 @@ const BUILTIN_TEMPLATES: readonly HeadlessCliTemplate[] = [
       `sandbox_mode="${readonly ? "read-only" : "workspace-write"}"`,
       "-c",
       'approval_policy="never"',
-      prompt,
+      "-",
     ],
   },
 ];
@@ -645,6 +648,7 @@ export class HeadlessDriver implements AgentDriver {
       );
     }
     if (template.inspection_profile !== undefined && !["claude", "codex", "kimi"].includes(template.inspection_profile)) throw new Error("未知CLI能力查询profile");
+    if (template.prompt_input !== undefined && !["argv", "stdin"].includes(template.prompt_input)) throw new Error("未知headless prompt_input");
     this.template = { ...template, ...(template.knobs === undefined ? {} : { knobs: [...template.knobs] }) };
     this.bin = options.bin ?? template.bin;
     this.prefixArgs = [...(options.prefixArgs ?? [])];
@@ -661,12 +665,14 @@ export class HeadlessDriver implements AgentDriver {
     this.capabilities = Object.freeze({ transport: "headless", evidence: "adapter", installation: "unchecked", inspection: template.inspection_profile === undefined ? "unsupported" : "cli_help", launch_options: Object.freeze([...supported]),
       native_resume: template.supports_resume === true ? "supported" : "unsupported", readonly_launch: template.supports_readonly === true ? "mapped" : "unmapped",
       readonly_resume: template.supports_resume === true && template.supports_readonly_resume === true ? "supported" : "unsupported", goal: "host", workflow_resume: "authorized_unexited_goal",
-      ...(this.readonly_knobs === undefined ? {} : { readonly_configuration: "explicit" as const }) });
+      ...(this.readonly_knobs === undefined ? {} : { readonly_configuration: "explicit" as const }),
+      ...(template.prompt_input === undefined ? {} : { prompt_input: template.prompt_input }) });
     this.name = options.name ?? `headless:${template.name}`;
     const config_task = { prompt: "cord.configuration.prompt", cwd: "" };
     const launch_configuration_hash = sha256Hex(canonicalJson({
       domain: this.readonly_knobs !== undefined ? "cord.agent-config.headless.v3" : options.context_revision === undefined ? "cord.agent-config.headless.v1" : "cord.agent-config.headless.v2",
       ...(options.context_revision === undefined ? {} : { context_revision: options.context_revision }),
+      ...(this.template.prompt_input === "stdin" ? { prompt_input: "stdin" } : {}),
       name: this.name,
       argv: this.buildArgv(config_task),
       readonly_argv: this.buildArgv({ ...config_task, readonly: true }),
@@ -784,7 +790,7 @@ export class HeadlessDriver implements AgentDriver {
       // 进程组组长 → 超时可整树清理（CLI 常自带子进程/MCP server）
       detached: true,
       reject: false,
-      stdin: "ignore",
+      ...(this.template.prompt_input === "stdin" ? { input: task.prompt } : { stdin: "ignore" as const }),
       stdout: "pipe",
       stderr: "pipe",
     });

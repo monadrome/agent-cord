@@ -1,5 +1,12 @@
 # 调研发现
 
+## 阶段80（2026-10-10）：Prompt不应变成Codex CLI控制参数
+
+- Codex内置args把prompt放裸位置；task.prompt=--help或-会被CLI解释为选项或stdin sentinel，子命令字面量也可能改变路径。官方non-interactive/developer-commands已通过Firecrawl search --scrape实际取正文，确认codex exec -为完整stdin提示，而prompt-plus-stdin有不同语义。
+- 采用明确prompt_input模板协议，Codex默认stdin/custom显式声明，两套任务profile与四恢复分支共用；stdin禁止prompt占位，不猜各vendor flags。input按UTF-8直接传，不增加换行或临时文件，版本/help probe无prompt。
+- stdin身份必须额外绑定通道，否则相同静态argv切换仍可沿用旧报告。旧argv-only v4保持，stdin进入完整启动定义摘要；能力/协调与UI公开映射不公开原文，OS隔离/厂商日志仍独立。
+- 17项driver/4项TCP与最终1594项通过；Codex/custom四组合精确stdin bytes、argv不含prompt、empty help probe、backpressure回收和固定session均通过。热重载只影响后续协调，cold不重复Goal/评审；UI三视口标准输入标签无溢出/pageerror。
+
 ## 阶段79（2026-10-10）：只读命令按名称放行不足
 
 - Goal总时长已组合AbortSignal并在完成审计重检，未定位本轮新缺口。只读safeCommand仅拒绝少量flag，rg --pre/--hostname-bin、git diff/log --output/--ext-diff、find -fprint仍可通过；同名/tmp/git与argv join另有语义问题。

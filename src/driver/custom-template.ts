@@ -4,10 +4,12 @@ import type { AgentKnob, HeadlessCliTemplate } from "./headless.js";
 const placeholders = /\{\{([^{}]+)\}\}/g;
 const launch_knobs = ["provider", "model", "effort", "max_turns", "budget_usd", "system_prompt", "agent", "agents_json", "bare", "auto"] as const satisfies readonly AgentKnob[];
 export interface CustomReadonlyArgs {
+  prompt_input?: "argv" | "stdin";
   readonly_args?: readonly string[];
   readonly_resume_args?: readonly string[];
 }
 export function custom_headless_template(name: string, bin: string, args: readonly string[], resume_args?: readonly string[], mode_args: CustomReadonlyArgs = {}): HeadlessCliTemplate {
+  if (mode_args.prompt_input !== undefined && !["argv", "stdin"].includes(mode_args.prompt_input)) throw new Error("未知headless prompt_input");
   const checked = [...args]; const resume = resume_args === undefined ? undefined : [...resume_args];
   const readonly_args = mode_args.readonly_args === undefined ? undefined : [...mode_args.readonly_args];
   const readonly_resume_args = mode_args.readonly_resume_args === undefined ? undefined : [...mode_args.readonly_resume_args];
@@ -19,6 +21,7 @@ export function custom_headless_template(name: string, bin: string, args: readon
     }
   }
   const uses = (branch: readonly string[], key: string) => branch.some(arg => arg.includes(`{{${key}}}`));
+  if (mode_args.prompt_input === "stdin" && branches.some(branch => uses(branch, "prompt"))) throw new Error("stdin输入分支不能声明prompt占位符");
   for (const branch of [checked, ...(readonly_args === undefined ? [] : [readonly_args])]) {
     if (uses(branch, "resume_session_id")) throw new Error("session resume 占位符只能出现在resume_args/readonly_resume_args");
   }
@@ -32,6 +35,7 @@ export function custom_headless_template(name: string, bin: string, args: readon
   }
   const supports_readonly_resume = resume !== undefined && (readonly_args === undefined ? uses(resume, "readonly") : readonly_resume_args !== undefined);
   return { name, bin, knobs, supports_resume: resume !== undefined, supports_readonly: readonly_args !== undefined || uses(checked, "readonly"), supports_readonly_resume,
+    ...(mode_args.prompt_input === undefined ? {} : { prompt_input: mode_args.prompt_input }),
     args: input => {
       const branch = input.resume_session_id === undefined ? input.readonly && readonly_args !== undefined ? readonly_args : checked
         : input.readonly ? readonly_resume_args ?? (supports_readonly_resume ? resume : undefined) : resume;

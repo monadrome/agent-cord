@@ -46,6 +46,7 @@ const AgentEntrySchema = z.discriminatedUnion("kind", [
     resume_args: z.array(z.string()).optional(),
     readonly_args: z.array(z.string()).optional(),
     readonly_resume_args: z.array(z.string()).optional(),
+    prompt_input: z.enum(["argv", "stdin"]).optional(),
     env: z.record(z.string(), z.string()).optional(),
     context_revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
     provider: z.string().min(1).optional(),
@@ -160,6 +161,7 @@ function compileAgentsYaml(yaml: AgentsYaml | null): {
         continue;
       }
       if (entry.template !== undefined) {
+        if (entry.prompt_input !== undefined) throw new Error("模板形态不能覆盖prompt_input");
         if (entry.resume_args !== undefined || entry.readonly_args !== undefined || entry.readonly_resume_args !== undefined) throw new Error("模板形态不能声明自定义参数分支");
         const template = getHeadlessCliTemplate(entry.template);
         if (template === undefined) {
@@ -203,6 +205,7 @@ function compileAgentsYaml(yaml: AgentsYaml | null): {
         drivers.set(name, new HeadlessDriver({
           cli: name,
           template: custom_headless_template(name, entry.bin, args, entry.resume_args, {
+            ...(entry.prompt_input === undefined ? {} : { prompt_input: entry.prompt_input }),
             ...(entry.readonly_args === undefined ? {} : { readonly_args: entry.readonly_args }),
             ...(entry.readonly_resume_args === undefined ? {} : { readonly_resume_args: entry.readonly_resume_args }),
           }),
