@@ -8,6 +8,7 @@
 - 最终21项driver/3项TCP新增回归和完整npm test1461项/104文件、typecheck/build:all/diff通过，证据/tmp/cord-stage75-tests.json。只读auto明确false、角色JSON与prompt单次传入，cold合法等待不重做/重载角色使旧提议失效/固定resolver原角色均核验，底层资源限制不冒称宿主已执行。
 - 隔离实际HTTP PID82443/http://127.0.0.1:62779：write/auto=true、review/auto=false、最新PRD独立协调review/auto=false，bare=true/turns7/budget2.5/角色architect保持，宿主测试/指南、审批1/人工决定0/仅deliver退出/doctor=true。新协调current=true基于新PRD，旧ready不冒称当前交付；无真实LLM/原7306Draft操作。
 - Playwright1440/390/320三截图能力展示通过，pageerror=[]/无横向溢出/inspect请求0，桌面与最窄已查看，角色原文不入公开清单。证据/tmp/cord-stage75-browser-result.json；9份相关文档首130个链接，ADR增加指南后131个，临时脚本/图/运行数据不入仓库，完整目标active。
+- 功能提交e72381c（feat: map full launch controls for custom wrappers），HTTP/1.1 push成功（1149bb9→e72381c），独立HTTP/2 ls-remote核验e72381c5bf5ba50dbdb3c8a76340fc07e4b548fd；阶段73/74积压MCP功能/header与网络验收、记录提交全部同步。预览health200/审批1/最新协调current=true与wait再次核验，原真实Draft未操作，完整持续目标active。
 
 ## 2026-10-10（阶段74）
 

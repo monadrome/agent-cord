@@ -925,7 +925,7 @@
 - [x] 全量1404项/98文件、typecheck/build:all/diff与122个本地文档链接通过，原真实Draft未操作
 - [x] 功能提交c3ea559；HTTP/1.1推送成功（9227ccb→c3ea559），独立HTTP/2 ls-remote核验c3ea5595873611a77d5e463aca8fbdf67e7f3738；完整目标active
 
-## 阶段73：ACP MCP配置与能力协商（已实现并验证，本地提交，远端未确认）
+## 阶段73：ACP MCP配置与能力协商（已实现并验证，功能已同步）
 
 - [x] 核验1149bb9干净/tracking同步，阶段72为progress；本地SDK/Firecrawl官方协议核验，ADR-0086先行
 - [x] 两套完整MCP配置/凭据引用、spawn前拒绝/传输协商/new-load、v7身份/公开元信息/无连接inspect
@@ -933,9 +933,9 @@
 - [x] 控制台声明/协商投影、1440/390/320六完成态截图无pageerror/溢出、示例/核心feature/人审指南
 - [x] 全量1421项/100文件、typecheck/build:all/diff与128个本地文档链接通过
 - [x] 功能提交6e0b28e，完整实现/测试/人审指南保留；原真实Draft未操作，完整目标active
-- [ ] 远端同步：HTTP/1.1 push低速超时exit128、HTTP/2 push25秒上限exit124；两协议独立ls-remote15/12秒上限exit124，实际远端hash未确认
+- [x] 远端同步：此前低速/总时长失败记录保留；阶段75 HTTP/1.1推送成功，独立HTTP/2 ls-remote核验e72381c5bf5ba50dbdb3c8a76340fc07e4b548fd，积压MCP功能/记录一并同步
 
-## 阶段74：MCP网络连接与header边界（已实现并验证，本地提交，远端未确认）
+## 阶段74：MCP网络连接与header边界（已实现并验证，功能已同步）
 
 - [x] 核验48f9bc4干净/ahead2，阶段73为真实progress；阅读本地官方MCP SDK HTTP/SSE接口与关闭语义，ADR-0086先更新
 - [x] 两项header控制字符/Unicode失败反例；标准API完整校验与spawn前无进程/脱敏通过
@@ -944,16 +944,16 @@
 - [x] 真TCP Goal/自测/readonly/最新协调/cold回归；HTTP/SSE两隔离实际预览通过，文档/人审指南同步
 - [x] 全量1437项/102文件、typecheck/build:all/diff与130个本地文档链接通过，无新增UI行为不重复截图
 - [x] 功能提交ae6bc1d，完整实现/自测/人审指南保留；完整目标active
-- [ ] 远端同步：HTTP/1.1 push低速超时exit128、HTTP/2 push25秒上限exit124，两协议独立ls-remote15/12秒上限exit124；阶段73积压提交保留，远端实际hash未确认
+- [x] 远端同步：此前推送/查询超时记录保留；阶段75推送成功、独立核验e72381c5bf5ba50dbdb3c8a76340fc07e4b548fd，网络验证/header修复及记录一并同步
 
-## 阶段75：自定义Wrapper完整启动旋钮（已实现并验证，待提交同步）
+## 阶段75：自定义Wrapper完整启动旋钮（已实现并验证，功能已同步）
 
 - [x] 核验9892563干净/ahead4，阶段74为progress；定位自定义bare/auto/角色/预算不能映射，ADR-0087先行
 - [x] 新占位12项失败反例后修复；21项typed/four-branch/readonly-auto/single-pass/旧identity回归
 - [x] 3项真实TCP Goal+readonly评审/最新快照协调、热重载固定resolver/cold不重做/无效配置修复
 - [x] 核心feature/协议/示例/人审指南；实际HTTP与1440/390/320三截图通过，无pageerror/溢出/inspect请求
 - [x] 全量1461项/104文件、typecheck/build:all/diff与131个本地文档链接通过；原真实Draft未操作
-- [ ] 小步提交/有界同步/独立远端核验，阶段73/74积压保留；完整目标active
+- [x] 功能提交e72381c；HTTP/1.1 push成功（1149bb9→e72381c），独立HTTP/2 ls-remote核验e72381c5bf5ba50dbdb3c8a76340fc07e4b548fd，阶段73/74积压一并同步；完整目标active
 
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
