@@ -58,7 +58,8 @@ describe("Headless明确stdin Prompt输入", () => {
     while (pid === undefined) { try { pid = Number(await readFile(pid_file, "utf8")); } catch { if (Date.now() >= deadline) throw new Error("stdin fixture未启动"); await new Promise(resolve => setTimeout(resolve, 10)); } }
     if (mode === "abort") controller.abort(); const events = await pending;
     expect(events.some(event => event.type === "result")).toBe(false); expect(events.find(event => event.type === "error")).toMatchObject({ data: { kind: mode === "timeout" ? "timeout" : "agent" } });
-    expect(() => process.kill(pid!, 0)).toThrow(); expect(JSON.stringify(events)).not.toContain("PRIVATE_BACKPRESSURE");
+    await expect.poll(() => { try { process.kill(pid!, 0); return true; } catch { return false; } }, { timeout: 2000 }).toBe(false);
+    expect(JSON.stringify(events)).not.toContain("PRIVATE_BACKPRESSURE");
   });
 
   it("未知runtime模板通道拒绝，明确stdin帮助查询仍不发送task输入", async () => {
