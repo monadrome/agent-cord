@@ -1,5 +1,17 @@
 # 工作进度
 
+## 2026-10-11（阶段85）
+
+- 上轮不是已验证功能：四个dirty文件为未完成supervisor_max_attempts原型，37项中36项既有测试通过，新增1项连续等待12秒失败。logger/debug断言仅诊断修改，接续保留并修正，无付费模型/子agent/7306操作。
+- 89fe1d2后executor.then等待escalate完成，再finally释放active/lease；原retry State却要求RunService非active。已定位生命周期互锁，另readGoalCoordinationRequest只接受human子请求。ADR-0095先于本轮新增request契约创建，自动input/config/次数来源必须共同核验，不只改actor放行。
+- 原executor/lease先finally收束，再独立升级；新增初始发布supervisor预算与automatic_retry连续来源，旧human子请求兼容，缺来源system仍拒绝。自动retry State要求父完成input/config与当前完全相同，来源重读也核验子派发input/config。首新增等待失败现已通过，清理debug logger，追加ACP/headless/3次上限/手动重试/timeout/取消/漂移/发布回归。
+- 69项/2文件通过，root build通过。追加自动request写失败/落盘后输入或配置变化/中断/expected输入guard、服务关闭与冷未请求恢复/发布数字不被回调扩充、九类来源伪造。完成来源仅对成功子完成要求相同input；未派发interrupted/stale仍保留合法历史，不因输入漂移污染列表。
+- 扩展86项中81通过，5项失败包括已终态run.cancel是无操作、测试主动close抢先取消未终态子轮、记录后抛错应先pending再cold interrupted。按真实契约改同步等待/取消事实注入，不扩测试预算。另确认started异步落盘后输入可变仍派发旧prompt，新增仅expected_input重试路径的派发前全输入重读，stale/不可读不调用driver。
+- 接续后完整goal-escalation 71项、goal-retry 33项、workspace-lease 18项，共122项通过；未创建重复实现或重复模型调用。核对最新能力设计已实现裸/ACP/Goal/auto分轴、LLM旋钮与受限恢复；修复核心Feature能力表被诊断段落打断的排版，补通用能力准入与后续证据扩展，协议/架构/示例/ADR索引和人审指南同步中。
+- 首全量1637项中1636通过，stdin timeout背压的即时PID检查失败；单独17项全过。检查terminateProcessTree的50ms有界等待，SIGKILL已发但重负载下OS回收可能尚未可见；测试改为最多2秒观察实际PID消失，不放宽timeout错误/零result/原文不泄漏断言。root build通过，准备完整重验与隔离TCP证据。
+- 最终npm test 1637项/117文件全部通过（/tmp/cord-stage85-tests.json），root build/typecheck/build:all/git diff --check通过；200个本地文档链接无缺失。新增ADR-0095、人审指南与示例上限2已同步；未修改UI行为，不重复截图。
+- 隔离TCP typed client双协议通过（/tmp/cord-stage85-real-result.json）：supervisor非法输出→自动第二轮ok，冷不重复；answer本身零worker，独立retry-goal幂等授权后实际自测通过，最终审批1/人工决定0/节点退出0，再次cold审批身份不变，doctor=true/付费0。全部本轮TCP服务已关闭，不操作7306；指南包含验收映射、重点文件与共享lease/费用治理限制，开始小步提交推送。
+
 ## 2026-10-11（阶段84）
 
 - 基于shared_lease限制补充只读 `/api/v1/workspace/lease` runtime projection，区分free/held/unresolved/unavailable与最小owner，不修改事件/锁、不自动接管；开始定向回归。

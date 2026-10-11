@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { parse, stringify } from "yaml";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ulid } from "ulid";
-import { GoalBlockerTriggerSchema, CoordinatorRoundRequestedPayloadSchema, readGoalCoordinationRequest, readGoalRetryAuthorization, type EventEnvelope } from "agent-cord";
+import { GoalBlockerTriggerSchema, CoordinatorRoundRequestedPayloadSchema, GoalConfigSchema, readGoalCoordinationRequest, readGoalRetryAuthorization, type EventEnvelope } from "agent-cord";
 import { createClient } from "../../console/src/api.js";
 import { buildApp, type BuiltServer } from "@agent-cord/server";
 
@@ -39,7 +39,7 @@ async function context() {
     workflow_id: binding.def.metadata.id, workflow_revision: binding.workflow_revision, node_id: "deliver", goal_event_id: blocker.event_id, supervisor_agent: "supervisor" };
 }
 
-async function prepare(options: { protocol?: "headless" | "acp"; mode?: string; sleep?: number; supervisor_agent?: string | null; checks_pass?: boolean; supervisor_timeout_ms?: number } = {}) {
+async function prepare(options: { protocol?: "headless" | "acp"; mode?: string; sleep?: number; supervisor_agent?: string | null; checks_pass?: boolean; supervisor_timeout_ms?: number; supervisor_max_attempts?: number } = {}) {
   const protocol = options.protocol ?? "headless";
   await writeFile(join(root, "cord", "agents.yaml"), stringify({ agents: {
     worker: { kind: "headless", bin: process.execPath, args: [worker, "{{prompt}}"] },
@@ -49,7 +49,7 @@ async function prepare(options: { protocol?: "headless" | "acp"; mode?: string; 
   const supervisor_agent = options.supervisor_agent === undefined ? "supervisor" : options.supervisor_agent;
   const yaml = stringify({ apiVersion: "agent-cord.dev/v1alpha1", kind: "Workflow", metadata: { id: "goal-escalation" }, spec: { nodes: [
     { id: "deliver", artifact: "review.md", run: { agent: "worker", goal: { inputs: ["value.txt"], max_attempts: 1, no_progress_limit: 1,
-      ...(supervisor_agent === null ? {} : { supervisor_agent, supervisor_timeout_ms: options.supervisor_timeout_ms ?? 5_000 }),
+      ...(supervisor_agent === null ? {} : { supervisor_agent, supervisor_timeout_ms: options.supervisor_timeout_ms ?? 5_000, ...(options.supervisor_max_attempts === undefined ? {} : { supervisor_max_attempts: options.supervisor_max_attempts }) }),
       checks: [{ id: "check", bin: process.execPath, args: ["-e", "process.exit(" + (options.checks_pass ? 0 : 3) + ")"], timeout_ms: 2_000 }] } },
       gates: [{ id: "human-review", role: { approvers: ["local-human"] }, attach: { node: "deliver", when: "post" }, checks: [{ ref: "verification-passed", with: { verification_id: "check" } }], pass: { human_confirm: true }, on_fail: "block" }] },
     { id: "done", depends_on: ["deliver"], gates: [] },
@@ -71,6 +71,181 @@ async function startManual(sleep_ms: number) {
 }
 
 describe("Goal blocked 自动协调升级", () => {
+  it.each(["headless", "acp"] as const)("%s supervisor输出失败自动重试成功，cold不重复/可答复授权且Goal预算独立", async protocol => {
+    await prepare({ protocol, mode: "invalid-once", supervisor_max_attempts: 2 }); const run_id = await start();
+    await waitFor(async () => (await rounds()).some((round: any) => round.status === "ok"));
+    const list = await rounds(); expect(list.filter((round: any) => round.trigger === "goal_blocked")).toHaveLength(2);
+    const failed = list[1]; const latest = list[0];
+    expect(failed.status).toBe("failed"); expect(failed).not.toHaveProperty("retry_of_round_id");
+    expect(latest).toMatchObject({ status: "ok", retry_of_round_id: failed.round_id, answerable: true });
+    expect(await calls()).toBe(2); expect((await events()).filter(event => event.type === "goal.attempt.started")).toHaveLength(1);
+    expect((await events()).filter(event => event.type === "coordinator.round.requested").every(event => event.actor.id === "goal-supervisor")).toBe(true);
+    expect((await server!.runs.getRun(run_id)).status).toBe("failed");
+    expect(server!.runs.workspaceLeaseStatus().state).toBe("free");
+    const initial = (await events()).find(event => event.type === "coordinator.round.requested" && event.payload["retry_of_round_id"] === undefined)!;
+    const child = (await events()).find(event => event.type === "coordinator.round.requested" && event.payload["retry_of_round_id"] !== undefined)!;
+    expect(initial.payload["supervisor_max_attempts"]).toBe(2); expect(child.payload["automatic_retry"]).toEqual({ attempt: 2, max_attempts: 2 });
+    expect(readGoalCoordinationRequest(await events(), latest.round_id)).toEqual(child);
+    await restart(); expect(await calls()).toBe(2); expect((await rounds())[0]).toMatchObject({ status: "ok", answerable: true });
+    expect((await api("POST", `/requirements/REQ-GOAL-ESC/coordination/${latest.round_id}/answer`, { choice: "补充事实" })).status).toBe(200);
+    expect((await server!.coordination.get("REQ-GOAL-ESC", latest.round_id)).goal_retry?.available).toBe(true);
+    expect((await events()).filter(event => event.type === "goal.retry.authorized" || event.type === "human.decision.recorded")).toHaveLength(0);
+    expect(Number(await readFile(join(root, ".goal-worker-calls"), "utf8"))).toBe(1);
+  });
+
+  it.each([2, 3])("连续输出失败最多%d轮，保留最新人工retry token，冷恢复不扩次数", async limit => {
+    await prepare({ mode: "invalid", supervisor_max_attempts: limit }); await start();
+    await waitFor(async () => (await rounds()).length === limit && (await rounds())[0]?.status === "failed");
+    expect(await calls()).toBe(limit); expect(Number(await readFile(join(root, ".goal-worker-calls"), "utf8"))).toBe(1);
+    expect((await events()).filter(event => event.type === "goal.attempt.started")).toHaveLength(1);
+    const history = await events(); const requests = history.filter(event => event.type === "coordinator.round.requested");
+    for (const request of requests) expect(readGoalCoordinationRequest(history, String(request.payload["round_id"]))).toEqual(request);
+    expect(requests.at(-1)!.payload["automatic_retry"]).toEqual({ attempt: limit, max_attempts: limit });
+    await restart(); expect(await calls()).toBe(limit); expect((await rounds())[0].coordination_retry.available).toBe(true);
+    const parent = (await rounds())[0]; const input = await retryInput(parent.round_id);
+    expect((await api("POST", retryUrl(parent.round_id), input)).status).toBe(202);
+    await waitFor(async () => (await rounds()).length === limit + 1 && (await rounds())[0].status === "failed");
+    expect(await calls()).toBe(limit + 1);
+    expect((await events()).filter(event => event.type === "coordinator.round.requested").at(-1)!.actor.kind).toBe("human");
+    expect((await events()).filter(event => event.type === "goal.retry.authorized" || event.type === "human.decision.recorded")).toHaveLength(0);
+  });
+
+  it.each(["headless", "acp"] as const)("%s timeout自动尝试到上限，输出与worker预算保持分离", async protocol => {
+    await prepare({ protocol, sleep: 60000, supervisor_timeout_ms: 150, supervisor_max_attempts: 2 }); await start();
+    await waitFor(async () => (await rounds()).length === 2 && (await rounds())[0].status === "timeout");
+    expect((await rounds()).map((round: any) => round.status)).toEqual(["timeout", "timeout"]);
+    expect((await events()).filter(event => event.type === "coordinator.round.started")).toHaveLength(2);
+    await restart(); expect(await rounds()).toHaveLength(2);
+    expect((await events()).filter(event => event.type === "goal.attempt.started")).toHaveLength(1);
+  });
+
+  it.each(["wait", "ask", "tool", "missing-config", "cancelled", "stale"])("%s不会自动产生子请求", async mode => {
+    await prepare({ mode: mode === "stale" || mode === "cancelled" ? "invalid" : mode, sleep: mode === "stale" || mode === "cancelled" ? 300 : 0,
+      supervisor_agent: mode === "missing-config" ? "missing-supervisor" : "supervisor", supervisor_max_attempts: 3 });
+    await start();
+    if (mode === "cancelled" || mode === "stale") {
+      await waitFor(async () => (await rounds())[0]?.status === "running");
+      if (mode === "cancelled") await api("POST", `/requirements/REQ-GOAL-ESC/coordination/${(await rounds())[0].round_id}/cancel`);
+      else await writeFile(join(root, "value.txt"), "changed-during-supervisor");
+    }
+    await waitFor(async () => (await rounds()).length === 1 && !["pending", "running"].includes((await rounds())[0].status));
+    await server!.coordination.close(); expect(await rounds()).toHaveLength(1);
+    expect((await events()).filter(event => event.type === "coordinator.round.requested")).toHaveLength(1);
+    expect((await events()).filter(event => event.type === "goal.retry.authorized" || event.type === "human.decision.recorded")).toHaveLength(0);
+  });
+
+  it.each(["prd", "worker", "supervisor", "archive", "cancel-fact"])("首轮完成后%s变化阻断自动retry而不采用新输入", async mode => {
+    await prepare({ mode: "invalid-once", supervisor_max_attempts: 2 });
+    const session = await server!.sessions.open("REQ-GOAL-ESC"); const append = session.events.append.bind(session.events);
+    const mock = vi.spyOn(session.events, "append").mockImplementation(async draft => {
+      const event = await append(draft);
+      if (draft.type === "coordinator.round.completed") {
+        if (mode === "prd") await writeFile(join(session.dir, "prd.md"), "# PRD\nCHANGED_AFTER_COMPLETION");
+        else if (mode === "archive") await server!.sdlcs.archive("goal-escalation", 1);
+        else if (mode === "cancel-fact") {
+          const start = (await events()).find(event => event.type === "workflow.run.started")!;
+          await append({ event_id: ulid(), session_id: session.req_id, type: "workflow.run.cancelled", schema_version: "1", actor: { kind: "human", id: "local-human" },
+            correlation_id: null, source: { adapter: "console-server" }, payload: { workflow_id: "goal-escalation", workflow_revision: start.payload["workflow_revision"], run_id: start.payload["run_id"] } });
+          server!.index.setRunStatus(String(start.payload["run_id"]), "cancelled");
+        }
+        else { const file = join(root, "cord", "agents.yaml"); const config = parse(await readFile(file, "utf8")); config.agents[mode].context_revision = 2; await writeFile(file, stringify(config)); await server!.agents.reload(); }
+      }
+      return event;
+    });
+    await start(); await waitFor(async () => (await rounds())[0]?.status === "failed");
+    await server!.coordination.close(); mock.mockRestore(); expect(await rounds()).toHaveLength(1); expect(await calls()).toBe(1);
+  });
+
+  it("发布次数须1-3且有supervisor；request自动字段不完整或超上限拒绝", () => {
+    const base = { inputs: ["value.txt"], checks: [{ id: "check", bin: "test" }] };
+    for (const value of [0, 4, 1.5, "2"]) expect(GoalConfigSchema.safeParse({ ...base, supervisor_agent: "supervisor", supervisor_max_attempts: value }).success).toBe(false);
+    expect(GoalConfigSchema.safeParse({ ...base, supervisor_max_attempts: 2 }).success).toBe(false);
+    expect(GoalConfigSchema.parse(base)).not.toHaveProperty("supervisor_max_attempts");
+    const request = { round_id: ulid(), workflow_id: "test", driver: "supervisor", sdlc_id: "test", sdlc_version: 1 };
+    expect(CoordinatorRoundRequestedPayloadSchema.safeParse({ ...request, automatic_retry: { attempt: 2, max_attempts: 2 } }).success).toBe(false);
+    expect(CoordinatorRoundRequestedPayloadSchema.safeParse({ ...request, supervisor_max_attempts: 2 }).success).toBe(false);
+  });
+
+  it.each(["input", "configuration", "interrupt", "write-failure", "pre-dispatch-input"])("自动子请求%s时不重复/不冒成功，冷历史与显式重试可恢复", async mode => {
+    await prepare({ mode: "invalid-once", supervisor_max_attempts: 2 });
+    const session = await server!.sessions.open("REQ-GOAL-ESC"); const append = session.events.append.bind(session.events); let child_id: string | null = null;
+    const mock = vi.spyOn(session.events, "append").mockImplementation(async draft => {
+      const automatic = draft.type === "coordinator.round.requested" && draft.payload["automatic_retry"] !== undefined;
+      if (mode === "write-failure" && automatic) throw new Error("automatic request fsync failure");
+      const event = await append(draft);
+      if (automatic) {
+        child_id = String(event.payload["round_id"]);
+        if (mode === "input") await writeFile(join(session.dir, "prd.md"), "# PRD\nCHANGED_AFTER_AUTO_REQUEST");
+        else if (mode === "configuration") { const file = join(root, "cord", "agents.yaml"); const config = parse(await readFile(file, "utf8")); config.agents.supervisor.context_revision = 2; await writeFile(file, stringify(config)); await server!.agents.reload(); }
+        else if (mode === "interrupt") throw new Error("automatic request recorded before interruption");
+      }
+      if (mode === "pre-dispatch-input" && draft.type === "coordinator.round.started" && draft.payload["round_id"] === child_id) {
+        await writeFile(join(session.dir, "prd.md"), "# PRD\nCHANGED_AFTER_AUTO_STARTED");
+      }
+      return event;
+    });
+    await start();
+    await waitFor(async () => mode === "write-failure" ? (await rounds())[0]?.status === "failed"
+      : child_id !== null && (mode === "interrupt" || !["pending", "running"].includes((await rounds())[0].status)));
+    await server!.coordination.close(); mock.mockRestore();
+    const list = await rounds();
+    if (mode === "configuration") { expect(list).toHaveLength(2); expect(list[0].status).toBe("ok"); expect(await calls()).toBe(2); }
+    else { expect(await calls()).toBe(1); expect(list).toHaveLength(mode === "write-failure" ? 1 : 2); }
+    if (mode === "input") expect(list[0]).toMatchObject({ status: "failed", failure_stage: "interrupted" });
+    if (mode === "interrupt") expect(list[0]).toMatchObject({ status: "pending" });
+    if (mode === "pre-dispatch-input") expect(list[0]).toMatchObject({ status: "stale", proposal: null });
+    for (const round of list) readGoalCoordinationRequest(await events(), round.round_id);
+    await restart(); expect(await calls()).toBe(mode === "configuration" ? 2 : 1);
+    if (mode === "interrupt") expect((await rounds())[0]).toMatchObject({ status: "failed", failure_stage: "interrupted" });
+    if (mode !== "configuration") {
+      const latest = (await rounds())[0]; const input = await retryInput(latest.round_id);
+      expect((await api("POST", retryUrl(latest.round_id), input)).status).toBe(202);
+      await waitFor(async () => (await rounds())[0].status === "ok"); expect(await calls()).toBe(2);
+    }
+    expect((await events()).filter(event => event.type === "goal.retry.authorized" || event.type === "human.decision.recorded" || event.type === "workflow.node.exited")).toHaveLength(0);
+  });
+
+  it("服务关闭能收束自动子调用，重启不重放也不接着扩次数", async () => {
+    await prepare({ mode: "invalid-once", sleep: 300, supervisor_max_attempts: 3 }); await start();
+    await waitFor(async () => (await rounds()).length === 2 && (await rounds())[0]?.status === "running" && await calls() === 2);
+    await restart(); expect(await calls()).toBe(2); expect(await rounds()).toHaveLength(2);
+    expect((await rounds())[0].status).toBe("cancelled");
+    expect((await events()).filter(event => event.type === "goal.attempt.started")).toHaveLength(1);
+  });
+
+  it("published上限不能由升级回调数字扩充，缺首次request冷恢复仍使用发布上限", async () => {
+    await prepare({ mode: "invalid-once", supervisor_max_attempts: 2 }); server!.runs.setGoalBlockedHandler(async () => {}); const run_id = await start();
+    await waitFor(async () => !server!.runs.isActive("REQ-GOAL-ESC"));
+    await server!.coordination.escalateGoalBlocker({ ...await context(), supervisor_max_attempts: 3 });
+    expect(await calls()).toBe(2); expect((await events()).filter(event => event.type === "coordinator.round.requested")[0]!.payload["supervisor_max_attempts"]).toBe(2);
+    expect((await server!.runs.getRun(run_id)).status).toBe("failed");
+  });
+
+  it("未写首次request的blocker重启自动解释两次，后续cold不重复", async () => {
+    await prepare({ mode: "invalid-once", supervisor_max_attempts: 2 }); server!.runs.setGoalBlockedHandler(async () => {}); await start();
+    await waitFor(async () => !server!.runs.isActive("REQ-GOAL-ESC")); expect(await rounds()).toHaveLength(0);
+    await restart(); await waitFor(async () => (await rounds())[0]?.status === "ok"); expect(await calls()).toBe(2);
+    await restart(); expect(await calls()).toBe(2); expect(await rounds()).toHaveLength(2);
+  });
+
+  it.each(["actor", "missing-automatic", "attempt", "budget", "root-budget", "parent-stage", "parent-config", "child-input", "duplicate-child"])("自动来源%s伪造拒绝，恢复真实历史仍可答复", async mode => {
+    await prepare({ mode: "invalid-once", supervisor_max_attempts: 2 }); await start();
+    await waitFor(async () => (await rounds())[0]?.status === "ok"); const list = await rounds(); const child = list[0]; const parent = list[1];
+    const actual = await events(); const broken = structuredClone(actual); const request = broken.find(event => event.type === "coordinator.round.requested" && event.payload["round_id"] === child.round_id)!;
+    const initial = broken.find(event => event.type === "coordinator.round.requested" && event.payload["round_id"] === parent.round_id)!;
+    const completed = broken.find(event => event.type === "coordinator.round.completed" && event.payload["round_id"] === parent.round_id)!;
+    if (mode === "actor") request.actor.kind = "human";
+    if (mode === "missing-automatic") delete request.payload["automatic_retry"];
+    if (mode === "attempt") request.payload["automatic_retry"] = { attempt: 3, max_attempts: 3 };
+    if (mode === "budget") request.payload["automatic_retry"] = { attempt: 2, max_attempts: 3 };
+    if (mode === "root-budget") delete initial.payload["supervisor_max_attempts"];
+    if (mode === "parent-stage") completed.payload["failure_stage"] = "configuration";
+    if (mode === "parent-config") completed.payload["agent_configuration_hash"] = "a".repeat(64);
+    if (mode === "child-input") broken.find(event => event.type === "coordinator.round.completed" && event.payload["round_id"] === child.round_id)!.payload["input_hash"] = "a".repeat(64);
+    if (mode === "duplicate-child") broken.push({ ...request, event_id: ulid(), payload: { ...request.payload, round_id: ulid() } });
+    expect(() => readGoalCoordinationRequest(broken, child.round_id)).toThrow();
+    expect(readGoalCoordinationRequest(actual, child.round_id).payload["automatic_retry"]).toEqual({ attempt: 2, max_attempts: 2 });
+  });
   it("ready 后源码改变且预算耗尽时仍可识别 blocked 并自动升级，不新增 worker 尝试", async () => {
     await prepare({ checks_pass: true }); await start();
     await waitFor(async () => (await api("GET", "/requirements/REQ-GOAL-ESC/approvals")).body.approvals.length === 1);

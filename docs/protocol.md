@@ -143,7 +143,11 @@ Goal 复用只接受同 run 最新 ready、原完成引用、当前输入/指南
 
 ADR-0061 统一 ready 证据：resolveGoalReadiness 校验同批事实中的最新 Goal、真实 worker 成功/产物证据及随后实际执行的全部声明验证，命令/输入/source hash、零退出与宿主来源均一致；未来/外部/不存在/被替换的引用与 run 取消均拒绝。runner 复用与协调投影共用此规则，再核验当前 input/source/guide hash。CoordinationGoal.current 与 freshness_reason 只表示读取时新鲜度：ready/current=true/current 可作为当前 Goal 来源；结构错误 invalid/false/invalid_evidence，过期 ready/false/stale_input，不可读 ready/null/unavailable，取消 ready/false/run_cancelled。旧 hook 缺省 null/not_ready，不能声称当前就绪；非 ready 执行事实仍可引用，不自动解除阻塞。新鲜度进入协调 input_hash，变化使旧提议 stale，原 ready/退出/人工 gate 事实保持不变。
 
-Goal 可选声明 `supervisor_agent` 与 `supervisor_timeout_ms`。同一 run/node 的 `goal.attempt.completed{status:blocked}` 落盘并使 run failed 后，宿主自动追加 `coordinator.round.requested{trigger:goal_blocked,run_id,node_id,goal_event_id}`，使用当前 resolver 发起受限协调。自动轮次只接受引用 blocker 的 `ask_human`/`wait`，advance、complete、缺证据或输入变化均 fail-closed。已有人工协调轮次先收束再检查，完全相同 blocker 只请求一次；重启只补缺少 request 事实的 blocker，已启动调用不重放。请求 actor 为 `goal-supervisor`，失败不覆盖原 run.error。
+Goal 可选声明 `supervisor_agent` 与 `supervisor_timeout_ms`。同一 run/node 的 `goal.attempt.completed{status:blocked}` 落盘并使 run failed 后，原 executor/验证进程收束、活动槽位与 workspace lease 释放，再自动追加 `coordinator.round.requested{trigger:goal_blocked,run_id,node_id,goal_event_id}`，使用当前 resolver 发起受限协调。自动轮次只接受引用 blocker 的 `ask_human`/`wait`，advance、complete、缺证据或输入变化均 fail-closed。已有人工协调轮次先收束再检查，完全相同 blocker 的首次请求只创建一次；重启只补缺少 request 事实的 blocker，已有请求不重放或继续旧自动重试链。请求 actor 为 `goal-supervisor`，失败不覆盖原 run.error。
+
+ADR-0095：可选 `supervisor_max_attempts: 1..3` 必须与 `supervisor_agent` 同时声明，缺省一次，次数包含首次。只有 `failed/failure_stage=output` 或 `timeout` 可以自动重试；成功 wait/ask_human、配置/工具/存储/中断错误、取消、过期输入均停止。初始请求只在上限大于一时记录 `supervisor_max_attempts`；自动子请求记录 `automatic_retry:{attempt,max_attempts}`、完整 retry 三字段与 `system/goal-supervisor` 来源。共享核验连续父子链、初始预算、父完成、唯一子请求与配置；成功子完成须与父输入相同，拒绝或中断子轮次保留历史。无自动标记的 system 子请求拒绝，既有人工重试仍用 human 来源。
+
+自动循环取已发布 Goal 的上限，回调数字不能扩充预算。写前/写后 retry guard 要求当前输入/配置与父完成一致；派发固定 resolver，started 落盘后再次重读完整输入，变化/不可读时不调用 driver。已记录请求后的配置重载不替换固定配置，查询仍按当前配置核验新鲜度。PRD/源码/worker/supervisor 在新请求前变化、归档、原 run 被替代/取消、人工答复或人工重试抢先均停止自动循环。服务关闭收束在途调用；自动重试只解释同 blocker，不启动 worker、不增加 Goal 预算、不答复/采用或批准 gate。
 
 ADR-0085以纯`resolveGoalBlocker`统一指定事件来源：完成类型/ID、session/scope/run/node/correlation、合法blocked payload与system/goal-runner actor/source必须一致。升级在追加request前核验最新Goal与目标ID唯一性，错误actor或重复引用不能写入协调请求；人工续跑、历史请求/授权共用来源规则，并保留各自当前状态与因果前缀/seq约束。错误历史仍拒绝消费，不删除或回退。此规则不证明事件的OS写者或业务结论可信。
 

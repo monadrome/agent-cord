@@ -291,7 +291,9 @@ export const GoalConfigSchema = z.strictObject({
   /** ADR-0058：Goal 阻塞后自动发起受限协调；未声明不调用 supervisor。 */
   supervisor_agent: z.string().trim().min(1).max(200).optional(),
   supervisor_timeout_ms: z.number().int().positive().max(600_000).optional(),
-}).refine(value => value.supervisor_timeout_ms === undefined || value.supervisor_agent !== undefined, "supervisor_timeout_ms 必须与 supervisor_agent 一起声明")
+  /** ADR-0095：supervisor自身失败/超时的有界自动重试，不增加Goal预算。 */
+  supervisor_max_attempts: z.number().int().min(1).max(3).optional(),
+}).refine(value => (value.supervisor_timeout_ms === undefined && value.supervisor_max_attempts === undefined) || value.supervisor_agent !== undefined, "supervisor_timeout_ms/max_attempts 必须与 supervisor_agent 一起声明")
   .refine(value => value.acceptance === undefined || (value.acceptance.every(condition => condition.checks.every(id => value.checks.some(check => check.id === id)))
     && value.checks.every(check => value.acceptance!.some(condition => condition.checks.includes(check.id)))), "Goal 验收清单必须引用已声明检查且覆盖全部检查");
 export type GoalConfig = z.infer<typeof GoalConfigSchema>;
@@ -904,13 +906,19 @@ export const CoordinatorRoundRequestedPayloadSchema = z.looseObject({
   retry_of_round_id: z.string().regex(ULID_RE).optional(),
   retry_input_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   retry_configuration_hash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  /** ADR-0095：首次请求的发布预算，自动子请求另记录连续次数。 */
+  supervisor_max_attempts: z.number().int().min(2).max(3).optional(),
+  automatic_retry: z.strictObject({ attempt: z.number().int().min(2).max(3), max_attempts: z.number().int().min(2).max(3) })
+    .refine(value => value.attempt <= value.max_attempts, "自动协调次数超过授权上限").optional(),
   trigger: z.literal("goal_blocked").optional(),
   run_id: z.string().regex(ULID_RE).optional(), node_id: z.string().min(1).optional(), goal_event_id: z.string().regex(ULID_RE).optional(),
 }).refine(value => value.trigger === undefined
   ? value.run_id === undefined && value.node_id === undefined && value.goal_event_id === undefined
   : value.run_id !== undefined && value.node_id !== undefined && value.goal_event_id !== undefined, "自动协调请求必须携带完整 Goal 来源")
   .refine(value => [value.retry_of_round_id, value.retry_input_hash, value.retry_configuration_hash].filter(item => item !== undefined).length % 3 === 0
-    && (value.retry_of_round_id === undefined || (value.trigger === "goal_blocked" && value.retry_of_round_id !== value.round_id)), "协调重试来源必须完整声明且属于另一 Goal 轮次");
+    && (value.retry_of_round_id === undefined || (value.trigger === "goal_blocked" && value.retry_of_round_id !== value.round_id)), "协调重试来源必须完整声明且属于另一 Goal 轮次")
+  .refine(value => (value.supervisor_max_attempts === undefined || (value.trigger === "goal_blocked" && value.retry_of_round_id === undefined))
+    && (value.automatic_retry === undefined || (value.trigger === "goal_blocked" && value.retry_of_round_id !== undefined)), "自动协调预算/来源字段不完整");
 export const CoordinatorRoundCompletedPayloadSchema = z.looseObject({
   ...coordination_round_fields,
   status: CoordinationStatusSchema,

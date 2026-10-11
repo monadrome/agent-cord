@@ -28,6 +28,7 @@ interface CoordinationRetryGuard {
   input_hash: string;
   resolver: (name: string) => AgentDriver;
   validate(request_recorded: boolean): Promise<{ configuration_hash: string; coordination_input_hash: string }>;
+  automatic?: { attempt: number; max_attempts: number };
 }
 
 function roundGoalBlocker(round: CoordinationRoundView): GoalBlockerTrigger | undefined {
@@ -149,12 +150,15 @@ export class CoordinationService {
       const versioned = await this.sdlcs.get(input.sdlc_id ?? DEFAULT_SDLC_ID, input.sdlc_version);
       if (this.sdlcs.isArchived(versioned.sdlc_id, versioned.version)) throw conflict("归档 SDLC 版本不能启动新协调轮次");
       if (goal_blocker !== undefined) await this.validateGoalBlocker(req_id, input, goal_blocker, versioned.def, versioned.workflow_revision, retry !== undefined);
+      const supervisor_limit = goal_blocker === undefined ? 1 : versioned.def.spec.nodes.find(node => node.id === goal_blocker.node_id)?.run?.goal?.supervisor_max_attempts ?? 1;
       const retry_state = await retry?.validate(false);
       await session.events.append({
         event_id: ulid(), session_id: req_id, type: "coordinator.round.requested", schema_version: "1",
-        actor: goal_blocker === undefined || retry !== undefined ? { kind: "human", id: "local-human" } : { kind: "system", id: "goal-supervisor" }, correlation_id: active.round_id,
+        actor: retry?.automatic || (goal_blocker !== undefined && retry === undefined) ? { kind: "system", id: "goal-supervisor" } : { kind: "human", id: "local-human" }, correlation_id: active.round_id,
         payload: CoordinatorRoundRequestedPayloadSchema.parse({ round_id: active.round_id, workflow_id: versioned.def.metadata.id, workflow_revision: versioned.workflow_revision, driver: input.agent, sdlc_id: versioned.sdlc_id, sdlc_version: versioned.version,
           ...(retry === undefined ? {} : { retry_of_round_id: retry.parent_round_id, retry_input_hash: retry.input_hash, retry_configuration_hash: retry_state!.configuration_hash }),
+          ...(retry === undefined && supervisor_limit > 1 ? { supervisor_max_attempts: supervisor_limit } : {}),
+          ...(retry?.automatic === undefined ? {} : { automatic_retry: retry.automatic }),
           ...(goal_blocker === undefined ? {} : { trigger: "goal_blocked", ...goal_blocker }) }),
         source: { adapter: "console-server" },
       });
@@ -452,7 +456,7 @@ export class CoordinationService {
     return operation;
   }
 
-  private async retry_coordination_once(req_id: string, round_id: string, input_hash: string): Promise<CoordinationRoundView> {
+  private async retry_coordination_once(req_id: string, round_id: string, input_hash: string, automatic?: { attempt: number; max_attempts: number }): Promise<CoordinationRoundView> {
     const resolver = this.options.resolver();
     const round = await this.readRound(req_id, round_id);
     const events = await this.readEvents(await this.sessions.open(req_id));
@@ -463,13 +467,14 @@ export class CoordinationService {
       if (request.retry_input_hash !== input_hash) throw conflict("原轮次已使用不同依据重试，请查看新轮次");
       return this.get(req_id, request.round_id);
     }
-    const state = await this.readCoordinationRetryState(round, resolver);
+    const state = await this.readCoordinationRetryState(round, resolver, false, automatic);
     if (state.input_hash !== input_hash) throw conflict("协调重试依据已变化，请刷新后重试");
     return this.startRound(req_id, { agent: round.agent, sdlc_id: round.sdlc_id, sdlc_version: round.sdlc_version,
       ...(state.timeout_ms === undefined ? {} : { timeout_ms: state.timeout_ms }) }, roundGoalBlocker(round), {
       parent_round_id: round_id, input_hash, resolver,
+      ...(automatic === undefined ? {} : { automatic }),
       validate: async request_recorded => {
-        const current = await this.readCoordinationRetryState(await this.readRound(req_id, round_id), resolver, request_recorded);
+        const current = await this.readCoordinationRetryState(await this.readRound(req_id, round_id), resolver, request_recorded, automatic);
         if (current.input_hash !== input_hash) throw conflict("协调重试依据在记录期间已变化，请刷新");
         return current;
       },
@@ -494,7 +499,7 @@ export class CoordinationService {
     return { coordination_retry: view };
   }
 
-  private async readCoordinationRetryState(round: CoordinationRoundView, resolver: (name: string) => AgentDriver, request_recorded = false) {
+  private async readCoordinationRetryState(round: CoordinationRoundView, resolver: (name: string) => AgentDriver, request_recorded = false, automatic?: { attempt: number; max_attempts: number }) {
     if (round.trigger !== "goal_blocked" || round.run_id === undefined || round.node_id === undefined || round.goal_event_id === undefined) throw conflict("只有 Goal 自动升级轮次可以重试协调");
     const stale = round.status === "ok" && (await this.inspect(round)).current === false;
     if (!(stale || ["failed", "timeout", "cancelled", "stale"].includes(round.status))) throw conflict("当前协调轮次未进入可重试终态");
@@ -521,6 +526,20 @@ export class CoordinationService {
     const timeout_ms = versioned.def.spec.nodes.find(node => node.id === round.node_id)?.run?.goal?.supervisor_timeout_ms;
     const agents = read_coordination_agents(versioned.def, resolver);
     const coordination_input_hash = coordinationInputHash(versioned.def, snapshot, configuration_hash, undefined, source_hash, verifications, execution, trigger, agents);
+    if (automatic !== undefined) {
+      const parent = CoordinatorRoundCompletedPayloadSchema.parse(completion.payload);
+      const initial = events.find(event => event.type === "coordinator.round.requested" && eventPayload(event)["goal_event_id"] === round.goal_event_id);
+      const declared = versioned.def.spec.nodes.find(node => node.id === round.node_id)?.run?.goal?.supervisor_max_attempts ?? 1;
+      const prefix = events.slice(0, events.indexOf(completion));
+      const requests = prefix.filter(event => event.type === "coordinator.round.requested" && eventPayload(event)["goal_event_id"] === round.goal_event_id);
+      if (initial === undefined || CoordinatorRoundRequestedPayloadSchema.parse(initial.payload).supervisor_max_attempts !== declared
+        || declared !== automatic.max_attempts || automatic.attempt > declared || automatic.attempt !== requests.length + 1
+        || requests.some(event => event.actor.kind !== "system" || event.actor.id !== "goal-supervisor")
+        || (parent.status !== "timeout" && !(parent.status === "failed" && parent.failure_stage === "output"))
+        || parent.agent_configuration_hash !== configuration_hash || parent.input_hash !== coordination_input_hash) {
+        throw conflict("自动协调预算、配置或输入已变化，停止自动重试");
+      }
+    }
     const input_hash = sha256Hex(canonicalJson({ domain: "cord.coordination-retry-input.v1", parent_round_id: round.round_id, completion_event_id: completion.event_id,
       coordination_input_hash, timeout_ms: timeout_ms ?? null }));
     if (!request_recorded && this.options.resolver()(round.agent).configuration_hash !== configuration_hash) throw conflict("协调配置已变化，请刷新后重试");
@@ -584,9 +603,23 @@ export class CoordinationService {
         if (run?.run_id !== context.run_id || run.status !== "failed" || run.workflow_revision !== context.workflow_revision) return;
         if (signal.aborted) return;
         if (this.active.has(context.req_id)) continue;
-        await this.start(context.req_id, { agent: context.supervisor_agent, sdlc_id: context.sdlc_id, sdlc_version: context.sdlc_version,
+        const binding = await this.sdlcs.get(context.sdlc_id, context.sdlc_version);
+        const max_attempts = binding.def.spec.nodes.find(node => node.id === context.node_id)?.run?.goal?.supervisor_max_attempts ?? 1;
+        let round = await this.start(context.req_id, { agent: context.supervisor_agent, sdlc_id: context.sdlc_id, sdlc_version: context.sdlc_version,
           ...(context.supervisor_timeout_ms === undefined ? {} : { timeout_ms: context.supervisor_timeout_ms }) },
-        { node_id: context.node_id, run_id: context.run_id, goal_event_id: context.goal_event_id });
+          { node_id: context.node_id, run_id: context.run_id, goal_event_id: context.goal_event_id });
+        for (let attempt = 1; attempt < max_attempts; attempt++) {
+          const active_round = this.active.get(context.req_id);
+          if (active_round !== undefined) await waitForRound(active_round, signal);
+          if (signal.aborted) return;
+          round = await this.get(context.req_id, round.round_id);
+          if (round.status !== "timeout" && !(round.status === "failed" && round.failure_stage === "output")) return;
+          const retry = await this.readCoordinationRetryState(round, this.options.resolver());
+          round = await this.retry_coordination_once(context.req_id, round.round_id, retry.input_hash, { attempt: attempt + 1, max_attempts });
+        }
+        // 最后一轮也先收束，升级槽位释放后不留未完成子调用。
+        const final_active = this.active.get(context.req_id);
+        if (max_attempts > 1 && final_active !== undefined) await waitForRound(final_active, signal);
         return;
       }
     })().finally(() => { if (this.escalations.get(key) === operation) this.escalations.delete(key); });

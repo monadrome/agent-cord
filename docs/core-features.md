@@ -101,7 +101,7 @@ flowchart LR
 | 原授权 Goal 恢复 | 原型已实现；GET/POST 恢复依据绑定原授权、checkpoint、当前输入和配置身份，持久化请求后恢复同一 run；保留原 deadline/次数，幂等/冷恢复 fail-closed（[ADR-0063](./adr/ADR-0063-goal-recovery-command.md)） |
 | ACP 文件操作范围预授权 | 已实现可写任务 read/edit 的结构化位置核验与 allow_once；未知/越界拒绝，只读不变 |
 | 全部 PRD 语义覆盖判定、跨 driver execute/网络权限、费用/token 动态额度调整 | 待完善；显式矩阵只证明声明条件到检查事件的关联，readonly 工具审计与 ACP read/edit 策略不覆盖 execute/网络或替代 OS 沙箱 |
-| blocked Goal 自动协调升级 | 原型已实现；显式 supervisor_agent 触发一次 ask_human/wait Draft，重启/并发去重 |
+| blocked Goal 自动协调升级 | 原型已实现；显式 supervisor_agent 触发 ask_human/wait Draft，默认一次；可声明 supervisor_max_attempts=1..3，仅对输出失败/超时自动重试，发布预算、输入/配置与连续来源共同核验，冷恢复不重放已有请求（[ADR-0095](./adr/ADR-0095-bounded-supervisor-retry.md)） |
 | Goal卡点来源 | 写前/历史/人工续跑共用指定blocked来源核验，错误actor或重复引用不写协调请求；同ACP别名可通过readonly_launch自动解释卡点，happy path不增加协调调用（[ADR-0085](./adr/ADR-0085-goal-blocker-source-boundary.md)） |
 | Goal 升级协调重试 | 原型已实现；修复配置/事实后按最新 token 重试同 blocker，持久父子来源/单子请求、冷恢复不重放，未答复问题仍可进入独立 Goal 授权（[ADR-0065](./adr/ADR-0065-goal-coordination-retry.md)） |
 | Goal 可观测 usage 预算 | 原型已实现；可选 input/output token 与 cost 上限，宿主累计 task usage，超限或声明预算下 usage 未知时保留 budget 证据并 fail-closed，不把未知 usage 当零（[ADR-0066](./adr/ADR-0066-goal-usage-budget.md)） |
@@ -122,8 +122,6 @@ flowchart LR
 | 通道 | `kind: acp/headless` 或显式 driver 前缀；裸 agent 名遵循 registry 选择规则 |
 | 任务输入 | 内置Codex以固定`-`+stdin发送完整prompt；custom args可显式`prompt_input: stdin`，禁止prompt占位，通道绑定身份且与通信协议分开 |
 | 工作区隔离 | 当前 ACP/headless 能力声明为 `shared_lease`；只提供同 workspace lease/跨进程锁，不冒称 Git worktree、容器或 OS sandbox |
-
-`GET /api/v1/workspace/lease` 提供只读运行诊断：`free`、`held`、`unresolved` 或 `unavailable`，以及可脱敏定位的需求/run owner。它不接管或清理锁；`unresolved` 必须人工核验遗留进程和副作用，不能当作可自动恢复许可。
 | 上下文 | Claude `launch.bare` 明确关闭部分自动加载；会改变仓库指令/认证加载，不默认开启 |
 | 执行生命周期 | `run.goal` 由宿主控制代码、自测、修复与 review 交付；普通单次调用仍可显式配置 |
 | 自主权限 | Claude `launch.auto` 使用厂商 auto 审批；ACP 使用协商 mode/文件范围预授权；readonly 优先，最终 gate 仍人工 |
@@ -131,6 +129,7 @@ flowchart LR
 | 独立任务配置 | ACP/headless的 `readonly_launch` 是完整独立配置，readonly任务/原生恢复/独立协调共用；查询可明确选择执行/只读分支，公开 `readonly_configuration=explicit` 仅说明声明存在 |
 | ACP MCP工具 | 两套 `mcp_servers/readonly_mcp_servers` 支持stdio/HTTP/SSE，网络传输先协商；只读缺省为空，凭据引用值不入公开投影/身份，查询不连接所配服务 |
 | 节点能力准入 | `run.require_readonly_mapping: true` 要求 `readonly=true` 且当前 headless 能力声明 `readonly_launch=mapped`；协调、派发和 checkpoint 复用共同 fail-closed |
+| 通用能力要求 | `run.require_capabilities` 逐项约束通道、输入通道、原生恢复、工作区隔离与只读映射；缺失/冲突时协调、派发和旧完成复用共同拒绝（[ADR-0094](./adr/ADR-0094-agent-capability-requirements.md)） |
 | LLM 路由 | `launch.provider/model/effort` 是独立维度；headless 仅使用显式 argv 映射，ACP 使用 `option_ids` 和完整配置回执；内置 CLI 未声明 provider 时拒绝 |
 | 角色与资源 | Claude 支持 `launch.agent/agents_json/system_prompt/max_turns/budget_usd`；Goal 有宿主时长、尝试、无进展和可靠 usage 预算 |
 | 自定义Wrapper旋钮 | args显式映射bare/auto/角色/系统提示/JSON/轮次/费用，完整分支须同集合；布尔/数值文字确定，只读auto=false，不替代宿主Goal |
@@ -139,9 +138,27 @@ flowchart LR
 | 固定流程节点恢复 | 原授权 Goal recovery 加 `node_id`，限定原 token 绑定的未退出节点；保持 checkpoint、输入/配置身份、原预算和人工 gate |
 | 扩展 | ACP `config_options` 支持 select/boolean；自定义 argv 显式绑定 model/effort/session；外部行为变化用 `context_revision` |
 
+`GET /api/v1/workspace/lease` 提供只读运行诊断：`free`、`held`、`unresolved` 或 `unavailable`，以及可脱敏定位的需求/run owner。它不接管或清理锁；`unresolved` 必须人工核验遗留进程和副作用，不能当作可自动恢复许可。
+
 `GET /agents` 给出适配器声明的能力表，安装状态为 unchecked。`POST /agents/:name/inspect` 可核验 ACP initialize/session/new 和启动配置，不发送 prompt；返回有界 mode、配置 ID、模型/effort 候选及省略数，绑定查询使用的 revision/configuration_hash。内置headless模板另提供固定版本/帮助查询，明确CLI不可用/超时/无法识别和逐项帮助证据；自定义原始args不猜测探测命令。
 
 控制台 Agent 页提供能力筛选、逐 Agent 声明与显式 ACP 查询。协议观察与静态声明分别呈现；查询后的最新清单核对、失败/重试、过期及移除后的历史材料已接通，不将注册状态表示成验证通过。查询返回时和消费时都核对配置身份，协议协商仍不证明模型访问或额度可用（[ADR-0074](./adr/ADR-0074-agent-capability-console.md)）。
+
+### 能力证据与扩展方向
+
+能力识别应分别回答“适配器声明支持什么”“本次安装/协议查询观察到什么”“实际任务是否按要求执行”。查询必须绑定具体配置和任务模式；help 中出现参数、ACP 返回候选模型或 wrapper 消费占位符，都不足以证明账户可用、厂商实际执行模型或资源限制生效。未知能力拒绝派发，显式选择不能降级。
+
+后续扩展按下列边界逐项适配；本表不声明已存在的新字段或 API：
+
+| 扩展 | 所需证据与行为 |
+|---|---|
+| 原生 Goal / checkpoint | 核验厂商实际支持的持续执行、session/turn checkpoint 与恢复回执；恢复范围明确区分原生会话、当前未退出流程节点和历史 rewind |
+| LLM 可用性 | 区分 provider/model/effort 的声明、协议候选、账户可访问与实际执行回执；有成本的探测遵循单独授权与预算 |
+| 权限与工具 | 精确描述 read/edit/execute/network、MCP、认证和审批策略；分别声明执行前拦截、执行后审计与 OS 强制隔离 |
+| 运行隔离 | 独立 worktree、容器/OS sandbox 与验证器隔离需要真实执行器和恢复清理契约；不能仅增加能力枚举 |
+| 资源限制 | 区分声明预算、实际 usage 观察和底层强制限制，注明未知计量、总时长与取消收束行为 |
+
+对用户想法的评价：默认围绕目标交付、由宿主运行测试并整理 review 指南，能让人工集中到事实、权限和最终审查，适合作为核心 feature。落地时 Goal 属于宿主生命周期，ACP、bare、auto、模型/effort 与恢复分属独立控制轴；“多数 happy path 无中途干预”需要真实任务样本度量，不能靠关闭约束实现。当前推荐模板已经默认采用 `run.goal`，既有发布流程不会被隐式迁移。
 
 ACP 启动选择持续一致性已接通：`option_ids.mode` 支持仅提供新 configOptions 的 agent，按 mode 后的实际候选选择模型；当前 session 明确选择被更新、移除或改变类型时，以不可重试配置错误取消，不形成 Goal ready 或协调提议。旧 set_mode 兼容空成功回执，同值/未显式选项/外部 session 更新不误冻结（[ADR-0075](./adr/ADR-0075-acp-launch-state-consistency.md)）。
 

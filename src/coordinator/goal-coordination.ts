@@ -35,7 +35,8 @@ export function readGoalCoordinationRequest(events: readonly EventEnvelope[], ro
     if (event.actor.kind !== "system" || event.actor.id !== "goal-supervisor") throw new SessionEventReadError("自动 Goal 协调请求必须来自宿主");
     return event;
   }
-  if (event.actor.kind !== "human") throw new SessionEventReadError("Goal 协调重试必须来自人工命令");
+  if (request.automatic_retry === undefined ? event.actor.kind !== "human"
+    : event.actor.kind !== "system" || event.actor.id !== "goal-supervisor") throw new SessionEventReadError("Goal 协调重试必须有匹配的人工或自动来源");
   const parent = readGoalCoordinationRequest(prefix, request.retry_of_round_id);
   const origin = CoordinatorRoundRequestedPayloadSchema.parse(parent.payload);
   const completed = prefix.filter(item => item.type === "coordinator.round.completed" && payload(item)["round_id"] === request.retry_of_round_id).at(-1);
@@ -49,10 +50,28 @@ export function readGoalCoordinationRequest(events: readonly EventEnvelope[], ro
     || !["failed", "timeout", "stale", "cancelled", "ok"].includes(result.data.status)
     || prefix.some(item => ["coordinator.round.answered", "goal.retry.authorized"].includes(item.type) && payload(item)["round_id"] === origin.round_id)
     || requests.filter(item => payload(item)["retry_of_round_id"] === origin.round_id).length !== 1) throw new SessionEventReadError("Goal 协调重试与父轮次来源不一致");
+  if (request.automatic_retry !== undefined) {
+    const automatic = request.automatic_retry;
+    const chain = prefix.filter(item => item.type === "coordinator.round.requested" && payload(item)["goal_event_id"] === request.goal_event_id);
+    const initial = chain[0] === undefined ? null : CoordinatorRoundRequestedPayloadSchema.safeParse(chain[0].payload);
+    if (initial === null || !initial.success || initial.data.retry_of_round_id !== undefined || initial.data.supervisor_max_attempts !== automatic.max_attempts
+      || automatic.attempt !== chain.length + 1 || (origin.automatic_retry?.attempt ?? 1) !== automatic.attempt - 1
+      || chain.some(item => item.actor.kind !== "system" || item.actor.id !== "goal-supervisor")
+      || (result.data.status !== "timeout" && !(result.data.status === "failed" && result.data.failure_stage === "output"))
+      || result.data.agent_configuration_hash !== request.retry_configuration_hash || result.data.input_hash === undefined
+      || prefix.some(item => ["coordinator.round.answered", "goal.retry.authorized"].includes(item.type)
+        && (payload(item)["goal_event_id"] === request.goal_event_id || chain.some(parent => payload(parent)["round_id"] === payload(item)["round_id"])))) {
+      throw new SessionEventReadError("自动 Goal 协调次数、输入或父结果不可验证");
+    }
+  }
   for (const item of events) {
     if (!["coordinator.round.started", "coordinator.round.completed"].includes(item.type) || payload(item)["round_id"] !== request.round_id) continue;
     const hash = payload(item)["agent_configuration_hash"];
     if (hash !== undefined && hash !== request.retry_configuration_hash) throw new SessionEventReadError("Goal 协调重试派发身份与请求不一致");
+    if (request.automatic_retry !== undefined && item.type === "coordinator.round.completed" && payload(item)["status"] === "ok"
+      && payload(item)["input_hash"] !== result.data.input_hash) {
+      throw new SessionEventReadError("自动 Goal 协调派发输入与父轮次不一致");
+    }
   }
   return event;
 }

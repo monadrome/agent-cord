@@ -31,6 +31,7 @@ spec:
           no_progress_limit: 2
           supervisor_agent: context-coordinator
           supervisor_timeout_ms: 120000
+          supervisor_max_attempts: 2
           acceptance:
             - { id: offline-regression, criterion: 工程基线：全部离线回归通过, checks: [offline-tests] }
             - { id: strict-types, criterion: 工程基线：各 workspace 类型检查通过, checks: [typecheck] }

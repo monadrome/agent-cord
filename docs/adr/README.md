@@ -15,6 +15,8 @@ agent-cord 的设计决策分为四类，共 71 条，一条决策一个文件�
 - **8 条技术决策（ADR-0009 ~ ADR-0016）**：定义「这个平台用什么造」——语言与运行形态、SSOT 存储、agent 运行时、事件与 IM 适配、投票执行器、工作流定义语言、知识库、分发与插件。
 - **55 条实现选型决策（ADR-0017 ~ ADR-0071）**：在技术决策框架内，依据开源实现调研与对抗性设计评审把具体实现选型拍板——agent 驱动协议（ACP 直连）、工作流 DSL 与编排内核、插件协议（MCP over stdio）、事件协议与确定性 reducer、控制台 server 分层、SDLC 生命周期、协调 session agent 与节点执行体、checker 参数化、run 取消和资源边界、上下文快照 provenance 与 artifact 路径边界、工作区 agent registry 与重载、协调快照一致性与失败恢复、最新门禁与产物证据、恢复校验与版本化审批、Agent 配置身份与控制台工作台、独立 Context Session Agent、提议受控采用与协调工作台、SDLC 执行版本隔离与启动绑定事实、REST 请求身份与幂等生命周期、共享文档访问边界、Codex 非终态通知与回执、只读 worker 文本产物通道、Codex 文件变更工具事件、带输入指纹的机器验证事实、声明的源码验证范围、只读 worker 源码新鲜度、协调提议源码新鲜度、结构化机器验证上下文、验证证据一致性、独立协调文档覆盖、快照事件完整性、协调执行观察、跨 run 复用 provenance、独立协调工具边界、worker 首尾上下文与完整预算、协调人工澄清闭环、澄清撤回与修正、agent 显式上下文版本、默认 Goal 自主 Draft 交付、节点内 Goal 执行、协调器 Goal 阻塞观察、Goal 自动协调升级、人工答复后的 Goal 续跑、ACP 文件范围预授权、Goal 就绪来源与当前有效性、续跑授权 agent 身份、原授权 Goal 恢复、Goal 声明验收覆盖、Goal 升级协调重试、Goal usage 预算、Goal 计量来源与资源观察、跨 driver 只读工具审计、同 workspace agent 执行 lease、跨进程 workspace 执行锁与异常释放标记、Goal 宿主源码变更清单。
 
+后续执行决策：[ADR-0095：Supervisor 有界自动重试](./ADR-0095-bounded-supervisor-retry.md)，定义发布次数、连续父子来源与相同输入/配置核验；仅重试输出失败/超时，不增加 worker 预算或处理人工 gate。验收见 [Human Review 指南](../research/2026-10-11-bounded-supervisor-retry.md)。
+
 设计决策先于技术决策成立：技术选型都是设计约束的推论，而不是流行度比较的结果。每份 ADR 的「理由」一节都给出从痛点出发的第一性原理推导链。
 
 ---

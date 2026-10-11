@@ -1,5 +1,13 @@
 # 调研发现
 
+## 阶段85（2026-10-11）：自动重试需要收束与来源协议
+
+- 用户的默认Goal和原子启动控制已在阶段41/59等实现与文档采纳。能力识别必须区分声明、运行时查询和实际执行证据；原生Goal/checkpoint、模型可访问性、权限执行前拦截和真实worktree/OS隔离仍需逐项适配，不能只增加枚举或从help/握手推断。
+- 直接在escalate里await所有supervisor轮次会保持RunService active/lease，retry认为原run仍收尾而拒绝。必须让worker/host check收束与lease释放先完成，再独立协调，不绕过原guard。
+- system子请求需要显式自动来源字段和首次已发布预算证明；允许任意system子请求会破坏既有fail-closed来源链。当前输入/worker/supervisor变化须停止自动调度，不能凭fresh token自动采用新配置。
+- core schema已有上一轮未提交supervisor_max_attempts，先补ADR再新增request字段；旧结论“已完成”没有通过证据，本轮按实际失败继续。
+- 进程清理与OS回收可见性是两个时点；满负载下即时PID断言会偶发失败。有界poll仍要求进程确实消失，避免把测试调度延迟误判为功能回归；1637项完整重验通过。
+
 ## 阶段84（2026-10-11）：Shared lease需要运行时诊断
 
 - 静态workspace_isolation=shared_lease能避免误称OS隔离，但人审仍无法区分free、活动held和遗留unresolved owner。新增只读投影，不把磁盘marker当授权恢复。

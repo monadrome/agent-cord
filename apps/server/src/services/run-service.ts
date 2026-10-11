@@ -108,6 +108,7 @@ export interface GoalBlockedContext {
   goal_event_id: string;
   supervisor_agent: string;
   supervisor_timeout_ms?: number;
+  supervisor_max_attempts?: number;
   signal?: AbortSignal;
 }
 
@@ -762,6 +763,7 @@ export class RunService {
           }
         : {}),
     });
+    let blocked_context: GoalBlockedContext | undefined;
     const promise = executor
       .run(def, session)
       .then(async () => {
@@ -777,15 +779,14 @@ export class RunService {
           const node = node_id === null ? undefined : def.spec.nodes.find(item => item.id === node_id);
           const supervisor_agent = node?.run?.goal?.supervisor_agent;
           if (node_id !== null && node !== undefined && supervisor_agent !== undefined) {
-            try {
-              await this.options.onGoalBlocked({
-                req_id: session.req_id, run_id: run.run_id, sdlc_id: run.sdlc_id, sdlc_version: run.sdlc_version,
-                workflow_id: def.metadata.id, workflow_revision: run.workflow_revision ?? null, node_id, goal_event_id: blocked_goal.event_id,
-                supervisor_agent,
-                signal: controller.signal,
-                ...(node.run?.goal?.supervisor_timeout_ms === undefined ? {} : { supervisor_timeout_ms: node.run.goal.supervisor_timeout_ms }),
-              });
-            } catch { /* 自动升级失败不覆盖原 run failed 事实；协调视图保留失败或未启动状态。 */ }
+            blocked_context = {
+              req_id: session.req_id, run_id: run.run_id, sdlc_id: run.sdlc_id, sdlc_version: run.sdlc_version,
+              workflow_id: def.metadata.id, workflow_revision: run.workflow_revision ?? null, node_id, goal_event_id: blocked_goal.event_id,
+              supervisor_agent,
+              signal: controller.signal,
+              ...(node.run?.goal?.supervisor_timeout_ms === undefined ? {} : { supervisor_timeout_ms: node.run.goal.supervisor_timeout_ms }),
+              ...(node.run?.goal?.supervisor_max_attempts === undefined ? {} : { supervisor_max_attempts: node.run.goal.supervisor_max_attempts }),
+            };
           }
         }
       })
@@ -795,8 +796,15 @@ export class RunService {
       .finally(() => {
         for (const [key, pending] of this.pendingAsks) if (pending.req_id === session.req_id) this.pendingAsks.delete(key);
         for (const key of this.decided.keys()) if (key.startsWith(`${session.req_id}:`)) this.decided.delete(key);
-        this.active.delete(session.req_id);
+        if (this.active.get(session.req_id)?.run_id === run.run_id) this.active.delete(session.req_id);
         this.releaseWorkspace(session.req_id, run.run_id);
+      })
+      .then(async () => {
+        // worker和验证进程已收束；协调升级不得持有原executor的活动槽位/lease。
+        if (!this.closing && blocked_context !== undefined) {
+          try { await this.options.onGoalBlocked?.(blocked_context); }
+          catch { /* 升级失败不覆盖原run失败，协调历史保留实际结果。 */ }
+        }
       });
     this.active.set(session.req_id, { run_id: run.run_id, req_id: session.req_id, promise, controller,
       ...(driverResolver !== undefined ? { driverResolver } : {}),

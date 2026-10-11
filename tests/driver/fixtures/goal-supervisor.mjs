@@ -19,6 +19,12 @@ async function work(prompt) {
   const goal = context.goals?.find(item => item.status === "blocked");
   if (goal === undefined) throw new Error("missing current goal blocker");
   if (mode === "invalid" || (mode === "invalid-once" && calls === 1)) return "非 JSON 升级回复";
+  if (mode === "tool") {
+    if (argv.includes("--acp")) send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "goal-supervisor", update: {
+      sessionUpdate: "tool_call", toolCallId: "unexpected", title: "Read", kind: "read", status: "pending", rawInput: { path: "PRIVATE_TOOL" },
+    } } });
+    else send({ type: "assistant", message: { content: [{ type: "tool_use", name: "Read", input: { path: "PRIVATE_TOOL" } }] } });
+  }
   return JSON.stringify({
     summary: "Goal 已达到自动修复边界，需要人工决定下一步",
     next_action: mode === "advance" ? { kind: "advance", node_id: goal.node_id, reason: "错误地继续", evidence: [{ source: "goal", id: goal.event_id }] } : {

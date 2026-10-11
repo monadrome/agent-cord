@@ -51,25 +51,34 @@
 - [x] 核验8db8df8干净/tracking同步；补充stdin/argv能力快照差异与脱敏回归，定向9项通过
 - [x] 推送成功（8db8df8→7a8ab15），独立远端核验7a8ab1564e85b01853e9c9483348d9bceddbc9f5；测试与记录已同步
 
-## 阶段82：工作区隔离能力声明（已实现并验证，待同步）
+## 阶段82：工作区隔离能力声明（已实现并验证，已同步）
 
 - [x] 复核7a8ab15同步状态；定位shared workspace lease被文档说明但未进入能力快照，ADR-0093先行
 - [x] ACP/headless/schema/ports/协调/console/文档接入，shared_lease值与未来枚举边界回归
 - [x] 定向79项、全量1595项/115文件、typecheck/build:all/diff；当前shared_lease事实与不隔离限制已验证
-- [ ] 提交推送/独立远端核验，完整持续目标active
+- [x] 功能提交6a29c5e，已随89fe1d2同步；接续交接独立远端核验89fe1d2，完整持续目标active
 
-## 阶段83：Workflow通用Agent能力准入（已实现并验证，待同步）
+## 阶段83：Workflow通用Agent能力准入（已实现并验证，已同步）
 
 - [x] ADR-0094先行；require_capabilities支持transport/prompt_input/native_resume/workspace_isolation/readonly映射
 - [x] 协调eligible_nodes、NodeRunner派发、checkpoint复用共用准入；缺失/冲突只wait或configuration failure
 - [x] 定向31项、全量1600项/116文件、typecheck/build:all/diff通过
-- [ ] 提交推送/独立远端核验，完整持续目标active
+- [x] 功能提交9ce6744，已随89fe1d2同步；接续交接独立远端核验89fe1d2，完整持续目标active
 
-## 阶段84：Workspace lease运行诊断（实现中）
+## 阶段84：Workspace lease运行诊断（已实现并验证，已同步）
 
 - [x] 只读状态投影free/held/unresolved/unavailable与owner最小信息，明确unresolved不自动接管
 - [x] server API/测试/文档与完整1602项/117文件回归、typecheck/build:all/diff
-- [ ] 提交推送/独立远端核验，完整持续目标active
+- [x] 功能提交89fe1d2，接续交接确认已推送并独立核验，完整持续目标active
+
+## 阶段85：Supervisor有界自动重试（已实现并验证，待同步）
+
+- [x] 接续89fe1d2后四个未提交文件；新增测试多次复现首次失败后无子轮次
+- [x] 定位RunService等待升级完成时仍active/持lease，retry要求收束；system子请求与旧人工来源协议冲突，ADR-0095补先行
+- [x] 原executor收束后调度，发布预算/连续父子来源/相同输入配置guard、取消关闭兼容；122项相关回归通过
+- [x] 离线core/server/TCP成功失败恢复与人工预算/gate不变，文档/人审指南；双协议各supervisor2次、显式续跑后worker2次、审批1/决定0/退出0/doctor=true
+- [x] 全量1637项/117文件、build/typecheck/build:all/diff、200个本地链接；本轮无新增UI行为，不重复浏览器验收
+- [ ] 小步提交推送/独立远端核验；完整目标active
 
 ## 阶段79：只读命令参数与策略身份（已实现并验证，功能已同步）
 

@@ -272,6 +272,19 @@ export function createContextSessionAgent(options: ContextSessionAgentOptions): 
     if (options.expected_input_hash !== undefined && base["input_hash"] !== options.expected_input_hash) {
       return complete("stale", null, "重试派发前协调输入已变化，请刷新后重试", { failure_stage: "freshness" });
     }
+    if (options.expected_input_hash !== undefined) {
+      // started已落盘后重检实际输入，避免异步落盘期间变化仍派发旧prompt。
+      try {
+        const current = await readCoordinationSnapshot(def, session, input.workflow_revision);
+        const source = await read_source_hash(def);
+        const verification = await read_verifications(def, session, input.workflow_revision);
+        const execution = await read_execution_context(def, session, input.workflow_revision);
+        const agent_context = await read_agents(def);
+        if (coordinationInputHash(def, current, driver.configuration_hash ?? null, max_prompt_chars, source, verification, execution, input.goal_blocker, agent_context) !== options.expected_input_hash) {
+          return complete("stale", null, "重试派发前协调输入已变化，请刷新后重试", { failure_stage: "freshness" });
+        }
+      } catch { return complete("failed", null, "重试派发前无法核验当前输入，停止调用", { failure_stage: "freshness" }); }
+    }
     if (input.signal?.aborted === true) return complete("cancelled", null, "协调轮次已取消");
 
     const controller = new AbortController();
