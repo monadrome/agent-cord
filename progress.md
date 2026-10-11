@@ -8,6 +8,7 @@
 - 最终npm test1480项/106文件、typecheck/build:all/diff通过，证据/tmp/cord-stage76-tests.json。隔离实际HTTP PID40776/http://127.0.0.1:64019：writer-model/high/writer/turns8/budget3实现，review-model/low/reviewer/turns2/budget1评审与最新PRD独立协调，auto分别true/false/false；宿主自测/指南、审批1/人工决定0/仅deliver退出/doctor通过。帮助query只version/help，model configured执行true/只读false，幂等重放不重probe。无真实LLM、原7306Draft未操作。
 - Playwright首轮1440/390/320九状态截图/六mode查询通过，pageerror=[]/无横向溢出，桌面/320/跨mode历史已查看。表格按已有max-height300px内部滚动，不是文本被其他内容遮住；补滚动至auto底部选项的可见性检查与截图。生产代码未再改，custom补四种模式直接调用后14项driver再通过，不重复已通过全量。文档含ACP旧指南当前准入说明已同步。
 - 最终Playwright十二截图/六查询通过，含桌面/390/320的底部auto选项滚动可见，pageerror=[]/无横向溢出，最窄底部截图也已查看。11份相关文档首150项本地链接，ADR加入指南后151项，git diff --check通过；临时脚本/截图/运行数据不入仓库，原真实Draft未操作，完整目标active。
+- 功能提交8e188df（feat: support headless readonly launch profiles）。HTTP/1.1 push成功（6f9670d→8e188df），独立HTTP/2 ls-remote核验8e188dfbbd2b96cb3d04823ed96f913f9b0fd1d2；隔离预览health200/审批1/current协调wait再次核验。完整持续目标active，原真实开发Draft未操作。
 
 ## 2026-10-10（阶段75）
 

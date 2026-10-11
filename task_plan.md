@@ -955,7 +955,7 @@
 - [x] 全量1461项/104文件、typecheck/build:all/diff与131个本地文档链接通过；原真实Draft未操作
 - [x] 功能提交e72381c；HTTP/1.1 push成功（1149bb9→e72381c），独立HTTP/2 ls-remote核验e72381c5bf5ba50dbdb3c8a76340fc07e4b548fd，阶段73/74积压一并同步；完整目标active
 
-## 阶段76：Headless独立只读启动配置（已实现并验证，待提交同步）
+## 阶段76：Headless独立只读启动配置（已实现并验证，功能已同步）
 
 - [x] 核验6f9670d干净/tracking同步，阶段75实际progress；定位Headless模型/角色/资源仍共用一套配置，ADR-0088先行
 - [x] 两套完整launch/严格校验/四argv v3身份/旧配置兼容，八失败反例后修复；三内置与custom实参回归
@@ -963,7 +963,7 @@
 - [x] 5项真实TCP Goal+独立评审/最新快照/cold/热重载/查询幂等共享冲突关闭回归
 - [x] 文档/示例/人审指南、实际HTTP与1440/390/320十二状态/滚动截图、六mode查询通过
 - [x] 全量1480项/106文件、typecheck/build:all/diff与151个本地文档链接通过；补充custom四模式后14项driver再通过
-- [ ] 小步提交/有界同步/独立远端核验；完整目标active
+- [x] 功能提交8e188df；HTTP/1.1 push成功（6f9670d→8e188df），独立HTTP/2 ls-remote核验8e188dfbbd2b96cb3d04823ed96f913f9b0fd1d2；完整目标active
 
 ## 阶段 11：恢复输入校验与版本化人工审批（已实现并验证）
 
