@@ -1,5 +1,14 @@
 # 工作进度
 
+## 2026-10-10（阶段73）
+
+- 1149bb9干净/tracking同步；阶段72全量1404项与TCP/截图/独立远端核验为progress。继续使用planning-with-files/agent-optimizer，Firecrawl读取官方session-setup（含stdio必需、HTTP/SSE协商）与本地SDK 1.5.0交叉核验；文档临时保存在/tmp/cord-stage73-acp-session-setup.md，不重新付费模型调用或派生agent。
+- .firecrawl不存在且未忽略，抓取使用临时路径，不增加仓库元数据；Firecrawl本机已认证，首次小请求成功。ADR-0086先于ports/schema，准备两套MCP列表/凭据引用/身份与无连接能力观察。
+- 首轮12项driver中真实SDK stdio工具、新session/load两列表、未协商传输、默认只读空/inspect无连接、固定session错误脱敏均通过，非法NUL凭据用例先被execa env拒绝；将凭据引用解析前移spawn前以固定configuration失败且无进程，inspect仍不解析MCP引用。MCP SDK示例首次定位simpleStdio.js不存在，改读已安装stdio接口/直接使用McpServer公开API。
+- 完整14项driver与3项TCP通过：官方MCP SDK实际连接/tool结果fixed进入代码、自测/指南；只读报告与最新PRD协调不继承工具、cold等待不重复，MCP配置变更/固定resolver身份有效。映射键序/深拷贝、显式只读工具列表启动/清理和严格URL补齐；结构化schema仅解析标准API，不手写MCP引擎。
+- 最终npm test1421项/100文件、typecheck/build:all/diff通过，证据/tmp/cord-stage73-tests.json。隔离HTTP PID39824/http://127.0.0.1:61030，实际stdio工具1次、子进程已退出，worker code连接1、报告/最新协调plan连接0，审批1/人工决定0/仅deliver退出/doctor=true；无prompt查询空列表且缺工具凭据仍返回HTTP/SSE能力，不等价连接健康。原7306Draft未操作，无真实LLM调用。
+- Playwright1440/390/320六截图通过，pageerror=[]/无横向溢出，配置数量/HTTP支持/SSE未声明/未请求连接与不泄露地址引用都核验。首次截图误以已有历史“未请求连接”作为新查询结束，查看发现busy；改等查询按钮恢复可用后重拍完成态，桌面/320/stdio截图已查看。证据/tmp/cord-stage73-browser-result.json，图/脚本/运行数据不入仓库；9份相关文档首127项链接，ADR追加指南后128项，完整目标active。
+
 ## 2026-10-10（阶段72）
 
 - 9227ccb干净/tracking同步；上一轮1384项与实际TCP/九截图/独立远端核验属于progress。沿用planning-with-files/agent-optimizer读取Goal升级/重试/来源链，发现入口actor.id遗漏；ADR-0085先行，不派生agent、不调用付费模型。

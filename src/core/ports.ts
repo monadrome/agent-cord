@@ -277,6 +277,8 @@ export interface AgentCapabilities {
   readonly_resume?: "supported" | "unsupported";
   /** ADR-0084：ACP完整只读配置声明，不证明只读权限隔离。 */
   readonly_configuration?: "explicit";
+  /** MCP数量/传输只描述配置，实际连接与权限不由声明证明。 */
+  mcp_configuration?: { writable_count: number; readonly_count: number; transports: readonly ("stdio" | "http" | "sse")[] };
   goal: "host";
   workflow_resume: "authorized_unexited_goal";
 }

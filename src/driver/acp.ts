@@ -22,6 +22,7 @@ import {
   type SessionConfigOption,
   type SessionModeState,
   type Usage,
+  type McpServer,
 } from "@agentclientprotocol/sdk";
 import { execa } from "execa";
 import type { AgentDriver, AgentEvent, AgentTask } from "../core/ports.js";
@@ -29,6 +30,7 @@ import { canonicalJson, sha256Hex } from "../core/hash.js";
 import { validate_agent_launch, type AgentCapabilities, type AgentLaunch } from "./launch.js";
 import { ACP_LAUNCH_STATE_POLICY, ACP_PROVIDER_LAUNCH_STATE_POLICY, AcpConfigResponseSchema, AcpLaunchConfigurationError, AcpLaunchState, type AcpCapabilityObservation } from "./acp-launch.js";
 import { AcpPermissionPolicySchema, decideAcpWorkspacePermission, type AcpPermissionPolicy, type AcpPermissionPolicyInput } from "./acp-permissions.js";
+import { AcpMcpServersSchema, assert_acp_mcp_transports, compile_acp_mcp_servers, mcp_transport_observation, type AcpMcpServers, type AcpMcpServersInput } from "./acp-mcp.js";
 import {
   AsyncQueue,
   DEFAULT_KILL_GRACE_MS,
@@ -160,6 +162,8 @@ export interface AcpDriverOptions {
   launch?: AgentLaunch;
   /** ADR-0084：只读任务的完整启动配置；不与launch合并。 */
   readonly_launch?: AgentLaunch;
+  mcp_servers?: AcpMcpServersInput;
+  readonly_mcp_servers?: AcpMcpServersInput;
   /** 子命令，默认 ["acp"] */
   args?: string[];
   /** 暴露给 registry 的驱动名，默认 `acp:<bin>` */
@@ -197,6 +201,8 @@ export class AcpDriver implements AgentDriver {
   readonly capabilities: AgentCapabilities;
   private readonly launch: AgentLaunch;
   private readonly readonly_launch: AgentLaunch | undefined;
+  private readonly mcp_servers: AcpMcpServers;
+  private readonly readonly_mcp_servers: AcpMcpServers;
   /** agent 二进制（doctor / registry 观测用） */
   readonly bin: string;
   readonly args: string[];
@@ -214,17 +220,25 @@ export class AcpDriver implements AgentDriver {
     this.name = options.name ?? `acp:${options.bin}`;
     this.launch = validate_acp_launch(options.launch);
     this.readonly_launch = options.readonly_launch === undefined ? undefined : validate_acp_launch(options.readonly_launch);
+    const mcp = AcpMcpServersSchema.safeParse(options.mcp_servers ?? []);
+    const readonly_mcp = AcpMcpServersSchema.safeParse(options.readonly_mcp_servers ?? []);
+    if (!mcp.success || !readonly_mcp.success) throw new Error("ACP MCP配置结构无效");
+    this.mcp_servers = mcp.data; this.readonly_mcp_servers = readonly_mcp.data;
+    const has_mcp = this.mcp_servers.length + this.readonly_mcp_servers.length > 0;
     if (this.readonly_launch !== undefined) new AcpLaunchState(this.readonly_launch, true);
     this.capabilities = Object.freeze({ transport: "acp", evidence: "adapter", installation: "unchecked", inspection: "acp_handshake",
       launch_options: ACP_LAUNCH_OPTIONS, native_resume: "negotiated", goal: "host", workflow_resume: "authorized_unexited_goal",
-      ...(this.readonly_launch === undefined ? {} : { readonly_configuration: "explicit" as const }) });
+      ...(this.readonly_launch === undefined ? {} : { readonly_configuration: "explicit" as const }),
+      ...(has_mcp ? { mcp_configuration: Object.freeze({ writable_count: this.mcp_servers.length, readonly_count: this.readonly_mcp_servers.length,
+        transports: Object.freeze([...new Set([...this.mcp_servers, ...this.readonly_mcp_servers].map(server => server.type))].sort()) }) } : {}) });
     if (options.permission_policy !== undefined && options.decidePermission !== undefined) throw new Error("permission_policy 与 decidePermission 不能同时声明");
     this.permission_policy = options.permission_policy === undefined ? undefined : AcpPermissionPolicySchema.parse(options.permission_policy);
-    this.configuration_hash = sha256Hex(canonicalJson({ domain: this.readonly_launch !== undefined ? "cord.agent-config.acp.v6" : Object.keys(this.launch).length > 0 ? "cord.agent-config.acp.v5" : this.permission_policy !== undefined ? "cord.agent-config.acp.v3" : options.context_revision === undefined ? "cord.agent-config.acp.v1" : "cord.agent-config.acp.v2",
+    this.configuration_hash = sha256Hex(canonicalJson({ domain: has_mcp ? "cord.agent-config.acp.v7" : this.readonly_launch !== undefined ? "cord.agent-config.acp.v6" : Object.keys(this.launch).length > 0 ? "cord.agent-config.acp.v5" : this.permission_policy !== undefined ? "cord.agent-config.acp.v3" : options.context_revision === undefined ? "cord.agent-config.acp.v1" : "cord.agent-config.acp.v2",
       ...(Object.keys(this.launch).length === 0 ? {} : { launch_state_policy: this.launch.provider === undefined ? ACP_LAUNCH_STATE_POLICY : ACP_PROVIDER_LAUNCH_STATE_POLICY }),
       ...(Object.keys(this.launch).length === 0 ? {} : { launch: this.launch }),
       ...(this.readonly_launch === undefined ? {} : { readonly_launch: this.readonly_launch,
         readonly_launch_state_policy: this.readonly_launch.provider === undefined ? ACP_LAUNCH_STATE_POLICY : ACP_PROVIDER_LAUNCH_STATE_POLICY }),
+      ...(has_mcp ? { mcp_servers: this.mcp_servers, readonly_mcp_servers: this.readonly_mcp_servers } : {}),
       ...(this.permission_policy === undefined ? {} : { permission_policy: this.permission_policy }),
       ...(options.context_revision === undefined ? {} : { context_revision: options.context_revision }), name: this.name, bin: this.bin, args: this.args }));
     this.env = { ...options.env };
@@ -260,6 +274,12 @@ export class AcpDriver implements AgentDriver {
     const timeoutMs = task.timeout_ms ?? DEFAULT_TASK_TIMEOUT_MS;
     const readonly = task.readonly === true;
     const launch = readonly ? this.readonly_launch ?? this.launch : this.launch;
+    const mcp = readonly ? this.readonly_mcp_servers : this.mcp_servers;
+    let mcpServers: McpServer[] = [];
+    if (!inspect_only) {
+      try { mcpServers = compile_acp_mcp_servers(mcp, { ...process.env, ...this.env }); }
+      catch { yield errorEvent("MCP凭据环境引用缺失或无法验证", "configuration"); return; }
+    }
     const queue = new AsyncQueue<AgentEvent>();
 
     // execa 的 stdin 与 ACP 的 writable 必须是同一个流的两端，但两端各自被一方 lock，
@@ -417,16 +437,26 @@ export class AcpDriver implements AgentDriver {
 
         let sessionId: string;
         let state: { modes?: SessionModeState | null; configOptions?: SessionConfigOption[] | null };
+        // 能力查询不连接所声明服务、不解析其凭据，真实任务必须先协商所选传输。
+        if (!inspect_only) assert_acp_mcp_transports(mcp, initialized.agentCapabilities?.mcpCapabilities);
+        const session_request = async <T>(request: () => Promise<T>): Promise<T> => {
+          try { return await request(); }
+          catch (error) {
+            assert_running();
+            if (mcpServers.length > 0) throw new AcpLaunchConfigurationError("ACP无法建立声明MCP工具配置的session");
+            throw error;
+          }
+        };
         if (resumeSessionId !== undefined) {
           if (resumeSessionId.length === 0 || initialized.agentCapabilities?.loadSession !== true) throw new Error("ACP 未协商支持原生 session resume");
-          state = await ctx.request("session/load", {
+          state = await session_request(() => ctx.request("session/load", {
             sessionId: resumeSessionId,
             cwd: task.cwd,
-            mcpServers: [],
-          });
+            mcpServers,
+          }));
           sessionId = resumeSessionId;
         } else {
-          const created = await ctx.request("session/new", { cwd: task.cwd, mcpServers: [] });
+          const created = await session_request(() => ctx.request("session/new", { cwd: task.cwd, mcpServers }));
           sessionId = created.sessionId;
           state = created;
         }
@@ -453,6 +483,7 @@ export class AcpDriver implements AgentDriver {
             native_resume: initialized.agentCapabilities?.loadSession === true,
             modes, omitted_modes: (state.modes?.availableModes?.length ?? 0) - modes.length,
             config_options: options, omitted_options: configured.length - options.length,
+            mcp_transports: mcp_transport_observation(initialized.agentCapabilities?.mcpCapabilities),
           } satisfies AcpCapabilityObservation)]);
           return;
         }

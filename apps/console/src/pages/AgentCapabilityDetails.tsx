@@ -37,6 +37,11 @@ export function AgentCapabilityDetails({ id, agent, inspection, current, catalog
         {capabilities.readonly_launch !== undefined ? <div><dt>只读启动</dt><dd>{capabilities.readonly_launch === "mapped" ? "已映射" : "未声明映射"}</dd></div> : null}
         {capabilities.readonly_resume !== undefined ? <div><dt>只读会话恢复</dt><dd>{RESUME_TEXT[capabilities.readonly_resume]}</dd></div> : null}
         {capabilities.readonly_configuration === "explicit" ? <div><dt>只读启动配置</dt><dd>已独立声明</dd></div> : null}
+        {capabilities.mcp_configuration !== undefined ? <>
+          <div><dt>执行 MCP</dt><dd>{capabilities.mcp_configuration.writable_count} 个</dd></div>
+          <div><dt>只读 MCP</dt><dd>{capabilities.mcp_configuration.readonly_count} 个</dd></div>
+          <div><dt>MCP 配置传输</dt><dd className="mono">{capabilities.mcp_configuration.transports.join(" / ")}</dd></div>
+        </> : null}
         <div><dt>Goal</dt><dd>宿主交付</dd></div>
         <div><dt>流程节点恢复</dt><dd>原授权未退出节点</dd></div>
         <div><dt>安装状态</dt><dd>未核验</dd></div>
@@ -72,6 +77,12 @@ export function AgentCapabilityDetails({ id, agent, inspection, current, catalog
           <div><dt>ACP 版本</dt><dd>{observation.protocol_version}</dd></div>
           <div><dt>原生会话恢复</dt><dd>{observation.native_resume ? "支持" : "不支持"}</dd></div>
           <div><dt>模型访问</dt><dd>未核验</dd></div>
+          {observation.mcp_transports !== undefined ? <>
+            <div><dt>MCP stdio</dt><dd>协议必需</dd></div>
+            <div><dt>MCP HTTP</dt><dd>{observation.mcp_transports.http ? "支持" : "未声明支持"}</dd></div>
+            <div><dt>MCP SSE</dt><dd>{observation.mcp_transports.sse ? "支持" : "未声明支持"}</dd></div>
+            <div><dt>MCP 连接</dt><dd>未请求连接</dd></div>
+          </> : null}
         </dl>
         <h4>协议模式</h4><p className="agent-mode-values mono">{observation.modes.length === 0 ? "未声明" : observation.modes.join(" / ")}</p>
         {observation.omitted_modes > 0 ? <p className="muted small">另有 {observation.omitted_modes} 个模式未展示</p> : null}

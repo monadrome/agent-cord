@@ -124,6 +124,7 @@ flowchart LR
 | 自主权限 | Claude `launch.auto` 使用厂商 auto 审批；ACP 使用协商 mode/文件范围预授权；readonly 优先，最终 gate 仍人工 |
 | 只读任务映射 | headless 能力分别声明 `readonly_launch/readonly_resume`；自定义 wrapper 用完整参数分支或 `{{readonly}}` 显式消费任务模式，缺只读恢复映射时启动前拒绝 |
 | ACP任务配置 | 可选 `readonly_launch` 是完整独立配置，readonly任务/原生恢复/独立协调共用；查询可明确选择执行/只读分支，公开 `readonly_configuration=explicit` 仅说明声明存在 |
+| ACP MCP工具 | 两套 `mcp_servers/readonly_mcp_servers` 支持stdio/HTTP/SSE，网络传输先协商；只读缺省为空，凭据引用值不入公开投影/身份，查询不连接所配服务 |
 | 节点能力准入 | `run.require_readonly_mapping: true` 要求 `readonly=true` 且当前 headless 能力声明 `readonly_launch=mapped`；协调、派发和 checkpoint 复用共同 fail-closed |
 | LLM 路由 | `launch.provider/model/effort` 是独立维度；headless 仅使用显式 argv 映射，ACP 使用 `option_ids` 和完整配置回执；内置 CLI 未声明 provider 时拒绝 |
 | 角色与资源 | Claude 支持 `launch.agent/agents_json/system_prompt/max_turns/budget_usd`；Goal 有宿主时长、尝试、无进展和可靠 usage 预算 |
@@ -145,6 +146,8 @@ Headless运行时能力查询已接通，CLI版本、任务/恢复帮助、已�
 
 ACP可声明完整`readonly_launch`，避免同一别名的code/扩展设置被带入只读评审或Context Session Agent。新任务与指定session恢复都选择对应配置，注册拒绝危险/漏映射配置，session核验实际允许值和回执。两套配置共同绑定身份，在途保持原resolver，冷恢复重新核验；缺省保持旧语义。无prompt查询的readonly参数也进入在途共享key，控制台跨模式历史标“其他任务配置”，不能冒称当前所选结果（[ADR-0084](./adr/ADR-0084-acp-readonly-launch-profile.md)、[配置与人审指南](./research/2026-10-10-acp-readonly-launch.md)）。
 
+ACP的MCP配置分别控制执行/只读连接列表，新任务与显式loadSession都传所选完整列表；只读不继承可写工具。stdio按协议必需，HTTP/SSE须initialize明确支持，缺凭据或不支持时不降级空工具。非空定义绑定v7身份，公开能力只给数量/传输，凭据值从环境引用解析，session配置拒绝回显时固定脱敏。inspect使用空列表且不解析所配凭据，返回`mcp_transports.connections=not_requested`；声明、传输支持和真实连接是独立证据，工具权限/独立协调禁工具仍不变（[ADR-0086](./adr/ADR-0086-acp-mcp-configuration.md)、[MCP人审指南](./research/2026-10-10-acp-mcp-configuration.md)）。
+
 自定义 headless 现已明确选择可写/只读与新会话/原生恢复四种完整 argv；模型/effort 映射须一致，恢复分支须绑定指定 session，替换一次且不经 shell。控制台与协调输入共用能力声明。旧新任务 argv 保留，旧无只读恢复映射的显式 resume 改为拒绝，配置身份可能变化；映射不证明 wrapper 已实施权限或工具执行前拦截，宿主只读审计继续生效（[ADR-0080](./adr/ADR-0080-custom-readonly-launch.md)、[配置与人审指南](./research/2026-10-10-custom-readonly-launch.md)）。
 
 Provider 是独立的 LLM 路由选择：ACP 必须通过 `option_ids.provider` 绑定真实 session 配置项并核验候选/回执；自定义 headless 在所有 argv 分支使用 `{{provider}}`；内置 CLI 没有统一 provider 旗标，配置会直接拒绝。它不从 model、环境变量或 prompt 推断，也不证明模型权限、额度或输出质量（[ADR-0082](./adr/ADR-0082-provider-launch-selection.md)）。
@@ -155,4 +158,4 @@ ACP路由切换先于扩展/model/effort设置，逐步使用最新回执，并�
 
 独立协调已默认读取完整流程worker/supervisor配置身份和有界能力声明；worker模型、角色、通道或context_revision改变会使旧提议不可采用。未知/缺稳定身份的next worker不能advance，只能解释配置卡点；采用固定实际resolver并重检，冷恢复也验证原完成来源与同一身份，不自动换Agent或放行gate（[ADR-0078](./adr/ADR-0078-coordination-agent-context.md)）。
 
-待扩展维度包括内置 CLI 的 provider 路由、MCP/工具集、网络与沙箱、隔离 worktree、CLI 精确版本探测、原生 fork/turn checkpoint；应按厂商真实能力逐项映射。任意历史 workflow rewind、跨 agent 的原生 session 迁移不在当前保证内，不能通过清除已退出节点事实实现。
+待扩展维度包括内置 CLI 的 provider 路由与MCP配置、逐工具权限策略、网络与沙箱、隔离 worktree、CLI 精确版本探测、原生 fork/turn checkpoint；应按厂商真实能力逐项映射。任意历史 workflow rewind、跨 agent 的原生 session 迁移不在当前保证内，不能通过清除已退出节点事实实现。

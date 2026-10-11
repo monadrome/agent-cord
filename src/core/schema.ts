@@ -874,6 +874,8 @@ export const CoordinationAgentCapabilitiesSchema = z.strictObject({
   native_resume: z.enum(["supported", "unsupported", "negotiated"]), goal: z.literal("host"), workflow_resume: z.literal("authorized_unexited_goal"),
   readonly_launch: z.enum(["mapped", "unmapped"]).optional(), readonly_resume: z.enum(["supported", "unsupported"]).optional(),
   readonly_configuration: z.literal("explicit").optional(),
+  mcp_configuration: z.strictObject({ writable_count: z.number().int().min(0).max(16), readonly_count: z.number().int().min(0).max(16),
+    transports: z.array(z.enum(["stdio", "http", "sse"])).min(1).max(3).refine(values => new Set(values).size === values.length, "MCP传输必须唯一") }).optional(),
 });
 export const CoordinationAgentsSchema = z.array(z.strictObject({
   agent: z.string().min(1).max(200), resolution: z.enum(["resolved", "unavailable"]),

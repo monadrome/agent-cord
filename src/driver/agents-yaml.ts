@@ -9,6 +9,7 @@ import { z } from "zod";
 import type { AgentDriver } from "../core/ports.js";
 import { AcpDriver } from "./acp.js";
 import { AcpPermissionPolicySchema } from "./acp-permissions.js";
+import { AcpMcpServersSchema } from "./acp-mcp.js";
 import { AgentLaunchSchema } from "./launch.js";
 import { custom_headless_template } from "./custom-template.js";
 import {
@@ -33,6 +34,8 @@ const AgentEntrySchema = z.discriminatedUnion("kind", [
     permission_policy: AcpPermissionPolicySchema.optional(),
     launch: AgentLaunchSchema.optional(),
     readonly_launch: AgentLaunchSchema.optional(),
+    mcp_servers: AcpMcpServersSchema.optional(),
+    readonly_mcp_servers: AcpMcpServersSchema.optional(),
   }),
   z.strictObject({
     kind: z.literal("headless"),
@@ -142,6 +145,8 @@ function compileAgentsYaml(yaml: AgentsYaml | null): {
           ...(entry.permission_policy === undefined ? {} : { permission_policy: entry.permission_policy }),
           ...(entry.launch === undefined ? {} : { launch: entry.launch }),
           ...(entry.readonly_launch === undefined ? {} : { readonly_launch: entry.readonly_launch }),
+          ...(entry.mcp_servers === undefined ? {} : { mcp_servers: entry.mcp_servers }),
+          ...(entry.readonly_mcp_servers === undefined ? {} : { readonly_mcp_servers: entry.readonly_mcp_servers }),
           ...(entry.env !== undefined ? { env: { ...entry.env } } : {}),
         }));
         entries.push({ name, kind: "acp", source: "workspace", template: null, ...(entry.context_revision === undefined ? {} : { context_revision: entry.context_revision }),

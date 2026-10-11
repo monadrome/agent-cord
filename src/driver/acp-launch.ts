@@ -2,6 +2,7 @@
 import { z } from "zod";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { AgentLaunch } from "./launch.js";
+import type { AcpMcpTransportObservation } from "./acp-mcp.js";
 
 export const ACP_LAUNCH_STATE_POLICY = "explicit-session-selections.v1";
 export const ACP_PROVIDER_LAUNCH_STATE_POLICY = "explicit-session-selections.provider-first.v1";
@@ -111,4 +112,5 @@ export interface AcpCapabilityObservation {
   omitted_modes: number;
   config_options: Array<{ id: string; type: "select" | "boolean"; category: string | null; values?: string[]; omitted_values?: number }>;
   omitted_options: number;
+  mcp_transports?: AcpMcpTransportObservation;
 }

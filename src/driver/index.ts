@@ -40,6 +40,8 @@ export type {
 export { AcpDriver, DEFAULT_PERMISSION_TIMEOUT_MS, mapAcpUsage, mapSessionUpdate } from "./acp.js";
 export { AcpPermissionPolicySchema } from "./acp-permissions.js";
 export type { AcpPermissionPolicy, AcpPermissionPolicyInput } from "./acp-permissions.js";
+export { AcpMcpServersSchema } from "./acp-mcp.js";
+export type { AcpMcpServersInput, AcpMcpServers, AcpMcpTransportObservation } from "./acp-mcp.js";
 export type {
   AcpDriverOptions,
   PermissionContext,

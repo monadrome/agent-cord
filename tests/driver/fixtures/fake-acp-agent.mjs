@@ -140,7 +140,7 @@ function handleMessage(message) {
     if (mode === "hang-init") return;
     const initialized = {
       protocolVersion: mode === "bad-version" ? 2 : 1,
-      agentCapabilities: { loadSession: !argv.includes("--no-resume") },
+      agentCapabilities: { loadSession: !argv.includes("--no-resume"), mcpCapabilities: { http: argv.includes("--mcp-http"), sse: argv.includes("--mcp-sse") } },
       agentInfo: { name: "fake-acp-agent", version: "0.0.1" },
     };
     if (mode === "gate-init") {
@@ -151,6 +151,7 @@ function handleMessage(message) {
 
   if (method === "session/new") {
     record({ event: "session/new", cwd: params.cwd, mcpServers: params.mcpServers ?? null });
+    if (argv.includes("--reject-mcp") && params.mcpServers?.length > 0) { respondError(id, -32000, JSON.stringify(params.mcpServers)); return; }
     if (mode === "hang-new") return;
     if (argv.includes("--permission-on-new")) send({ jsonrpc: "2.0", id: "perm-1", method: "session/request_permission", params: {
       sessionId, toolCall: { toolCallId: "probe-tool", title: "write file", kind: "edit" },
@@ -162,7 +163,8 @@ function handleMessage(message) {
 
   if (method === "session/load") {
     updateSessionId = params.sessionId;
-    record({ event: "session/load", sessionId: params.sessionId, cwd: params.cwd });
+    record({ event: "session/load", sessionId: params.sessionId, cwd: params.cwd, mcpServers: params.mcpServers ?? null });
+    if (argv.includes("--reject-mcp") && params.mcpServers?.length > 0) { respondError(id, -32000, JSON.stringify(params.mcpServers)); return; }
     if (mode === "fail-load") {
       respondError(id, -32601, "session/load not supported");
       return;

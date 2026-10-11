@@ -15,7 +15,7 @@ export function validate_coordination_agents(def: WorkflowDef, value: unknown): 
   if (!parsed.success) throw new Error("协调流程Agent上下文不符合契约");
   const names = workflow_agent_names(def);
   if (parsed.data.length !== names.length || parsed.data.some(agent => !names.includes(agent.agent))) throw new Error("协调Agent上下文必须完整覆盖流程声明");
-  for (const agent of parsed.data) agent.capabilities?.launch_options.sort();
+  for (const agent of parsed.data) { agent.capabilities?.launch_options.sort(); agent.capabilities?.mcp_configuration?.transports.sort(); }
   return parsed.data.sort((a, b) => a.agent < b.agent ? -1 : a.agent > b.agent ? 1 : 0);
 }
 export function read_coordination_agents(def: WorkflowDef, resolver: (name: string) => AgentDriver): CoordinationAgents {

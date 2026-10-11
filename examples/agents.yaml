@@ -50,6 +50,19 @@ agents:
 #     mode: plan
 #     option_ids: {model: llm, effort: thinking, mode: workflow}
 # 缺省readonly_launch继承原launch；明确只读分支不能声明非plan mode或config_options扩展。
+# ACP MCP连接示例（command替换为真实绝对路径；凭据只通过环境变量引用）：
+# mcp_servers:
+#   - type: stdio
+#     name: workspace-tools
+#     command: /absolute/path/to/mcp-server
+#     args: [--stdio]
+#     env_from: {API_KEY: WORKSPACE_MCP_API_KEY}
+#   - type: http
+#     name: remote-tools
+#     url: https://your-mcp-service/mcp
+#     headers_from: {Authorization: WORKSPACE_MCP_AUTHORIZATION}
+# readonly_mcp_servers: []  # 缺省为空，不继承可写MCP；连接声明不等于只读权限。
+# HTTP/SSE须实际握手支持；inspect不连接声明服务，也不检查其凭据。
 # 自定义 wrapper 的 args 可绑定 {{prompt}}/{{model}}/{{effort}}/{{readonly}}。
 # 原生恢复须给完整 resume_args 并显式绑定 {{resume_session_id}}；无映射则拒绝恢复。
 # readonly_args 是完整只读新会话argv，不追加args。

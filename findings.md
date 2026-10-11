@@ -1,5 +1,11 @@
 # 调研发现
 
+## 阶段73（2026-10-10）：ACP MCP入口仍固定为空
+
+- session/new/load固定mcpServers=[]，无法通过agent配置接入工具。官方协议要求stdio基线支持、HTTP/SSE初始化协商；SDK 1.5.0类型验证此结构，unstable ACP MCP transport不纳入。
+- MCP声明与连接健康是两个证据维度；inspect需保留空列表且不解析凭据，动态回执只证明支持传输。真实工具连接独立验收，不能把配置信息转成“已连接”。
+- readonly任务缺省不继承可写MCP，可显式声明完整工具列表；独立协调仍禁止工具，参数连接声明不保证只读或OS隔离。两套定义/凭据引用名字绑定身份，值不落公开投影/hash。
+
 ## 阶段72（2026-10-10）：Goal blocker写前与历史来源边界不一致
 
 - validateGoalBlocker遗漏actor.id，readGoalCoordinationRequest要求goal-runner；先追加request再读严格来源会使新轮次甚至整个协调列表失败，不能把后置fail-closed当作没有坏写入。
