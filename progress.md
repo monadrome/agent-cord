@@ -1,5 +1,10 @@
 # 工作进度
 
+## 2026-10-11（阶段84）
+
+- 基于shared_lease限制补充只读 `/api/v1/workspace/lease` runtime projection，区分free/held/unresolved/unavailable与最小owner，不修改事件/锁、不自动接管；开始定向回归。
+- 阶段84定向7项、全量npm test 1602项/117文件、typecheck/build:all/git diff --check通过。free/held/unresolved投影和不接管语义已验证，准备提交推送；完整目标active。
+
 ## 2026-10-11（阶段83）
 
 - 新增Workflow `run.require_capabilities`，覆盖transport/prompt_input/native_resume/workspace_isolation/readonly_launch/readonly_resume；协调eligible_nodes、NodeRunner派发、checkpoint复用共用能力匹配，缺失/冲突只wait或configuration failure。

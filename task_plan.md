@@ -65,6 +65,12 @@
 - [x] 定向31项、全量1600项/116文件、typecheck/build:all/diff通过
 - [ ] 提交推送/独立远端核验，完整持续目标active
 
+## 阶段84：Workspace lease运行诊断（实现中）
+
+- [x] 只读状态投影free/held/unresolved/unavailable与owner最小信息，明确unresolved不自动接管
+- [x] server API/测试/文档与完整1602项/117文件回归、typecheck/build:all/diff
+- [ ] 提交推送/独立远端核验，完整持续目标active
+
 ## 阶段79：只读命令参数与策略身份（已实现并验证，功能已同步）
 
 - [x] d45942e干净/ahead4，阶段78实现/1513项/实际HTTP为progress；远端独立查询仍超时

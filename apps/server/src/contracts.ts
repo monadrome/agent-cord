@@ -52,6 +52,12 @@ export interface AgentInspectionView {
   readonly?: boolean;
 }
 
+export interface WorkspaceLeaseView {
+  isolation: "shared_lease";
+  state: "free" | "held" | "unresolved" | "unavailable";
+  owner: { req_id: string; run_id: string } | null;
+}
+
 // ---------------------------------------------------------------------------
 // 需求（requirement / session）
 // ---------------------------------------------------------------------------

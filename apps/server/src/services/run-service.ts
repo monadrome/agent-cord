@@ -52,7 +52,7 @@ import { runRowToInfo, type IndexStore, type RunRow } from "./index-store.js";
 import { decodeApprovalId, scanPendingApprovals, type SessionService } from "./session-service.js";
 import { DEFAULT_SDLC_ID, type SdlcService } from "./sdlc-service.js";
 import { readVerificationSource, verificationSourceInputs, VerificationInputError } from "./verification-inputs.js";
-import { WorkspaceLease, WorkspaceLeaseBusy } from "./workspace-lease.js";
+import { WorkspaceLease, WorkspaceLeaseBusy, type WorkspaceLeaseStatus } from "./workspace-lease.js";
 import { project_active_run_wait } from "./run-status.js";
 
 interface PendingAsk {
@@ -157,6 +157,10 @@ export class RunService {
 
   activeRunId(reqId: string): string | null {
     return this.active.get(reqId)?.run_id ?? null;
+  }
+
+  workspaceLeaseStatus(): WorkspaceLeaseStatus {
+    return this.workspace_lease.status();
   }
 
   /** 关闭仅收束执行体，不改变用户取消/人工决定事实，终态由重启恢复判定。 */

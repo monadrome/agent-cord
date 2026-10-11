@@ -202,6 +202,7 @@ export async function buildApp(options: ServerOptions): Promise<BuiltServer> {
     request_id: requestId(req),
     ...agents.catalog(),
   }));
+  app.get("/api/v1/workspace/lease", async () => ({ workspace: runs.workspaceLeaseStatus() }));
   app.post("/api/v1/agents/reload", { config: { idempotency: true } }, async (req) => ({ request_id: requestId(req), ...await agents.reload() }));
   app.post("/api/v1/agents/:name/inspect", { config: { idempotency: true } }, async req => {
     const { name } = req.params as { name: string };

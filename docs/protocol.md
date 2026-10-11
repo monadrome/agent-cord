@@ -237,6 +237,8 @@ ADR-0092：HeadlessCliTemplate可选prompt_input=argv/stdin，缺省argv；内�
 
 ADR-0093：AgentCapabilities与严格协调上下文增加必需`workspace_isolation`，枚举`shared_lease/worktree/os_sandbox`；当前ACP/headless固定声明shared_lease，并在控制台显示。它是能力事实，进入协调上下文但不改变当前configuration_hash/在途resolver；shared_lease只证明宿主执行 lease/跨进程互斥，不证明worktree、容器、网络或OS权限隔离。未来更强枚举必须实现对应执行器、清理/恢复和副作用对账后再声明，旧提议按能力快照变化失效。
 
+运行诊断 `GET /api/v1/workspace/lease` 只返回 `isolation=shared_lease`、状态free/held/unresolved/unavailable和最小owner。它不修改事件流或执行锁；unresolved不是授权恢复信号，必须人工核验遗留worker/验证进程与副作用后由既有恢复命令继续。
+
 ADR-0080 为自定义 headless 条目增加完整 `readonly_args/readonly_resume_args`；`{{readonly}}` 替换为任务的 `true/false`。新会话选 args/readonly_args；恢复选 resume_args/readonly_resume_args，分支不相互追加。没有独立只读分支时，resume_args 必须使用 readonly 占位才支持只读恢复；声明 readonly_args 后必须另有 readonly_resume_args。后者要求同时声明前两种分支；恢复必须绑定 session，所有分支保持 model/effort 映射与基本 args 必需的 prompt。未知/漏映射拒绝别名，模板形态禁止混入这些分支。替换一次、不经 shell。
 
 ADR-0087将custom占位扩展到provider/model/effort/max_turns/budget_usd/system_prompt/agent/agents_json/bare/auto；基本args推导knobs，所有已声明完整分支须同旋钮集合。typed launch校验布尔/数字/字符串，缺占位值在构造配置argv/hash时拒绝，未映射选项拒绝注册。bool文字true/false、number用String确定转换，JSON/提示为单个argv，替换一次不递归；auto在readonly=true的新任务/原生恢复中强制false，但未声明值仍拒绝缺值。bare不默认开启，旧三旋钮argv不变，启动定义摘要进入当前v4完成策略身份；max_turns/budget_usd不替代Goal预算或证明wrapper真的限制模型。

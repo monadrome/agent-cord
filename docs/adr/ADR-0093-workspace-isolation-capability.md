@@ -16,6 +16,6 @@
 
 不把字段加入当前 agent configuration_hash：现有 driver 的实际启动参数和在途 resolver 不变；协调能力快照已包含字段，因此 Context Session Agent 不会沿用隔离语义不同的旧提议。只读审计、workspace lease、人工 gate 和 Goal 宿主验证继续独立生效。
 
-## 验证
+## 运行诊断与验证
 
-新增能力 schema、ACP/headless声明、server catalog/console展示与协调上下文回归；断言环境/argv/prompt不进入投影。当前值为 shared_lease，生产实现仍明确限制；完整测试和 Human Review 指南见[阶段记录](../research/2026-10-10-workspace-isolation-capability.md)。
+新增能力 schema、ACP/headless声明、server catalog/console展示与协调上下文回归；server 另提供只读 `/workspace/lease` 投影，区分free/held/unresolved/unavailable，不接管或清理锁。断言环境/argv/prompt不进入投影。当前值为 shared_lease，生产实现仍明确限制；完整测试和 Human Review 指南见[阶段记录](../research/2026-10-10-workspace-isolation-capability.md)。

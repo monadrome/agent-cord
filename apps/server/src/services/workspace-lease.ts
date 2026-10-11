@@ -6,7 +6,7 @@
  * 执行锁不承载授权或 workflow 事实。
  */
 import { DatabaseSync } from "node:sqlite";
-import { closeSync, constants, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, constants, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import { ApiError, internalError } from "../errors.js";
@@ -19,6 +19,12 @@ export class WorkspaceLeaseBusy extends ApiError {
 
 export class WorkspaceLeaseUnresolved extends ApiError {
   constructor() { super(409, "conflict", "上次工作区执行未确认释放，请先核验遗留 agent/验证进程并修复执行锁"); }
+}
+
+export interface WorkspaceLeaseStatus {
+  isolation: "shared_lease";
+  state: "free" | "held" | "unresolved" | "unavailable";
+  owner: { req_id: string; run_id: string } | null;
 }
 
 function checkFile(path: string): void {
@@ -36,6 +42,27 @@ export class WorkspaceLease {
   private marker: { path: string; content: string } | null = null;
 
   constructor(private readonly workspace_root?: string) {}
+
+  /** 只读运行诊断；不尝试接管、清理或修改锁。 */
+  status(): WorkspaceLeaseStatus {
+    if (this.workspace_root === undefined) return { isolation: "shared_lease", state: "unavailable", owner: null };
+    if (this.owner !== null) return { isolation: "shared_lease", state: "held", owner: { ...this.owner } };
+    try {
+      const root = realpathSync(resolve(this.workspace_root));
+      const marker_path = join(root, "cord", ".index", "workspace-lease-owner.json");
+      if (!existsSync(marker_path)) return { isolation: "shared_lease", state: "free", owner: null };
+      checkFile(marker_path);
+      let raw: unknown;
+      try { raw = JSON.parse(readFileSync(marker_path, "utf8")); } catch { return { isolation: "shared_lease", state: "unresolved", owner: null }; }
+      const value = raw as Record<string, unknown>;
+      const req_id = typeof value.req_id === "string" ? value.req_id : null;
+      const run_id = typeof value.run_id === "string" ? value.run_id : null;
+      return { isolation: "shared_lease", state: "unresolved", owner: req_id !== null && run_id !== null ? { req_id, run_id } : null };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { isolation: "shared_lease", state: "free", owner: null };
+      return { isolation: "shared_lease", state: "unavailable", owner: null };
+    }
+  }
 
   acquire(req_id: string, run_id: string): void {
     if (this.workspace_root === undefined) return;

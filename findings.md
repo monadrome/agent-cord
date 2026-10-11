@@ -1,5 +1,10 @@
 # 调研发现
 
+## 阶段84（2026-10-11）：Shared lease需要运行时诊断
+
+- 静态workspace_isolation=shared_lease能避免误称OS隔离，但人审仍无法区分free、活动held和遗留unresolved owner。新增只读投影，不把磁盘marker当授权恢复。
+- 诊断必须不写事件、不释放锁、不接管；unresolved明确升级人工，保持现有fail-closed恢复语义。
+
 ## 阶段83（2026-10-11）：Workflow能力准入统一
 
 - 只读映射有专用准入，但通道、stdin、native resume和workspace能力无法在workflow声明；新增严格require_capabilities并统一到协调、spawn前、checkpoint三层。
