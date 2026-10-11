@@ -227,6 +227,8 @@ REST 的 `approval_id` 是等待事件 ULID；旧静态编码可解析但不允�
 
 ADR-0073 增 `AgentDriver.capabilities` 可选静态描述，清单同步公开 transport、launch_options、native_resume、宿主 Goal 与受限节点恢复语义。`launch` 严格校验；模板不支持的显式旋钮拒绝该别名，自定义参数不再静默忽略旋钮。ACP model/effort 必须带 option_ids，session/new/load 后核验 select/boolean 和设置回执，再发送 prompt；initialize 声明 boolean 配置能力。readonly 拒绝未知扩展配置和非 plan mode；Claude readonly 覆盖 auto 为 plan。有效参数与协议配置进入配置身份；自定义无 resume_args 不承诺原生恢复。
 
+ADR-0089：ACP/headless任务迭代先观察signal；已经取消返回单个error，无MCP凭据解析/模板调用/spawn/result。有效timeout_ms须为1到2,147,483,647的整数，只有undefined才缺省，非法值为configuration error；直接CLI帮助查询也在probe前拒绝非法预算。显式resume要求非空/非全空白字符串且无C0/DEL，Headless另拒绝`-`前缀，ACP保持不透明ID。Headless参数错误仍抛出，ACP返回configuration error；错误不回显ID，resume(undefined)不降级new。Headless参数编译后重检signal，合法argv/配置身份不变，不证明远端历史加载或替代Goal/人工gate。
+
 ADR-0080 为自定义 headless 条目增加完整 `readonly_args/readonly_resume_args`；`{{readonly}}` 替换为任务的 `true/false`。新会话选 args/readonly_args；恢复选 resume_args/readonly_resume_args，分支不相互追加。没有独立只读分支时，resume_args 必须使用 readonly 占位才支持只读恢复；声明 readonly_args 后必须另有 readonly_resume_args。后者要求同时声明前两种分支；恢复必须绑定 session，所有分支保持 model/effort 映射与基本 args 必需的 prompt。未知/漏映射拒绝别名，模板形态禁止混入这些分支。替换一次、不经 shell。
 
 ADR-0087将custom占位扩展到provider/model/effort/max_turns/budget_usd/system_prompt/agent/agents_json/bare/auto；基本args推导knobs，所有已声明完整分支须同旋钮集合。typed launch校验布尔/数字/字符串，缺占位值在构造配置argv/hash时拒绝，未映射选项拒绝注册。bool文字true/false、number用String确定转换，JSON/提示为单个argv，替换一次不递归；auto在readonly=true的新任务/原生恢复中强制false，但未声明值仍拒绝缺值。bare不默认开启，旧三旋钮argv/hash不变，新参数身份/固定resolver沿用既有规则；max_turns/budget_usd不替代Goal预算或证明wrapper真的限制模型。

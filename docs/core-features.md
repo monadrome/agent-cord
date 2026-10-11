@@ -130,6 +130,7 @@ flowchart LR
 | 角色与资源 | Claude 支持 `launch.agent/agents_json/system_prompt/max_turns/budget_usd`；Goal 有宿主时长、尝试、无进展和可靠 usage 预算 |
 | 自定义Wrapper旋钮 | args显式映射bare/auto/角色/系统提示/JSON/轮次/费用，完整分支须同集合；布尔/数值文字确定，只读auto=false，不替代宿主Goal |
 | 原生会话恢复 | 必须显式 session ID；内置 headless 模板、ACP 协商 loadSession、自定义 `resume_args` 分别负责 |
+| 启动前任务校验 | 已取消任务零spawn；拒绝非法timeout和空白/控制字符session，CLI额外拒绝选项形式的ID，不降级最近会话/新会话 |
 | 固定流程节点恢复 | 原授权 Goal recovery 加 `node_id`，限定原 token 绑定的未退出节点；保持 checkpoint、输入/配置身份、原预算和人工 gate |
 | 扩展 | ACP `config_options` 支持 select/boolean；自定义 argv 显式绑定 model/effort/session；外部行为变化用 `context_revision` |
 
@@ -148,6 +149,8 @@ Headless运行时能力查询已接通，CLI版本、任务/恢复帮助、已�
 ACP可声明完整`readonly_launch`，避免同一别名的code/扩展设置被带入只读评审或Context Session Agent。新任务与指定session恢复都选择对应配置，注册拒绝危险/漏映射配置，session核验实际允许值和回执。两套配置共同绑定身份，在途保持原resolver，冷恢复重新核验；缺省保持旧语义。无prompt查询的readonly参数也进入在途共享key，控制台跨模式历史标“其他任务配置”，不能冒称当前所选结果（[ADR-0084](./adr/ADR-0084-acp-readonly-launch-profile.md)、[配置与人审指南](./research/2026-10-10-acp-readonly-launch.md)）。
 
 Headless也支持完整readonly_launch，单一别名可按任务选择不同模型/effort/角色/额度参数，不继承执行knobs或launch；只读权限参数/auto优先和宿主审计保留。新profile使用v3四argv身份、旧无声明identity兼容，固定resolver/cold新鲜度共用。明确cli_help模板可查询所选mode的configured标记，但实际probe仍只有version/help，无模型或角色参数；跨mode结果不当当前所选配置。原始args无help profile仍拒绝只读查询（[ADR-0088](./adr/ADR-0088-headless-readonly-launch-profile.md)、[Headless人审指南](./research/2026-10-10-headless-readonly-launch.md)）。
+
+Agent任务执行在启动前处理已取消signal，再校验有效timeout/session。直接driver调用拒绝超出Node定时器范围的预算；显式resume(undefined)不变成new。Headless拒绝`--last`等选项形式session，ACP保留合法不透明ID，名称/Unicode原值保持；编译期间取消也不派发。错误固定脱敏，有效身份和Goal/人审边界不变；这是参数/派发保证，不能证明厂商正确恢复会话（[ADR-0089](./adr/ADR-0089-agent-task-launch-preflight.md)、[人审指南](./research/2026-10-10-agent-task-launch-preflight.md)）。
 
 ACP的MCP配置分别控制执行/只读连接列表，新任务与显式loadSession都传所选完整列表；只读不继承可写工具。stdio按协议必需，HTTP/SSE须initialize明确支持，缺凭据或不支持时不降级空工具。非空定义绑定v7身份，公开能力只给数量/传输，凭据值从环境引用解析，session配置拒绝回显时固定脱敏。inspect使用空列表且不解析所配凭据，返回`mcp_transports.connections=not_requested`；声明、传输支持和真实连接是独立证据，工具权限/独立协调禁工具仍不变（[ADR-0086](./adr/ADR-0086-acp-mcp-configuration.md)、[MCP人审指南](./research/2026-10-10-acp-mcp-configuration.md)）。
 

@@ -27,7 +27,17 @@
 
 ## 错误记录
 
+- 阶段77探索时猜测fixture/组件/模块/协议文档路径不存在；使用rg --files定位实际路径后继续，无文件修改或运行副作用。
 - Fastify 的 `reply` 是 thenable：handler 里 `await reply.code(201)` 会死锁（等响应发出，而响应要等 handler 返回）。一律 `reply.code(...)` 不 await。
+
+## 阶段77：Agent任务启动前校验（已实现并验证，待同步）
+
+- [x] 独立远端核验37920a5a566503a1c027ed6bdbced8e00e74a426/干净工作树；继承阶段76完成证据与持续目标
+- [x] 原生恢复/取消审查，本机Codex帮助确认--last语义；ADR-0089先行
+- [x] 先复现已取消仍spawn、显式session可成为CLI选项、非法timeout被定时器转换；测试MCP结构/诊断环境展开已修正
+- [x] 两driver任务前置校验，CLI帮助非法预算不探测；首71项定向回归通过，补自定义/编译中取消/ACP查询覆盖
+- [x] 完整1497项/107文件、typecheck/build:all/diff、真实离线子进程与人审指南；现有预览health200
+- [ ] 小步提交/有界推送/独立远端核验；完整持续目标保持active
 
 ## 阶段 7：动态快照 provenance 与自定义 artifact 边界（已完成）
 

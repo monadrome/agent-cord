@@ -1,5 +1,12 @@
 # 调研发现
 
+## 阶段77（2026-10-10）：显式恢复与启动前边界
+
+- Headless仅拒绝空session，`--last`会成为Codex exec resume的真实选项，违反明确恢复对象；本机帮助确认session也可为名称，因此不能强制UUID或修改原字符串。ACP使用JSON-RPC，不应继承CLI的`-`前缀限制。
+- ACP/headless都在检查已abort的任务前spawn，事后杀进程无法证明没有执行外部启动逻辑。需要取消优先的启动前拒绝，并通过execa调用计数验证零spawn。
+- Node定时器只支持正整数到2,147,483,647ms；直接driver/inspection调用非法预算不能默默转换成1ms。有效配置身份/argv与宿主Goal预算不变，错误不携带原值。
+- 17项新增反例与完整1497项通过；调用计数确认零spawn，合法名称/Unicode/字面量逐字进入实际参数，ACP的选项样式不透明ID仍合法。取消优先于MCP凭据和参数，模板编译中取消也阻断派发；直接.resume(undefined)必须保留显式恢复意图而不能新建会话。
+
 ## 阶段76（2026-10-10）：Headless仍共用执行模型与角色
 
 - ACP独立readonly_launch已实现；Headless buildArgv无论readonly/new/resume都spread同一knobs，不能明确给评审/协调不同模型、effort、角色/资源。自定义wrapper新增完整旋钮后这一缺口更明显。

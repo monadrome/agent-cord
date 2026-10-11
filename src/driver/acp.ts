@@ -31,6 +31,7 @@ import { validate_agent_launch, type AgentCapabilities, type AgentLaunch } from 
 import { ACP_LAUNCH_STATE_POLICY, ACP_PROVIDER_LAUNCH_STATE_POLICY, AcpConfigResponseSchema, AcpLaunchConfigurationError, AcpLaunchState, type AcpCapabilityObservation } from "./acp-launch.js";
 import { AcpPermissionPolicySchema, decideAcpWorkspacePermission, type AcpPermissionPolicy, type AcpPermissionPolicyInput } from "./acp-permissions.js";
 import { AcpMcpServersSchema, assert_acp_mcp_transports, compile_acp_mcp_servers, mcp_transport_observation, type AcpMcpServers, type AcpMcpServersInput } from "./acp-mcp.js";
+import { resume_session_error, task_timeout_error } from "./task-preflight.js";
 import {
   AsyncQueue,
   DEFAULT_KILL_GRACE_MS,
@@ -253,7 +254,7 @@ export class AcpDriver implements AgentDriver {
   }
 
   resume(sessionId: string, task: AgentTask): AsyncIterable<AgentEvent> {
-    return this.execute(task, sessionId);
+    return this.execute(task, sessionId, false, true);
   }
 
   /** 只协商新 session 并校验启动配置，不发送 prompt 或请求工具。 */
@@ -270,8 +271,15 @@ export class AcpDriver implements AgentDriver {
     return observation;
   }
 
-  private async *execute(task: AgentTask, resumeSessionId: string | undefined, inspect_only = false): AsyncIterable<AgentEvent> {
-    const timeoutMs = task.timeout_ms ?? DEFAULT_TASK_TIMEOUT_MS;
+  private async *execute(task: AgentTask, resumeSessionId: string | undefined, inspect_only = false, resume_requested = false): AsyncIterable<AgentEvent> {
+    if (task.signal?.aborted) { yield errorEvent("ACP任务已取消", "agent"); return; }
+    const timeoutMs = task.timeout_ms === undefined ? DEFAULT_TASK_TIMEOUT_MS : task.timeout_ms;
+    const timeout_error = task_timeout_error(timeoutMs);
+    if (timeout_error !== null) { yield errorEvent(timeout_error, "configuration"); return; }
+    if (resume_requested) {
+      const session_error = resume_session_error(resumeSessionId, false);
+      if (session_error !== null) { yield errorEvent(session_error, "configuration"); return; }
+    }
     const readonly = task.readonly === true;
     const launch = readonly ? this.readonly_launch ?? this.launch : this.launch;
     const mcp = readonly ? this.readonly_mcp_servers : this.mcp_servers;

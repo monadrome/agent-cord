@@ -1,5 +1,15 @@
 # 工作进度
 
+## 2026-10-10（阶段77）
+
+- 37920a5干净/tracking同步，独立HTTP/2远端核验37920a5a566503a1c027ed6bdbced8e00e74a426；阶段76的1480项/实际HTTP/浏览器证据为已完成进展。读取当前Goal仍active，沿用agent-optimizer/planning-with-files，不派生子agent或调用付费模型。
+- 审查Headless原生resume与两driver执行起点，定位--last可作为session参数、已取消任务先spawn、直接调用非法timeout被Node转换。Codex本机resume --help明确最近会话/UUID或名称语义；ADR-0089与阶段计划已先记录，未修改核心契约。
+- 探索时三个猜测路径不存在，已用rg --files或源码实际路径定位；不重复读取不存在路径，无运行副作用。开始编写零spawn/恢复兼容反例。
+- 新14项首轮全失败：13项复现实际启动边界问题，另1项MCP测试结构错误，已按真实type/env_from修正。首轮调用断言展开环境，已改为仅断言计数，后续不打印环境。已补共享纯参数校验、取消优先/派发前重检、显式resume undefined不降级new；ACP保留不透明ID/CLI额外拒绝选项前缀，合法argv/hash不变。
+- 首71项/4文件定向通过，包含旧timeout/cancel进程树与两套readonly配置。追加custom完整resume、编译期间abort、ACP inspect无prompt/非法预算以及Unicode/空格/字面量实际session参数覆盖；协议文档实际为docs/protocol.md，纠正探索路径。
+- 扩展后102项/4文件通过，其中新17项全部通过。README/核心feature/协议/架构/ADR索引与人审指南同步；开始最终完整验证，无新增UI行为，不重复浏览器截图。
+- 最终npm test1497项/107文件、typecheck/build:all/git diff --check通过，JSON为/tmp/cord-stage77-tests.json；7份文档196个本地链接通过，ADR新增指南链接后再核验。原有TCP Goal/自测/readonly/最新协调/cold与人工等待全覆盖，无付费模型调用或原7306Draft操作。现有隔离64019预览health200；仅文档在全量后更新，生产实现未再改，完整目标active。
+
 ## 2026-10-10（阶段76）
 
 - 6f9670d干净/tracking同步，阶段75全量1461项与真实TCP/三截图/独立远端核验为progress。继续沿用planning-with-files/agent-optimizer，读取Headless/registry/inspect/UI后定位只读role/model配置共用；ADR-0088先于ports语义注释修改，不调用付费模型或子agent。

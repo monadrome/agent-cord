@@ -12,6 +12,7 @@ import type { AgentDriver, AgentEvent, AgentTask } from "../core/ports.js";
 import { canonicalJson, sha256Hex } from "../core/hash.js";
 import { validate_agent_launch, type AgentCapabilities, type AgentLaunch } from "./launch.js";
 import { cli_help_observation, cli_help_recognized, cli_version, type CliProbeStatus, type HeadlessCapabilityObservation, type HeadlessInspectionProfile } from "./headless-inspection.js";
+import { resume_session_error, task_timeout_error } from "./task-preflight.js";
 
 // ---------------------------------------------------------------------------
 // 事件数据约定（AgentEvent.data 的具体形态）
@@ -679,13 +680,15 @@ export class HeadlessDriver implements AgentDriver {
   }
 
   resume(sessionId: string, task: AgentTask): AsyncIterable<AgentEvent> {
-    return this.execute(task, sessionId);
+    return this.execute(task, sessionId, true);
   }
 
   /** 显式查询只执行版本/帮助，不混入prompt、模型选择或角色参数。 */
   async inspect(cwd: string, timeout_ms = 5_000, signal?: AbortSignal, readonly = false): Promise<HeadlessCapabilityObservation | null> {
     const profile = this.template.inspection_profile;
     if (profile === undefined) return null;
+    const timeout_error = task_timeout_error(timeout_ms);
+    if (timeout_error !== null) throw new Error(timeout_error);
     const knobs = readonly ? this.readonly_knobs ?? this.knobs : this.knobs;
     const deadline = Date.now() + timeout_ms;
     const result: HeadlessCapabilityObservation = { evidence: "cli_help", profile, status: "passed", version: null, help_hash: null,
@@ -738,7 +741,11 @@ export class HeadlessDriver implements AgentDriver {
 
   /** 该驱动实际拼出的 argv（含 bin），供 registry/doctor/测试观测 */
   buildArgv(task: AgentTask, resumeSessionId?: string): string[] {
-    if (resumeSessionId !== undefined && (resumeSessionId.length === 0 || this.template.supports_resume !== true)) throw new Error("agent 不支持显式原生 session resume");
+    if (resumeSessionId !== undefined) {
+      const session_error = resume_session_error(resumeSessionId, true);
+      if (session_error !== null) throw new Error(session_error);
+      if (this.template.supports_resume !== true) throw new Error("agent 不支持显式原生 session resume");
+    }
     if (resumeSessionId !== undefined && task.readonly === true && this.template.supports_readonly_resume !== true) throw new Error("agent 不支持当前只读模式的原生session resume");
     return [
       this.bin,
@@ -752,10 +759,18 @@ export class HeadlessDriver implements AgentDriver {
     ];
   }
 
-  private async *execute(task: AgentTask, resumeSessionId: string | undefined): AsyncIterable<AgentEvent> {
+  private async *execute(task: AgentTask, resumeSessionId: string | undefined, resume_requested = false): AsyncIterable<AgentEvent> {
+    if (task.signal?.aborted) { yield errorEvent("task aborted by caller", "agent"); return; }
+    const timeoutMs = task.timeout_ms === undefined ? DEFAULT_TASK_TIMEOUT_MS : task.timeout_ms;
+    const timeout_error = task_timeout_error(timeoutMs);
+    if (timeout_error !== null) { yield errorEvent(timeout_error, "configuration"); return; }
+    if (resume_requested) {
+      const session_error = resume_session_error(resumeSessionId, true);
+      if (session_error !== null) throw new Error(session_error);
+    }
     const argv = this.buildArgv(task, resumeSessionId);
     const [bin = this.bin, ...args] = argv;
-    const timeoutMs = task.timeout_ms ?? DEFAULT_TASK_TIMEOUT_MS;
+    if (task.signal?.aborted) { yield errorEvent("task aborted by caller", "agent"); return; }
 
     const queue = new AsyncQueue<AgentEvent>();
     let timedOut = false;

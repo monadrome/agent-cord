@@ -153,6 +153,8 @@ ACP定义的可选readonly_launch是完整AgentLaunch，task.readonly=true时替
 
 Headless的readonly_launch同为完整AgentLaunch，在只读新任务/指定session恢复中替代knobs+launch，基本/独立配置各自按模板能力校验，custom占位缺值在构造hash时拒绝。独立定义使用headless.v3绑定四种有效argv和context_revision，空独立配置也与未声明分开，旧无profile保留身份。AgentService接受ACP或明确cli_help的headless只读查询；CLI probe只发version/help，configured从所选profile派生，help advertised不证明真实LLM访问或额度。UI复用mode/identity核验，跨mode历史不冒称当前结果。资源/角色参数和只读映射均不替代Goal自测、OS隔离与人工gate（[ADR-0088](./adr/ADR-0088-headless-readonly-launch-profile.md)）。
 
+任务启动前共享纯timeout/session校验，signal取消优先于参数和MCP解析；已取消任务零spawn。Headless参数编译后再次观察signal，CLI明确session拒绝选项前缀，ACP保留合法不透明ID，resume(undefined)不降级new。有效timeout不允许Node隐式截断/转换，错误固定不回显原值；有效argv/hash与宿主恢复/人工gate保持原规则（[ADR-0089](./adr/ADR-0089-agent-task-launch-preflight.md)）。
+
 ACP可选mcp_servers与readonly_mcp_servers分别声明最多16项stdio/http/sse连接，stdio用绝对command/argv/env_from，网络传输用URL/headers_from；凭据引用在实际spawn前解析，初始化后核验HTTP/SSE支持，再传给session/new/load。只读缺省空列表，不合并工具；inspect始终空MCP列表、不解析引用，返回协商传输与not_requested连接状态。非空配置v7身份覆盖两套完整定义/凭据变量名，值不入hash，空列表保留旧身份；清单/协调仅mcp_configuration数量/传输投影，未知/漏凭据/未支持传输fail-closed。工具启动/连接由ACP agent管理，宿主不保证OS或远端隔离（[ADR-0086](./adr/ADR-0086-acp-mcp-configuration.md)）。
 
 网络header值使用Node validateHeaderValue在spawn前核验标准字符范围，错误固定脱敏。官方MCP SDK本地HTTP/SSE服务验证实际认证、工具结果进入代码/宿主自测、只读报告与最新PRD协调不新增连接、cold等待不重放。取消与超时实际活动请求/流已收束，但测试保留HTTP远端session反例；成功fixture主动terminateSession只是agent自身清理行为，不是宿主的远端删除保证。
