@@ -6,6 +6,7 @@
 - 严格GoalCommand.assets/pin/定位与严格mode发布、只读副本/资产v3命令hash、RunService当前pin输入、库Goal/reuse核验和指南证据已接通。build首错误sha256Hex仅接收文本，二进制pin改Node createHash，不修改纯hash契约；root build/typecheck通过。22项新契约/物理/真实OS测试与原86项Goal/ready/host回归通过，两协议本地tests被改为exit0仍failed→业务修复passed，外部写被OS拒绝；自身人审漂移/还原原pin可消费的TCP通过，继续跨节点/资源/整组漂移与完整验证。
 - 27项资产来源/资源/二进制/复制期间漂移/真实OS/解释器/取消timeout清理与7项两协议TCP通过；首全量1868项/130文件绿。最终审查让runHostCheck命令结束后也重验当前原pin，库独立调用不能凭旧副本冒称当前资产；最终全量1869项/130文件、root build/typecheck/build:all/diff、308链接、compiled/pack和18截图通过，双协议预览62670/62687健康且审批各1/决定0/Goal current=true/doctor=true。付费模型0，原7306未操作。
 - 27项资产来源/资源/二进制/复制期间漂移/真实OS/解释器/取消timeout清理与7项两协议TCP通过；首全量1868项/130文件绿。最终审查让runHostCheck命令结束后也重验当前原pin，库独立调用不能凭旧副本冒称当前资产；原Goal后核验保持，转入最后完整验证/隔离实测和文档收尾。
+- 功能提交7b9368a6341bfe7f372c5c07e687ce1dc3cb03d0，HTTP/2与HTTP/1.1 push均20秒低速超时，独立HTTP/2 ls-remote15秒无结果，进程组停止；远端同步未确认，本地提交/验收保留，完整目标active。
 
 ## 2026-10-12（阶段91）
 
