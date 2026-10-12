@@ -7,6 +7,7 @@
 - TCP首轮18/22通过，反例发现decide已落盘invalidated但cold等待无剩余waiting导致recover跳过；新增按原run启动之后最新goal-ready gate失效事实接续，无新run/预算。报告后态变化需要重做readonly reviewer，测试已准确区分。写故障测试最初同时击中在途ask读取窗口，改在cold等待隔离REST落盘故障；最终26项TCP通过，核心新增读取期间取消/验证替换/严格故障，原审批11项与Goal交付14项兼容通过。模板/两个Goal示例/协议/Feature/ADR与人审指南同步，转入完整验证与隔离实测。
 - 首全量1769项通过，最终审查补cold reviewer配置移除/非法：转换为可修复输入不可用，服务正常启动、未决等待保留，原配置恢复可消费；28项TCP与最终全量1771项/124文件通过（/tmp/cord-stage89-final-tests.json），root build/typecheck/build:all/diff、280链接与两个Goal示例解析通过。浏览器390宽首次发现摘要撑宽审批，局部min-width/overflow-wrap修复并重新console构建；12张协调/审批截图和指南读取通过，无pageerror/横向溢出，1440/320审批图已实际查看。
 - 两棵隔离Git工作树实际TCP先测源码漂移409/原run blocked/零上游重跑，再交付当前Goal→readonly评审→未决人审；报告变更仅readonly重做，cold原审批不重做worker、完整最新协调/doctor=true、人工决定0、仅deliver退出、主树initial。最终源码重启预览PID56293，headless http://127.0.0.1:52221、ACP http://127.0.0.1:52234；证据/tmp/cord-stage89-real-result.json和/tmp/cord-stage89-browser-result.json。未调用付费模型、未操作7306原真实Draft，完整持续目标active；准备小步提交/推送与独立核验。
+- 小步功能提交2c6303e52d80c55af29736919db4038d890f06c1，diff已审查、工作树干净。HTTP/2与HTTP/1.1 push均报连续15秒低于1 bytes/sec；独立HTTP/2 ls-remote无结果，已停止，远端同步未确认。本地提交/1771项验收保留，双协议health=200/审批各1、真实最终review未决；整体目标active，网络失败不回退功能。
 
 ## 2026-10-12（阶段88）
 

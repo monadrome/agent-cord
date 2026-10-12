@@ -110,13 +110,14 @@
 - [x] 小步提交7d53bdf（fixture正整数PID同步）与558627b（声明依赖输入）完成；完整目标active
 - [x] 先前HTTP/2低速/HTTP1.1总时长失败保留；最后HTTP/2 push成功（9308364→a9167d0），独立ls-remote核验a9167d055009b5e17f9307948e3a77e5ba1f4a01，功能/测试/验收记录同步；worker OS/可信验证资产与Linux原生实测继续待完善，完整目标active
 
-## 阶段89：最终评审Goal就绪门禁（已实现并验证，提交中）
+## 阶段89：最终评审Goal就绪门禁（已实现并验证，远端同步未确认）
 
 - [x] 核验fdabaf8干净/同步，阶段88为progress；定位verification-passed不能跨节点/报告存在不足，ADR-0099先行
 - [x] goal-ready/schema/ports/宿主input钩子、来源/自身上游/当前三hash、审批身份/冷恢复原run共用
 - [x] 核心发布/失败来源/执行与ACP/headless TCP恢复/人审反例，Goal评审示例/指南/协议同步
 - [x] 最终1771项/124文件、build/typecheck/build:all/diff与280链接、两个Goal示例解析、隔离双协议TCP/12截图通过
-- [ ] 完整验证、实际隔离验收、小步提交推送/独立核验；完整目标active
+- [x] 功能提交2c6303e；HTTP/2和HTTP/1.1有界推送均因GitHub15秒低速失败，独立查询无结果已停止；保留本地提交/实际验收，完整目标active
+- [ ] 网络恢复后推送当前分支并独立核验实际远端hash
 
 ## 阶段79：只读命令参数与策略身份（已实现并验证，功能已同步）
 
