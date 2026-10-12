@@ -142,7 +142,7 @@
 - [x] 接续038232c干净/同步，上一轮全文副本/1834项/远端为progress；审查host/Goal/ready与人审输入，ADR-0102和实现前调研先行
 - [x] 严格GoalCommand资产pin/定位、独立只读副本、原严格检查/新命令身份，当前宿主输入/Goal/ready/人审/协调共用
 - [x] 28项资产契约/资源/字面/OS/失败恢复反例，两协议改本地测试仍被可信检查拒绝、自动业务修复与cold/最终人审
-- [x] 最终1869项/130文件、build/typecheck/build:all/diff、308链接/compiled/pack与隔离双协议TCP/18截图，人审指南同步
+- [x] 最终1869项/130文件、build/typecheck/build:all/diff、308链接/compiled/pack与隔离双协议TCP/18截图，人审指南同步；命令结束后pin重验与运行期间资产漂移阻断通过
 - [x] 功能提交7b9368a；HTTP/2和HTTP/1.1有界push各20秒低速超时，独立ls-remote15秒无结果，进程停止，本地实现/验收保留；完整目标active
 - [ ] 网络恢复后推送当前分支并独立核验远端；可信验证资产/冻结源码/Linux/真实厂商继续推进
 
