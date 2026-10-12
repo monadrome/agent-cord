@@ -204,8 +204,8 @@ export type GateDef = z.infer<typeof GateDefSchema>;
 
 export const GoalCommandSchema = z.strictObject({
   id: z.string().min(1).max(200),
-  bin: z.string().min(1).max(500),
-  args: z.array(z.string().max(10_000)).max(128).default([]),
+  bin: z.string().min(1).max(500).refine(value => !value.includes("\0"), "检查bin不能包含NUL"),
+  args: z.array(z.string().max(10_000).refine(value => !value.includes("\0"), "检查参数不能包含NUL")).max(128).default([]),
   timeout_ms: z.number().int().positive().max(86_400_000).default(120_000),
 });
 export const GoalAcceptanceSchema = z.strictObject({
@@ -275,6 +275,9 @@ export const GoalChangeSummarySchema = z.strictObject({
   .refine(value => (["added", "modified", "deleted"] as const).every(status => value.sample.filter(entry => entry.status === status).length <= value[status]),
     "变更样本状态超过完整计数");
 export type GoalChangeSummary = z.infer<typeof GoalChangeSummarySchema>;
+/** ADR-0097：仅限制宿主检查，未知模式不允许降级执行。 */
+export const GoalCheckSandboxSchema = z.literal("readonly_workspace");
+export type GoalCheckSandbox = z.infer<typeof GoalCheckSandboxSchema>;
 export const GoalConfigSchema = z.strictObject({
   inputs: z.array(z.string().min(1).max(500)).min(1).max(64),
   checks: z.array(GoalCommandSchema).min(1).max(16).refine(values => new Set(values.map(value => value.id)).size === values.length, "Goal 检查 id 必须唯一"),
@@ -285,6 +288,7 @@ export const GoalConfigSchema = z.strictObject({
   usage_budget: GoalUsageBudgetSchema.optional(),
   /** ADR-0071：宿主保存源码基线并审计交付变更；推荐模板默认开启。 */
   review_changes: z.boolean().optional(),
+  check_sandbox: GoalCheckSandboxSchema.optional(),
   max_attempts: z.number().int().min(1).max(10).default(3),
   timeout_ms: z.number().int().positive().max(86_400_000).default(1_800_000),
   no_progress_limit: z.number().int().min(1).max(10).default(2),

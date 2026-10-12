@@ -1,5 +1,12 @@
 # 调研发现
 
+## 阶段87（2026-10-11）：原生检查限制与宿主证据
+
+- Firecrawl官方runtime全文与npm0.0.79可用，Apache-2.0/Node>=22.12；SDK用SandboxManager全局状态，不可在多个server/run共享可变配置。采用每检查独立监督进程，runtime可选固定版本，不提高裸模式Node最低版本。
+- srt CLI将部分SIGTERM/SIGINT转为exit0，不能拿它的退出码直接证明检查通过；library包装后独立监督原子进程退出，信号不能passed。包装的shell引用经固定版本工具，宿主不执行用户shell字符串。
+- 本机Docker daemon未运行、sandbox-exec可实际执行；临时spike证明只读源码/外部写拒绝、用户fixture读取拒绝和loopback网络拒绝。denyRead根后绝对/var别名会因路径遍历权限失败，使用canonical cwd与路径，命令参数不私自改写。
+- 系统运行时read allowlist与单独scratch允许工具执行；worktree不等于OS沙箱，宿主checks模式应独立绑定command_hash与指南证据，不冒称worker已隔离。
+
 ## 阶段86（2026-10-11）：隔离必须覆盖整个工作单元
 
 - 当前worker cwd、源码扫描、宿主check和session产物共用server root。单独改变worker cwd会验证另一份代码；独立linked worktree应承载整个server工作单元，复用现有输入/审批/冷恢复契约。

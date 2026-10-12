@@ -1,5 +1,14 @@
 # 工作进度
 
+## 2026-10-11至12（阶段87）
+
+- 6a9c360干净/同步，上一轮worktree/1663项/远端与预览为实际进展；读取Goal/checkpoint/host-check后确定检查OS权限尚未提供。使用Firecrawl（已告知）search --scrape2条并保存临时资料，不重复抓网页；npm pack0.0.79/许可/类型/源码核对。Docker daemon不可用，sandbox-exec成功；临时runtime安装完成，两个spike核验规范路径后真实只读/无网络/字面参数成立，无付费模型/子agent/7306操作。
+- ADR-0097先于schema；可选runtime固定0.0.79、每检查可信helper/独立临时HOME/TMP、最小环境与IPC真实退出来源，模式/策略绑定command_hash并共用ready。首红测试证明旧路径忽略mode/泄漏测试env和裸写；其中HOME/cache测试产物已清理，测试先验证专属scratch再写。source loader的import.meta.resolve在Vitest不可用，改createRequire标准定位，修正IPC闭包窄化；12项宿主检查与85项Goal/来源回归通过，root build通过。
+- TCP首5项中3项等待失败，独立真实检查定位runtime覆盖TMPDIR=/tmp/claude、我们的严格denyWrite正常阻止；改在沙箱内env显式覆盖私有scratch，不放宽共享写权限。纯模式/进程/并发与完整TCP5项通过（裸hash测试起初只mock strict读取，决定路径读ordered，已统一两个读取后真实guard拒绝）；追加物理冷历史伪造回归。typecheck通过，所有失败按实际证据修正，无付费调用。
+- 最终扩展17项新回归（原生检查9/ready1/TCP7）、全量1680项/121文件通过（/tmp/cord-stage87-tests.json），typecheck/build:all/diff通过；compiled入口严格检查passed/pack包含helper。取消/timeout用忽略SIGTERM的父子进程仍整组收束，输出伪造completed JSON不覆盖非零；缺runtime实际独立helper拒绝，不依赖mock。最后补检查bin按PATH的可执行定位，缺bin归环境错误而不反复重做worker，待最终完整重验。
+- 独立两Git worktree TCP预览PID4762：headless http://127.0.0.1:58480、ACP http://127.0.0.1:58527；各worker2次/严格checks failed→passed/current wait/doctor=true/审批1/决定0/退出0，主树initial未改，付费0；冷启动保留同run/审批且不重做worker。/tmp/cord-stage87-real-result.json与浏览器结果保留；1440/390/320六截图无pageerror/横向溢出，完整review只读展示模式/版本/命令/矩阵，桌面/320已查看。ADR/README/Feature/协议/架构/指南同步，原7306真实Draft未操作，完整目标active。
+- 最后可执行bin定位后完整1680项/121文件、typecheck/build:all/diff全部通过；265个本地文档链接无缺失，固定runtime可选依赖及BSD/MIT传递许可已核对。生产代码稳定，准备feature提交推送与远端hash核验；worker真实OS限制/冻结源码与可信验证器资产/Linux实际环境仍待继续。
+
 ## 2026-10-11（阶段86）
 
 - 接续65e7eb5干净/ahead3，上一轮功能、1637项完整验证与TCP证据为实际进展；当前无必须等待的exec session。读取隔离/源码/产物/AgentService后确定整个server-root承载linked工作树，避免worker cwd与宿主验证分裂；Git 2.50.1帮助核对detach语义，ADR-0096先行，无子agent/付费模型/7306操作。

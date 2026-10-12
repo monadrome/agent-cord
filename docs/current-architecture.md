@@ -56,6 +56,8 @@ worker agent 子进程（ACP / 裸 headless CLI）
 
 ACP/headless 保持任务调用。coordinator/goal.ts 在 NodeRunner 内承载 run.goal：worker 产出代码与指南 → 宿主按声明 argv 执行检查 → 输入重检与指南审计 → 失败反馈修复或 ready。host-verification.ts 计算完整输出 hash、有界内存尾部并回收超时/取消进程组；失败原文不持久化。指南补入实际结果事件与命令元信息，当前源码与最终指南绑定验证输入。连续无进展、时长与尝试从 goal.attempt 事实恢复；卡点归 run failed 并公开原因。Context Session Agent 现在读取受限 Goal 状态；blocked/invalid/cancelled 会使 eligible_nodes 为空，只能产生带当前 Goal 事件证据的 ask_human/wait Draft，不会扩预算或放行 gate。
 
+`run.goal.check_sandbox=readonly_workspace`是可选宿主检查隔离：host-verification准备独立scratch/最小env，每检查通过独立sandbox-check-helper初始化固定runtime并原生执行。源码只读、cord/Git保护、网络关闭、HOME/TMPDIR私有；helper IPC与测试输出分开，真实退出/信号决定结果，缺依赖或setup失败不裸执行。模式/版本策略绑定command_hash与共享ready核验，指南展示实测隔离。macOS实际回归通过，Linux依赖/执行仍待实测；worker能力与最终人工gate不因该字段放宽（[ADR-0097](./adr/ADR-0097-sandboxed-host-checks.md)、[人审指南](./research/2026-10-12-sandboxed-host-checks.md)）。
+
 Goal 声明 `supervisor_agent` 时，RunService 在 blocked 事实和 failed run 落盘、executor 收束与活动槽位/lease 释放后调用 CoordinationService 自动发起 `goal_blocked` 轮次。请求事实绑定 blocker event、run、node 和 workflow revision，服务重启补缺失首次请求且不重放已有 supervisor 请求或继续旧重试链；在途人工协调先等待。协调失败不改变 run failed，输入变化使轮次 stale，人工回答仍走既有澄清接口。没有声明 supervisor 的流程保持旧行为。
 
 `supervisor_max_attempts` 可声明 1..3 次（含首次，默认一次）。CoordinationService 只对输出失败/超时在原输入与配置下自动重试，使用发布上限、连续 system 父子来源、当前 token 和固定 resolver；started 落盘后再次重检输入，避免持久化期间变更仍启动旧 prompt。权限/工具/配置/存储/中断错误、取消或新输入停止自动循环，人工 retry 保留显式 token 入口；不启动 worker、不扩 Goal 预算、不生成答复或 gate 决定（[ADR-0095](./adr/ADR-0095-bounded-supervisor-retry.md)、[Human Review 指南](./research/2026-10-11-bounded-supervisor-retry.md)）。

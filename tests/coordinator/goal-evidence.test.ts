@@ -10,6 +10,7 @@ import { createNodeRunner } from "../../src/coordinator/coordinator.js";
 import { resolveGoalReadiness } from "../../src/coordinator/goal-evidence.js";
 import { accumulateGoalUsage } from "../../src/coordinator/goal-usage.js";
 import { source_manifest_hash } from "../../src/coordinator/goal-changes.js";
+import { goalCommandHash } from "../../src/workflow/host-verification.js";
 
 const def = WorkflowDefSchema.parse({ apiVersion: "agent-cord.dev/v1alpha1", kind: "Workflow", metadata: { id: "goal-evidence" }, spec: { nodes: [{ id: "deliver", artifact: "review.md",
   run: { agent: "fake", goal: { inputs: ["value.txt"], checks: [{ id: "test", bin: process.execPath, args: ["-e", "process.exit(0)"] }],
@@ -38,6 +39,14 @@ function patch(type: string, fields: Partial<EventEnvelope>, data?: Record<strin
 }
 
 describe("共享 Goal ready 证据", () => {
+  it("严格沙箱声明拒绝裸command hash，模式/策略hash一致才接受来源", () => {
+    const strict = structuredClone(node); strict.run!.goal!.check_sandbox = "readonly_workspace";
+    expect(resolveGoalReadiness(ready(), events, strict, scope)).toBeNull();
+    const updated = events.map(event => event.type === "verification.completed" ? { ...event,
+      payload: { ...event.payload, command_hash: goalCommandHash(strict.run!.goal!.checks[0]!, "readonly_workspace") } } : event);
+    expect(resolveGoalReadiness(ready(updated), updated, strict, scope)).not.toBeNull();
+    expect(resolveGoalReadiness(ready(updated), updated, node, scope)).toBeNull();
+  });
   it.each(["missing", "wrong_source", "omitted", "forged_baseline", "forged_after"])("源码变更证据 %s 不可作为当前 ready", mode => {
     const evidence = structuredClone(ready().payload["change_evidence"]) as { baseline_event_id: string; baseline_source_hash: string; changes: Array<{ after: unknown }> };
     if (mode === "wrong_source") evidence.baseline_event_id = ulid();

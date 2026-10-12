@@ -19,6 +19,8 @@ agent-cord 的设计决策分为四类，共 71 条，一条决策一个文件�
 
 实际工作单元隔离：[ADR-0096：独立Git工作树执行](./ADR-0096-linked-worktree-execution.md)，定义显式commit创建、整个server-root绑定与真实worktree能力，保留Git公共元数据共享和人工gate；[Human Review指南](../research/2026-10-11-linked-worktree-execution.md)。
 
+宿主检查限制：[ADR-0097：只读工作区沙箱](./ADR-0097-sandboxed-host-checks.md)，定义每检查独立原生限制、可信IPC退出、模式/策略证据与不降级行为；[Human Review指南](../research/2026-10-12-sandboxed-host-checks.md)。
+
 设计决策先于技术决策成立：技术选型都是设计约束的推论，而不是流行度比较的结果。每份 ADR 的「理由」一节都给出从痛点出发的第一性原理推导链。
 
 ---

@@ -155,7 +155,8 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
             ...(goal.review_changes === true && baseline === null ? { source_manifest: current.source_manifest } : {}) }));
           if (goal.review_changes === true && baseline === null) baseline = { event_id: attempt_started.event_id, manifest: current.source_manifest! };
           const instructions = `## Goal 交付契约\n自主实现当前需求的代码 Draft。宿主将实际运行声明检查；一次回复结束不代表目标完成。\n源码范围：${JSON.stringify(goal.inputs)}\n检查：${JSON.stringify(goal.checks)}\n${goal.review_changes === true ? "宿主将以首次实际源码为基线生成完整变更清单；不要用自报清单替代宿主证据。\n" : ""}${goal.usage_budget === undefined ? "" : `宿主 usage 预算：${JSON.stringify(goal.usage_budget)}；只按实际 task usage 计量，未知 usage 不等于零。\n`}${goal.acceptance === undefined ? "" : `发布验收条件：${JSON.stringify(goal.acceptance)}\n逐项实现验收条件；宿主生成真实证据矩阵，不以模型自报通过放行。\n`}最终指南必须含非空的二级标题：变更、验收、风险，写明变更定位、验收依据与未覆盖项。不要合入、发布或批准 gate。\n${feedback}`;
-          const outcome = await task_runner(instructions).runNode(node, session, { ...ctx, signal });
+          const sandbox_context = goal.check_sandbox === undefined ? "" : "\n宿主检查在readonly_workspace沙箱中运行：源码/事件不可写、HOME/TMPDIR为独立临时目录、禁止网络；不要降低检查要求或请求裸执行来通过测试。\n";
+          const outcome = await task_runner(instructions + sandbox_context).runNode(node, session, { ...ctx, signal });
           const task = (await readSessionEvents(session)).filter(event => event.type === "agent.task.completed" && scoped(event, ctx)).at(-1);
           const task_result = task === undefined ? null : AgentTaskCompletedPayloadSchema.safeParse(task.payload);
           if (signal.aborted && goal.usage_budget !== undefined) {
@@ -174,7 +175,7 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
             try { current = await identity(node, session, ctx); guide = await readSessionDocument(session.dir, node.artifact); }
             catch { await finish("blocked", "worker 完成后无法读取当前输入或指南", { failure_kind: "environment" }); return { status: "failed" }; }
             for (const command of goal.checks) {
-              const result = await runHostCheck(command, options.workspaceRoot, signal, Math.max(0, deadline - Date.now()));
+              const result = await runHostCheck(command, options.workspaceRoot, signal, Math.max(0, deadline - Date.now()), goal.check_sandbox);
               checks.push({ command, result, event_id: ulid() });
               if (signal.aborted || result.spawn_error) break;
             }
@@ -192,7 +193,7 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
               const missing = validateGuide(guide);
               kind = "delivery"; reason = `review 指南缺少非空章节：${missing.join("、")}`;
               if (missing.length === 0 && guide !== null) {
-                const evidence = `\n\n## 宿主验证证据\n\n- 代码 Draft 工作区：${JSON.stringify(options.workspaceRoot)}\n- 声明源码范围：${JSON.stringify(goal.inputs)}\n- 实测 source_hash：${current.source_hash}\n- 最终 review、合入与关键 gate 仍由人工完成。\n\n${checks.map(check => `- ${JSON.stringify(check.command.id)}：${JSON.stringify([check.command.bin, ...check.command.args])}；退出码 ${check.result.exit_code}；${check.result.duration_ms} ms；事件 ${check.event_id}；stdout ${check.result.stdout_hash}；stderr ${check.result.stderr_hash}`).join("\n")}\n`;
+                const evidence = `\n\n## 宿主验证证据\n\n- 代码 Draft 工作区：${JSON.stringify(options.workspaceRoot)}\n- 声明源码范围：${JSON.stringify(goal.inputs)}\n- 实测 source_hash：${current.source_hash}\n${goal.check_sandbox === undefined ? "" : "- 宿主检查隔离：readonly_workspace；Sandbox Runtime 0.0.79，源码只读、临时HOME、无网络。\n"}- 最终 review、合入与关键 gate 仍由人工完成。\n\n${checks.map(check => `- ${JSON.stringify(check.command.id)}：${JSON.stringify([check.command.bin, ...check.command.args])}；退出码 ${check.result.exit_code}；${check.result.duration_ms} ms；事件 ${check.event_id}；stdout ${check.result.stdout_hash}；stderr ${check.result.stderr_hash}`).join("\n")}\n`;
                 const acceptance_evidence = goalAcceptanceEvidence(goal, checks.map(check => check.event_id));
                 let change_evidence: GoalChangeEvidence | undefined;
                 try {
