@@ -120,13 +120,14 @@
 - [x] 功能提交2c6303e；HTTP/2和HTTP/1.1有界推送均因GitHub15秒低速失败，独立查询无结果已停止；保留本地提交/实际验收，完整目标active
 - [ ] 网络恢复后推送当前分支并独立核验实际远端hash
 
-## 阶段90：Worker实际OS沙箱（已实现并验证，提交中）
+## 阶段90：Worker实际OS沙箱（已实现并验证，远端同步未确认）
 
 - [x] 接续0c95902干净/ahead2，上一轮为1771项/实际交付/小步提交的progress；审查worker spawn/环境/状态与固定runtime，ADR-0100与实现前调研先行
 - [x] 两协议可选sandbox、独立helper/可信回执、环境/网络/源码/事实保护与持久状态，身份/能力/查询/协调共用
 - [x] 23项driver真实OS反例、显式恢复/取消/缺依赖，5项首次failed→passed自主修复/Goal→readonly/当前协调/cold TCP/最终人审
 - [x] 最终1799项/126文件、build/typecheck/build:all/diff、287链接/Agent示例、compiled/pack helper与隔离TCP/18截图；人审指南同步
-- [ ] 小步提交推送与独立核验；整个目标保持active
+- [x] 小步功能提交ada578b；HTTP/2和HTTP/1.1有界push各20秒上限、独立ls-remote15秒无结果，进程已停止，本地实现/验收保留；整个目标active
+- [ ] 网络恢复后推送当前分支并独立核验远端；可信验证资产/冻结源码/全文输入复制/Linux及真实厂商继续推进
 
 ## 阶段79：只读命令参数与策略身份（已实现并验证，功能已同步）
 

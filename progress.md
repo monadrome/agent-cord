@@ -7,6 +7,7 @@
 - 20项driver实测通过，新增目录改名/硬链接/符号链接事实别名绕过均被实际OS拒绝。TCP两协议实现/自测/readonly/当前协调/cold与最终人审、策略变化409/原预算、真实Goal取消5项通过；首两项误断言未公开的agent_context，改核验既有agent_context_hash与共享能力集合。无prompt CLI查询实际passed/native_resume=advertised，纠正测试对旧DTO枚举的假设；继续完整回归和UI验收，不声称帮助证明真实模型访问。
 - 首全量1797项/126文件通过；补非法模式/安装重叠/状态分区/帮助查询后1799项通过。最后root read_path规范检查的测试误以为macOS/tmp/..为根，实际为/private；1798/1799通过，修正根别名为/./后继续完整重验，未修改OS权限。隔离实际两工作树完成checks failed→passed、readonly评审、最新报告协调和cold，各审批1/决定0/Goal current/doctor=true；18张三视口Agent/协调/审批截图通过，手机/桌面Agent图已实际查看。compiled CLI沙箱与pack helper实测通过，typecheck/build:all和287个本地文档链接通过。
 - 最终全量1799项/126文件通过（/tmp/cord-stage90-final-tests.json）；23项driver/5项TCP真实修复、最新快照/恢复/人审反例、原核心/driver兼容全部绿，diff已检查。隔离预览PID18066，headless55968/ACP55984健康/current=true，各审批1/人工决定0/仅deliver退出，主树initial；/tmp/cord-stage90-real-result.json与18截图/browser-result保留。前期同步阶段89的HTTP/2尝试达到20秒总上限，尚未确认远端；本轮准备小步feature提交及有界推送，完整目标active，可信验证资产/冻结源码/全文输入复制/Linux与真实厂商仍待后续。
+- 小步功能提交ada578b6bc8ccae9ac652794bfd1b88e7507aa22，工作树干净、完整验收保留；功能HTTP/2和HTTP/1.1 push各达到20秒上限，独立HTTP/2 ls-remote15秒无结果，进程组均停止。远端同步未确认，阶段89两个提交亦待确认；本地不回退。双协议health200/审批各1/人工未决仍可查看；完整目标active，没有必需exec调用遗留。
 
 ## 2026-10-12（阶段89）
 
