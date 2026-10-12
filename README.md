@@ -14,6 +14,8 @@ agent-cord 是一个多 agent 共识协作基座：把需求、决策、证据�
 
 最终评审可声明`goal-ready {node_id: deliver}`，核验当前run上游的完整Goal交付；代码、需求、配置或指南过期时旧审批409，冷恢复重检原run，不增加Goal预算。[Goal→只读评审示例](./examples/goal-review-sdlc.yaml)与[人审指南](./docs/research/2026-10-12-upstream-goal-ready-gate.md)说明配置及边界。
 
+ACP/headless可以显式声明`sandbox: {kind: workspace}`，实际限制worker源码写入、保护cord/Git，网络与环境采用白名单；可选持久HOME支持原生session缓存。沙箱需要独立可信安装与固定可选runtime，缺依赖拒绝裸执行；macOS离线实测，Linux/真实厂商兼容待验收。配置、状态与审查见[Worker沙箱指南](./docs/research/2026-10-12-worker-os-sandbox.md)。
+
 适合无网络、源码只读验证的Goal可显式配置`check_sandbox: readonly_workspace`，宿主每检查使用独立原生沙箱/临时HOME，不继承凭据、不修改源码或事件；缺依赖拒绝裸执行。严格模式需要Node>=22.12和可选Sandbox Runtime0.0.79，本轮macOS实测，Linux待实际验收；默认工程模板保持原模式。配置与限制见[宿主检查人审指南](./docs/research/2026-10-12-sandboxed-host-checks.md)。
 
 ## 能做什么

@@ -68,5 +68,7 @@ export {
 export type { AgentDefinitionInfo, AgentRegistry, AgentsLoadResult, AgentsYaml } from "./agents-yaml.js";
 export { AgentLaunchSchema, validate_agent_launch } from "./launch.js";
 export type { AgentLaunch } from "./launch.js";
+export { WorkerSandboxSchema, WORKER_SANDBOX_POLICY } from "./worker-sandbox.js";
+export type { WorkerSandbox, WorkerSandboxInput } from "./worker-sandbox.js";
 export type { AcpCapabilityObservation } from "./acp-launch.js";
 export type { HeadlessCapabilityObservation, HeadlessInspectionProfile } from "./headless-inspection.js";

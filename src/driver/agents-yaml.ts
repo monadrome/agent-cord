@@ -11,6 +11,7 @@ import { AcpDriver } from "./acp.js";
 import { AcpPermissionPolicySchema } from "./acp-permissions.js";
 import { AcpMcpServersSchema } from "./acp-mcp.js";
 import { AgentLaunchSchema } from "./launch.js";
+import { WorkerSandboxSchema } from "./worker-sandbox.js";
 import { custom_headless_template } from "./custom-template.js";
 import {
   HeadlessDriver,
@@ -27,6 +28,7 @@ const KNOB_KEYS = ["provider", "model", "effort", "max_turns", "budget_usd", "sy
 const AgentEntrySchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("acp"),
+    sandbox: WorkerSandboxSchema.optional(),
     bin: z.string().min(1),
     args: z.array(z.string()).optional(),
     env: z.record(z.string(), z.string()).optional(),
@@ -39,6 +41,7 @@ const AgentEntrySchema = z.discriminatedUnion("kind", [
   }),
   z.strictObject({
     kind: z.literal("headless"),
+    sandbox: WorkerSandboxSchema.optional(),
     template: z.string().min(1).optional(),
     /** 模板形态可省略二进制；自定义 args 形态必须声明 */
     bin: z.string().min(1).optional(),
@@ -140,6 +143,7 @@ function compileAgentsYaml(yaml: AgentsYaml | null): {
     try {
       if (entry.kind === "acp") {
         drivers.set(name, new AcpDriver({
+          ...(entry.sandbox === undefined ? {} : { sandbox: entry.sandbox }),
           bin: entry.bin,
           args: [...(entry.args ?? ["acp"])],
           name: `acp:${name}`,
@@ -181,6 +185,7 @@ function compileAgentsYaml(yaml: AgentsYaml | null): {
           }
         }
         drivers.set(name, new HeadlessDriver({
+          ...(entry.sandbox === undefined ? {} : { sandbox: entry.sandbox }),
           cli: entry.template,
           template,
           ...(entry.bin !== undefined ? { bin: entry.bin } : {}),
@@ -203,6 +208,7 @@ function compileAgentsYaml(yaml: AgentsYaml | null): {
           throw new Error(`自定义 args 旋钮须改用 launch 与显式占位符：${used.join("/")}`);
         }
         drivers.set(name, new HeadlessDriver({
+          ...(entry.sandbox === undefined ? {} : { sandbox: entry.sandbox }),
           cli: name,
           template: custom_headless_template(name, entry.bin, args, entry.resume_args, {
             ...(entry.prompt_input === undefined ? {} : { prompt_input: entry.prompt_input }),

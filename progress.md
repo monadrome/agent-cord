@@ -1,5 +1,13 @@
 # 工作进度
 
+## 2026-10-12（阶段90）
+
+- 接续0c95902干净/ahead2，上一轮2c6303e/1771项/双协议真实验收为实际progress，网络同步仍待确认。读取worker spawn、host sandbox、worktree/AgentService、IPC库与固定runtime本地源码，选可选实际OS约束；ADR-0100与实现前调研先行，不缩减整个目标，不派生子agent/付费模型/操作7306真实Draft。
+- 两driver/sandbox配置/helper/身份/能力与worktree保持OS声明已接通；root build通过，原84项driver/worktree回归通过。execa v10不暴露ChildProcess.on，改其getEachMessage并在ACP initialize前等待可信启动回执。真实两协议可写/readonly保护、环境隔离和session持久化通过；首headless fixture误用session_id占位，按既有resume_session_id修正。网络反例发现runtime代理localhost需要被禁止的child DNS，使用沙箱内可信Node bootstrap结构化改为IPv4代理地址、保留认证且不开放DNS；真实白名单允许/未知拒绝已通过。缺runtime复制测试初次访问execa未导出的package.json，改标准入口定位。
+- 20项driver实测通过，新增目录改名/硬链接/符号链接事实别名绕过均被实际OS拒绝。TCP两协议实现/自测/readonly/当前协调/cold与最终人审、策略变化409/原预算、真实Goal取消5项通过；首两项误断言未公开的agent_context，改核验既有agent_context_hash与共享能力集合。无prompt CLI查询实际passed/native_resume=advertised，纠正测试对旧DTO枚举的假设；继续完整回归和UI验收，不声称帮助证明真实模型访问。
+- 首全量1797项/126文件通过；补非法模式/安装重叠/状态分区/帮助查询后1799项通过。最后root read_path规范检查的测试误以为macOS/tmp/..为根，实际为/private；1798/1799通过，修正根别名为/./后继续完整重验，未修改OS权限。隔离实际两工作树完成checks failed→passed、readonly评审、最新报告协调和cold，各审批1/决定0/Goal current/doctor=true；18张三视口Agent/协调/审批截图通过，手机/桌面Agent图已实际查看。compiled CLI沙箱与pack helper实测通过，typecheck/build:all和287个本地文档链接通过。
+- 最终全量1799项/126文件通过（/tmp/cord-stage90-final-tests.json）；23项driver/5项TCP真实修复、最新快照/恢复/人审反例、原核心/driver兼容全部绿，diff已检查。隔离预览PID18066，headless55968/ACP55984健康/current=true，各审批1/人工决定0/仅deliver退出，主树initial；/tmp/cord-stage90-real-result.json与18截图/browser-result保留。前期同步阶段89的HTTP/2尝试达到20秒总上限，尚未确认远端；本轮准备小步feature提交及有界推送，完整目标active，可信验证资产/冻结源码/全文输入复制/Linux与真实厂商仍待后续。
+
 ## 2026-10-12（阶段89）
 
 - 接续fdabaf8干净/同步，阶段88实现/1709项/远端为实际进展。读取checker/evaluator/decide/cold恢复后确定跨节点最终Goal证据缺口，选goal-ready完整来源+当前input钩子，沿用原gate状态机；ADR-0099先于schema/ports，无子agent/付费模型/7306操作。

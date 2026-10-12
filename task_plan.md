@@ -27,6 +27,7 @@
 
 ## 错误记录
 
+- 阶段90 execa不提供ChildProcess.on，IPC改getEachMessage；网络localhost被child DNS限制，可信沙箱内bootstrap用URL规范IPv4代理；macOS的/tmp/..实际为/private，根路径规范反例改/./。
 - 阶段89 TCP失效落盘后无pending，旧recover跳过waiting_human；增加原run最新goal-ready失效事实重检。浏览器长摘要造成手机审批溢出，局部断行与min-width后12截图通过。
 - 阶段89 build的unknown payload改为解析第二次严格事件读取的GoalCompleted；首TCP fixture context_revision误用字符串，Agent registry正确拒绝，修正为正整数并保留输入预检。
 - 阶段80研究缓存/tmp/.firecrawl不存在，改用隔离/tmp/cord-stage80-research/.firecrawl；官方页面search --scrape已抓正文，不重复抓取。
@@ -118,6 +119,14 @@
 - [x] 最终1771项/124文件、build/typecheck/build:all/diff与280链接、两个Goal示例解析、隔离双协议TCP/12截图通过
 - [x] 功能提交2c6303e；HTTP/2和HTTP/1.1有界推送均因GitHub15秒低速失败，独立查询无结果已停止；保留本地提交/实际验收，完整目标active
 - [ ] 网络恢复后推送当前分支并独立核验实际远端hash
+
+## 阶段90：Worker实际OS沙箱（已实现并验证，提交中）
+
+- [x] 接续0c95902干净/ahead2，上一轮为1771项/实际交付/小步提交的progress；审查worker spawn/环境/状态与固定runtime，ADR-0100与实现前调研先行
+- [x] 两协议可选sandbox、独立helper/可信回执、环境/网络/源码/事实保护与持久状态，身份/能力/查询/协调共用
+- [x] 23项driver真实OS反例、显式恢复/取消/缺依赖，5项首次failed→passed自主修复/Goal→readonly/当前协调/cold TCP/最终人审
+- [x] 最终1799项/126文件、build/typecheck/build:all/diff、287链接/Agent示例、compiled/pack helper与隔离TCP/18截图；人审指南同步
+- [ ] 小步提交推送与独立核验；整个目标保持active
 
 ## 阶段79：只读命令参数与策略身份（已实现并验证，功能已同步）
 

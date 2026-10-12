@@ -277,6 +277,8 @@ export interface AgentCapabilities {
   prompt_input?: "argv" | "stdin";
   /** ADR-0093：工作区隔离事实；shared_lease不等于worktree/OS sandbox。 */
   workspace_isolation: "shared_lease" | "worktree" | "os_sandbox";
+  /** ADR-0100：已配置的强制启动策略，安装仍未查询；不公开域名/路径/环境值。 */
+  sandbox?: { policy: string; network: "allowlist"; environment: "allowlist"; state: "ephemeral" | "persistent" };
   launch_options: readonly string[];
   native_resume: "supported" | "unsupported" | "negotiated";
   /** ADR-0080：仅描述headless实参映射，不证明工具/OS隔离。 */

@@ -159,7 +159,7 @@ export function bind_worktree_driver(driver: AgentDriver, worktree: LinkedWorktr
     }
   };
   return { name: driver.name, configuration_hash,
-    ...(driver.capabilities === undefined ? {} : { capabilities: { ...driver.capabilities, workspace_isolation: "worktree" } }),
+    ...(driver.capabilities === undefined ? {} : { capabilities: { ...driver.capabilities, workspace_isolation: driver.capabilities.workspace_isolation === "os_sandbox" ? "os_sandbox" : "worktree" } }),
     run: task => execute(task), resume: (session_id, task) => execute(task, session_id, true),
   };
 }

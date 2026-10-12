@@ -25,6 +25,8 @@ agent-cord 的设计决策分为四类，共 71 条，一条决策一个文件�
 
 最终交付门禁：[ADR-0099：上游Goal当前就绪](./ADR-0099-upstream-goal-ready-gate.md)，完整ready来源与当前代码/输入/指南进入同run最终审批，cold失效重检原run；[Human Review指南](../research/2026-10-12-upstream-goal-ready-gate.md)。
 
+Worker实际权限：[ADR-0100：ACP/headless OS沙箱](./ADR-0100-worker-os-sandbox.md)，独立helper、可信启动回执、源码/事实/Git/网络/env限制与分区状态缓存；[Human Review指南](../research/2026-10-12-worker-os-sandbox.md)。
+
 设计决策先于技术决策成立：技术选型都是设计约束的推论，而不是流行度比较的结果。每份 ADR 的「理由」一节都给出从痛点出发的第一性原理推导链。
 
 ---

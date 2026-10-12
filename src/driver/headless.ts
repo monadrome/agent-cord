@@ -13,6 +13,7 @@ import { canonicalJson, sha256Hex } from "../core/hash.js";
 import { validate_agent_launch, type AgentCapabilities, type AgentLaunch } from "./launch.js";
 import { cli_help_observation, cli_help_recognized, cli_version, type CliProbeStatus, type HeadlessCapabilityObservation, type HeadlessInspectionProfile } from "./headless-inspection.js";
 import { resume_session_error, task_timeout_error } from "./task-preflight.js";
+import { WorkerSandboxSchema, prepare_worker_launch, sandbox_capability, watch_worker_sandbox, WORKER_SANDBOX_POLICY, type WorkerSandbox, type WorkerSandboxInput } from "./worker-sandbox.js";
 
 // ---------------------------------------------------------------------------
 // 事件数据约定（AgentEvent.data 的具体形态）
@@ -617,6 +618,7 @@ export interface HeadlessDriverOptions {
   launch?: AgentLaunch;
   /** ADR-0088：完整只读启动配置，不继承knobs/launch。 */
   readonly_launch?: AgentLaunch;
+  sandbox?: WorkerSandboxInput;
 }
 
 /** 模板旋钮值集（HeadlessArgInput 里除 prompt/readonly/resume 外的部分） */
@@ -638,8 +640,10 @@ export class HeadlessDriver implements AgentDriver {
   private readonly killGraceMs: number;
   private readonly knobs: HeadlessKnobs;
   private readonly readonly_knobs: HeadlessKnobs | undefined;
+  private readonly sandbox: WorkerSandbox | undefined;
 
   constructor(options: HeadlessDriverOptions) {
+    this.sandbox = options.sandbox === undefined ? undefined : WorkerSandboxSchema.parse(options.sandbox);
     if (options.context_revision !== undefined && (!Number.isSafeInteger(options.context_revision) || options.context_revision <= 0)) throw new Error("context_revision 必须是正安全整数");
     const template = options.template ?? getHeadlessCliTemplate(options.cli);
     if (template === undefined) {
@@ -662,7 +666,8 @@ export class HeadlessDriver implements AgentDriver {
     }
     this.knobs = { ...options.knobs, ...launch } as HeadlessKnobs;
     this.readonly_knobs = options.readonly_launch === undefined ? undefined : validate_agent_launch(options.readonly_launch, supported) as HeadlessKnobs;
-    this.capabilities = Object.freeze({ transport: "headless", evidence: "adapter", installation: "unchecked", inspection: template.inspection_profile === undefined ? "unsupported" : "cli_help", workspace_isolation: "shared_lease" as const, launch_options: Object.freeze([...supported]),
+    this.capabilities = Object.freeze({ transport: "headless", evidence: "adapter", installation: "unchecked", inspection: template.inspection_profile === undefined ? "unsupported" : "cli_help", workspace_isolation: this.sandbox === undefined ? "shared_lease" as const : "os_sandbox" as const,
+      ...(this.sandbox === undefined ? {} : { sandbox: Object.freeze(sandbox_capability(this.sandbox)) }), launch_options: Object.freeze([...supported]),
       native_resume: template.supports_resume === true ? "supported" : "unsupported", readonly_launch: template.supports_readonly === true ? "mapped" : "unmapped",
       readonly_resume: template.supports_resume === true && template.supports_readonly_resume === true ? "supported" : "unsupported", goal: "host", workflow_resume: "authorized_unexited_goal",
       ...(this.readonly_knobs === undefined ? {} : { readonly_configuration: "explicit" as const }),
@@ -679,7 +684,8 @@ export class HeadlessDriver implements AgentDriver {
       resume_argv: this.template.supports_resume === true ? this.buildArgv(config_task, "cord.configuration.session") : null,
       readonly_resume_argv: this.template.supports_resume === true && this.template.supports_readonly_resume === true ? this.buildArgv({ ...config_task, readonly: true }, "cord.configuration.session") : null,
     }));
-    this.configuration_hash = sha256Hex(canonicalJson({ domain: "cord.agent-config.headless.v4", completion_policy: "process-exit-required.v1", launch_configuration_hash }));
+    const base_hash = sha256Hex(canonicalJson({ domain: "cord.agent-config.headless.v4", completion_policy: "process-exit-required.v1", launch_configuration_hash }));
+    this.configuration_hash = this.sandbox === undefined ? base_hash : sha256Hex(canonicalJson({ domain: "cord.agent-worker-sandbox.v1", driver_hash: base_hash, sandbox: this.sandbox, policy: WORKER_SANDBOX_POLICY }));
   }
 
   run(task: AgentTask): AsyncIterable<AgentEvent> {
@@ -723,9 +729,15 @@ export class HeadlessDriver implements AgentDriver {
   private async inspect_command(cwd: string, args: string[], deadline: number, signal?: AbortSignal): Promise<{ status: CliProbeStatus; output: string }> {
     if (signal?.aborted) return { status: "cancelled", output: "" };
     if (deadline <= Date.now()) return { status: "timeout", output: "" };
-    const child = execa(this.bin, [...this.prefixArgs, ...args], { cwd, env: { ...process.env, ...this.env, NO_COLOR: "1", FORCE_COLOR: "0" },
+    let launch;
+    try { launch = await prepare_worker_launch(this.bin, [...this.prefixArgs, ...args], { prompt: "", cwd, readonly: true, timeout_ms: deadline - Date.now(), signal }, { ...process.env, ...this.env, NO_COLOR: "1", FORCE_COLOR: "0" }, this.configuration_hash, this.sandbox); }
+    catch { return { status: signal?.aborted ? "cancelled" : Date.now() >= deadline ? "timeout" : "failed", output: "" }; }
+    if (signal?.aborted || Date.now() >= deadline) { await launch.cleanup(); return { status: signal?.aborted ? "cancelled" : "timeout", output: "" }; }
+    const child = execa(launch.bin, launch.args, { cwd, env: launch.env, extendEnv: false,
+      ...(launch.input === undefined ? {} : { ipcInput: launch.input, serialization: "json" as const }),
       detached: true, reject: false, stdin: "ignore", stdout: "pipe", stderr: "pipe", maxBuffer: 131_072 });
     const proc = trackProcess(child); let timed_out = false; let cancelled = false; let kill_timer: NodeJS.Timeout | undefined;
+    const sandbox_state = watch_worker_sandbox(child, launch.input !== undefined, () => killProcessTree(proc, "SIGKILL"));
     const stop = (): void => { killProcessTree(proc, "SIGTERM"); kill_timer ??= setTimeout(() => killProcessTree(proc, "SIGKILL"), this.killGraceMs); };
     const on_abort = (): void => { cancelled = true; stop(); };
     const timer = setTimeout(() => { timed_out = true; stop(); }, Math.max(1, deadline - Date.now()));
@@ -734,7 +746,7 @@ export class HeadlessDriver implements AgentDriver {
       const outcome = await child;
       if (cancelled) return { status: "cancelled", output: "" };
       if (timed_out) return { status: "timeout", output: "" };
-      if (outcome.failed || outcome.exitCode !== 0) return { status: outcome.code === "ENOENT" ? "unavailable" : "failed", output: "" };
+      if (outcome.failed || outcome.exitCode !== 0 || !sandbox_state.completed()) return { status: outcome.code === "ENOENT" ? "unavailable" : "failed", output: "" };
       return { status: "passed", output: `${outcome.stdout}\n${outcome.stderr}`.trim() };
     } catch { return { status: cancelled ? "cancelled" : timed_out ? "timeout" : "failed", output: "" }; }
     finally {
@@ -743,6 +755,7 @@ export class HeadlessDriver implements AgentDriver {
       await terminateProcessTree(proc, this.killGraceMs);
       // 帮助命令结束后也清理其进程组，不能因组长提前退出遗留诊断子进程。
       killProcessTree(proc, "SIGKILL");
+      await launch.cleanup();
     }
   }
 
@@ -769,6 +782,7 @@ export class HeadlessDriver implements AgentDriver {
   private async *execute(task: AgentTask, resumeSessionId: string | undefined, resume_requested = false): AsyncIterable<AgentEvent> {
     if (task.signal?.aborted) { yield errorEvent("task aborted by caller", "agent"); return; }
     const timeoutMs = task.timeout_ms === undefined ? DEFAULT_TASK_TIMEOUT_MS : task.timeout_ms;
+    const started_at = Date.now();
     const timeout_error = task_timeout_error(timeoutMs);
     if (timeout_error !== null) { yield errorEvent(timeout_error, "configuration"); return; }
     if (resume_requested) {
@@ -778,15 +792,22 @@ export class HeadlessDriver implements AgentDriver {
     const argv = this.buildArgv(task, resumeSessionId);
     const [bin = this.bin, ...args] = argv;
     if (task.signal?.aborted) { yield errorEvent("task aborted by caller", "agent"); return; }
+    let launch;
+    try { launch = await prepare_worker_launch(bin, args, task, { ...process.env, ...this.env }, this.configuration_hash, this.sandbox); }
+    catch { yield errorEvent(task.signal?.aborted ? "任务已取消" : "Worker沙箱启动准备失败", task.signal?.aborted ? "agent" : "configuration"); return; }
+    if (task.signal?.aborted || Date.now() - started_at >= timeoutMs) {
+      await launch.cleanup(); yield errorEvent(task.signal?.aborted ? "任务已取消" : "Worker启动准备超时", task.signal?.aborted ? "agent" : "timeout"); return;
+    }
 
     const queue = new AsyncQueue<AgentEvent>();
     let timedOut = false;
     let active_session_id: string | null = resumeSessionId ?? null;
     const stderrTail: string[] = [];
 
-    const child = execa(bin, args, {
+    const child = execa(launch.bin, launch.args, {
       cwd: task.cwd,
-      env: { ...process.env, ...this.env },
+      env: launch.env, extendEnv: false,
+      ...(launch.input === undefined ? {} : { ipcInput: launch.input, serialization: "json" as const }),
       // 进程组组长 → 超时可整树清理（CLI 常自带子进程/MCP server）
       detached: true,
       reject: false,
@@ -808,6 +829,7 @@ export class HeadlessDriver implements AgentDriver {
         });
       }
     };
+    const sandbox_state = watch_worker_sandbox(child, launch.input !== undefined, () => { push([errorEvent("Worker沙箱准备或控制回执不可验证", "configuration")]); killProcessTree(proc, "SIGKILL"); });
 
     let sigkillTimer: NodeJS.Timeout | undefined;
     const timeoutTimer = setTimeout(() => {
@@ -815,7 +837,7 @@ export class HeadlessDriver implements AgentDriver {
       push([errorEvent(`headless task timed out after ${timeoutMs}ms`, "timeout")]);
       killProcessTree(proc, "SIGTERM");
       sigkillTimer = setTimeout(() => killProcessTree(proc, "SIGKILL"), this.killGraceMs);
-    }, timeoutMs);
+    }, Math.max(1, timeoutMs - (Date.now() - started_at)));
 
     // ADR-0025：外部取消（run 取消）→ 立即杀进程树并关闭事件流。
     // 不能依赖消费方 break：async generator 暂停在 queue.next() 时 return() 会排队等
@@ -884,7 +906,7 @@ export class HeadlessDriver implements AgentDriver {
 
       if (spawnFailure !== undefined) {
         push([errorEvent(spawnFailure, "spawn")]);
-      } else if (!timedOut && (process_failed || exitCode !== 0)) {
+      } else if (!timedOut && (process_failed || exitCode !== 0 || !sandbox_state.completed())) {
         const tail = stderrTail.join("").trim();
         push([
           errorEvent(
@@ -904,6 +926,8 @@ export class HeadlessDriver implements AgentDriver {
         if (sigkillTimer !== undefined) clearTimeout(sigkillTimer);
         task.signal?.removeEventListener("abort", onAbort);
         await terminateProcessTree(proc, this.killGraceMs);
+        if (launch.input !== undefined) killProcessTree(proc, "SIGKILL");
+        try { await launch.cleanup(); } catch { push([errorEvent("Worker沙箱临时资源清理失败", "configuration")]); }
         queue.close();
       }
     })();
@@ -919,6 +943,8 @@ export class HeadlessDriver implements AgentDriver {
       if (sigkillTimer !== undefined) clearTimeout(sigkillTimer);
       task.signal?.removeEventListener("abort", onAbort);
       await terminateProcessTree(proc, this.killGraceMs);
+      if (launch.input !== undefined) killProcessTree(proc, "SIGKILL");
+      await launch.cleanup().catch(() => undefined);
     }
   }
 }

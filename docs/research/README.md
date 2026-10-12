@@ -12,6 +12,8 @@
 
 ## 报告清单
 
+Worker实际权限：[2026-10-12 OS沙箱与人审](./2026-10-12-worker-os-sandbox.md)，记录两协议实际OS保护、明确网络/env、指定恢复、取消/超时及Goal/cold最终人审。
+
 最终交付门禁：[2026-10-12 上游Goal就绪与人审](./2026-10-12-upstream-goal-ready-gate.md)，记录跨节点完整ready、当前源码/指南、旧审批与原run冷恢复核验。
 
 后续接入验证：[2026-10-07 真实 Context Session Agent](./2026-10-07-real-context-agent.md)，记录 Codex 0.160.0 两轮最新需求快照调用、真实协议故障与修复，以及验收范围限制。

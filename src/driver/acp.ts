@@ -32,6 +32,7 @@ import { ACP_LAUNCH_STATE_POLICY, ACP_PROVIDER_LAUNCH_STATE_POLICY, AcpConfigRes
 import { AcpPermissionPolicySchema, decideAcpWorkspacePermission, type AcpPermissionPolicy, type AcpPermissionPolicyInput } from "./acp-permissions.js";
 import { AcpMcpServersSchema, assert_acp_mcp_transports, compile_acp_mcp_servers, mcp_transport_observation, type AcpMcpServers, type AcpMcpServersInput } from "./acp-mcp.js";
 import { resume_session_error, task_timeout_error } from "./task-preflight.js";
+import { WorkerSandboxSchema, prepare_worker_launch, sandbox_capability, watch_worker_sandbox, WORKER_SANDBOX_POLICY, type WorkerSandbox, type WorkerSandboxInput } from "./worker-sandbox.js";
 import {
   AsyncQueue,
   DEFAULT_KILL_GRACE_MS,
@@ -165,6 +166,7 @@ export interface AcpDriverOptions {
   readonly_launch?: AgentLaunch;
   mcp_servers?: AcpMcpServersInput;
   readonly_mcp_servers?: AcpMcpServersInput;
+  sandbox?: WorkerSandboxInput;
   /** 子命令，默认 ["acp"] */
   args?: string[];
   /** 暴露给 registry 的驱动名，默认 `acp:<bin>` */
@@ -213,8 +215,10 @@ export class AcpDriver implements AgentDriver {
   private readonly decidePermission: PermissionDecider | undefined;
   private readonly permission_policy: AcpPermissionPolicy | undefined;
   private readonly onSession: ((sessionId: string) => void) | undefined;
+  private readonly sandbox: WorkerSandbox | undefined;
 
   constructor(options: AcpDriverOptions) {
+    this.sandbox = options.sandbox === undefined ? undefined : WorkerSandboxSchema.parse(options.sandbox);
     if (options.context_revision !== undefined && (!Number.isSafeInteger(options.context_revision) || options.context_revision <= 0)) throw new Error("context_revision 必须是正安全整数");
     this.bin = options.bin;
     this.args = [...(options.args ?? ["acp"])];
@@ -227,14 +231,15 @@ export class AcpDriver implements AgentDriver {
     this.mcp_servers = mcp.data; this.readonly_mcp_servers = readonly_mcp.data;
     const has_mcp = this.mcp_servers.length + this.readonly_mcp_servers.length > 0;
     if (this.readonly_launch !== undefined) new AcpLaunchState(this.readonly_launch, true);
-    this.capabilities = Object.freeze({ transport: "acp", evidence: "adapter", installation: "unchecked", inspection: "acp_handshake", workspace_isolation: "shared_lease" as const,
+    this.capabilities = Object.freeze({ transport: "acp", evidence: "adapter", installation: "unchecked", inspection: "acp_handshake", workspace_isolation: this.sandbox === undefined ? "shared_lease" as const : "os_sandbox" as const,
+      ...(this.sandbox === undefined ? {} : { sandbox: Object.freeze(sandbox_capability(this.sandbox)) }),
       launch_options: ACP_LAUNCH_OPTIONS, native_resume: "negotiated", goal: "host", workflow_resume: "authorized_unexited_goal",
       ...(this.readonly_launch === undefined ? {} : { readonly_configuration: "explicit" as const }),
       ...(has_mcp ? { mcp_configuration: Object.freeze({ writable_count: this.mcp_servers.length, readonly_count: this.readonly_mcp_servers.length,
         transports: Object.freeze([...new Set([...this.mcp_servers, ...this.readonly_mcp_servers].map(server => server.type))].sort()) }) } : {}) });
     if (options.permission_policy !== undefined && options.decidePermission !== undefined) throw new Error("permission_policy 与 decidePermission 不能同时声明");
     this.permission_policy = options.permission_policy === undefined ? undefined : AcpPermissionPolicySchema.parse(options.permission_policy);
-    this.configuration_hash = sha256Hex(canonicalJson({ domain: has_mcp ? "cord.agent-config.acp.v7" : this.readonly_launch !== undefined ? "cord.agent-config.acp.v6" : Object.keys(this.launch).length > 0 ? "cord.agent-config.acp.v5" : this.permission_policy !== undefined ? "cord.agent-config.acp.v3" : options.context_revision === undefined ? "cord.agent-config.acp.v1" : "cord.agent-config.acp.v2",
+    const base_hash = sha256Hex(canonicalJson({ domain: has_mcp ? "cord.agent-config.acp.v7" : this.readonly_launch !== undefined ? "cord.agent-config.acp.v6" : Object.keys(this.launch).length > 0 ? "cord.agent-config.acp.v5" : this.permission_policy !== undefined ? "cord.agent-config.acp.v3" : options.context_revision === undefined ? "cord.agent-config.acp.v1" : "cord.agent-config.acp.v2",
       ...(Object.keys(this.launch).length === 0 ? {} : { launch_state_policy: this.launch.provider === undefined ? ACP_LAUNCH_STATE_POLICY : ACP_PROVIDER_LAUNCH_STATE_POLICY }),
       ...(Object.keys(this.launch).length === 0 ? {} : { launch: this.launch }),
       ...(this.readonly_launch === undefined ? {} : { readonly_launch: this.readonly_launch,
@@ -242,6 +247,7 @@ export class AcpDriver implements AgentDriver {
       ...(has_mcp ? { mcp_servers: this.mcp_servers, readonly_mcp_servers: this.readonly_mcp_servers } : {}),
       ...(this.permission_policy === undefined ? {} : { permission_policy: this.permission_policy }),
       ...(options.context_revision === undefined ? {} : { context_revision: options.context_revision }), name: this.name, bin: this.bin, args: this.args }));
+    this.configuration_hash = this.sandbox === undefined ? base_hash : sha256Hex(canonicalJson({ domain: "cord.agent-worker-sandbox.v1", driver_hash: base_hash, sandbox: this.sandbox, policy: WORKER_SANDBOX_POLICY }));
     this.env = { ...options.env };
     this.permissionTimeoutMs = options.permission_timeout_ms ?? DEFAULT_PERMISSION_TIMEOUT_MS;
     this.killGraceMs = options.kill_grace_ms ?? DEFAULT_KILL_GRACE_MS;
@@ -274,6 +280,7 @@ export class AcpDriver implements AgentDriver {
   private async *execute(task: AgentTask, resumeSessionId: string | undefined, inspect_only = false, resume_requested = false): AsyncIterable<AgentEvent> {
     if (task.signal?.aborted) { yield errorEvent("ACP任务已取消", "agent"); return; }
     const timeoutMs = task.timeout_ms === undefined ? DEFAULT_TASK_TIMEOUT_MS : task.timeout_ms;
+    const started_at = Date.now();
     const timeout_error = task_timeout_error(timeoutMs);
     if (timeout_error !== null) { yield errorEvent(timeout_error, "configuration"); return; }
     if (resume_requested) {
@@ -287,6 +294,12 @@ export class AcpDriver implements AgentDriver {
     if (!inspect_only) {
       try { mcpServers = compile_acp_mcp_servers(mcp, { ...process.env, ...this.env }); }
       catch { yield errorEvent("MCP凭据环境引用缺失或无法验证", "configuration"); return; }
+    }
+    let worker_launch;
+    try { worker_launch = await prepare_worker_launch(this.bin, this.args, task, { ...process.env, ...this.env }, this.configuration_hash, this.sandbox); }
+    catch { yield errorEvent(task.signal?.aborted ? "任务已取消" : "Worker沙箱启动准备失败", task.signal?.aborted ? "agent" : "configuration"); return; }
+    if (task.signal?.aborted || Date.now() - started_at >= timeoutMs) {
+      await worker_launch.cleanup(); yield errorEvent(task.signal?.aborted ? "任务已取消" : "Worker启动准备超时", task.signal?.aborted ? "agent" : "timeout"); return;
     }
     const queue = new AsyncQueue<AgentEvent>();
 
@@ -324,9 +337,10 @@ export class AcpDriver implements AgentDriver {
       }
     };
 
-    const child = execa(this.bin, this.args, {
+    const child = execa(worker_launch.bin, worker_launch.args, {
       cwd: task.cwd,
-      env: { ...process.env, ...this.env },
+      env: worker_launch.env, extendEnv: false,
+      ...(worker_launch.input === undefined ? {} : { ipcInput: worker_launch.input, serialization: "json" as const }),
       detached: true,
       reject: false,
       stdin: toAgent.readable,
@@ -334,6 +348,7 @@ export class AcpDriver implements AgentDriver {
       stderr: "pipe",
     });
     const proc = trackProcess(child);
+    const sandbox_state = watch_worker_sandbox(child, worker_launch.input !== undefined, () => { push([errorEvent("Worker沙箱准备或控制回执不可验证", "configuration")]); killProcessTree(proc, "SIGKILL"); });
 
     const app = client({ name: CLIENT_INFO.name });
     app.onNotification("session/update", ({ params }) => {
@@ -400,7 +415,7 @@ export class AcpDriver implements AgentDriver {
     const timeoutTimer = setTimeout(() => {
       timedOut = true;
       shutdown(`acp task timed out after ${timeoutMs}ms`, "timeout");
-    }, timeoutMs);
+    }, Math.max(1, timeoutMs - (Date.now() - started_at)));
 
     // ADR-0025：外部取消（run 取消）→ 立即收束（同超时路径，不等 wall-clock 超时）
     const onAbort = (): void => {
@@ -428,11 +443,13 @@ export class AcpDriver implements AgentDriver {
 
     const pump = async (): Promise<void> => {
       try {
+        if (!await sandbox_state.wait_ready()) throw new AcpLaunchConfigurationError("Worker沙箱启动回执不可验证");
         const initialized = await ctx.request("initialize", {
           protocolVersion: PROTOCOL_VERSION,
           clientCapabilities: { session: { configOptions: { boolean: {} } } },
           clientInfo: CLIENT_INFO,
         });
+        if (!sandbox_state.ready()) throw new AcpLaunchConfigurationError("Worker沙箱启动回执不可验证");
         if (initialized.protocolVersion !== PROTOCOL_VERSION) {
           push([
             errorEvent(
@@ -531,6 +548,8 @@ export class AcpDriver implements AgentDriver {
           // 已关闭
         }
         await terminateProcessTree(proc, this.killGraceMs);
+        if (worker_launch.input !== undefined) killProcessTree(proc, "SIGKILL");
+        try { await worker_launch.cleanup(); } catch { push([errorEvent("Worker沙箱临时资源清理失败", "configuration")]); }
         queue.close();
       }
     };
@@ -551,6 +570,8 @@ export class AcpDriver implements AgentDriver {
       if (sigkillTimer !== undefined) clearTimeout(sigkillTimer);
       try { connection.close(); } catch { /* 提前停止消费也必须释放挂起协议请求。 */ }
       await terminateProcessTree(proc, this.killGraceMs);
+      if (worker_launch.input !== undefined) killProcessTree(proc, "SIGKILL");
+      await worker_launch.cleanup().catch(() => undefined);
     }
   }
 

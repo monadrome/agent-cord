@@ -1,5 +1,12 @@
 # 调研发现
 
+## 阶段90（2026-10-12）：Worker需要实际权限隔离
+
+- 现有worktree不限制访问宿主事实/Git/env，readonly通知审计不能阻止未报告IO；worker和宿主检查需各自独立runtime进程。
+- ACP正常prompt结束后由宿主杀进程，不能照搬host-check的退出0规则；启动回执必须在实际子进程之前确认，正文不得伪造IPC。
+- Agent配置应显式网络域名、env名单与额外只读资产；默认临时HOME不保留厂商session，持久状态应按workspace/配置分区，隔离约束不代替Goal证明或人审。
+- 本机真实网络反例：runtime生成localhost代理，child禁止DNS后getaddrinfo ENOTFOUND；不能靠开放child DNS或仅测试拒绝路径宣称网络可用。可信sandbox内bootstrap用URL API将runtime代理转为127.0.0.1并保持认证，host proxy仍按域名/端口白名单检查。
+
 ## 阶段89（2026-10-12）：最终gate需要完整当前Goal证明
 
 - verification-passed的within_node=false只放宽correlation检查，仍限定payload.node_id和当前input；不能把它当跨节点自测引用。
