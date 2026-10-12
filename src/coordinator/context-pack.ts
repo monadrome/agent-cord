@@ -8,6 +8,8 @@ import type { WorkflowNode } from "../workflow/executor.js";
 import { isPlaceholderDoc } from "../core/session.js";
 import type { RequirementSnapshot } from "./snapshot.js";
 import { buildCoordinationDocuments } from "./coordination-context.js";
+import { node_input_files, node_ancestors, NODE_INPUT_SCOPE_POLICY } from "./node-input.js";
+import { nodeProducesArtifact } from "./artifact-policy.js";
 
 export const WORKER_CONTEXT_POLICY = "worker-balanced-head-tail.v1";
 export class ContextPackBudgetError extends Error {}
@@ -73,8 +75,12 @@ export function buildContextPack(
   const maxPackChars = options.maxPackChars ?? 60_000;
   if (!Number.isSafeInteger(maxPackChars) || maxPackChars < 0) throw new ContextPackBudgetError("worker 上下文预算必须是非负安全整数");
   const exited = new Set(snapshot.workflow.exited);
+  const files = node_input_files(def, node);
+  const documents = snapshot.docs.filter(doc => files === null || files.has(doc.file));
+  const ancestors = files === null ? null : node_ancestors(def, node);
+  const progress = snapshot.workflow.exited.filter(id => ancestors === null || ancestors.has(id));
   const upstream = upstreamArtifacts(def, node, exited);
-  const docByFile = new Map(snapshot.docs.map((doc) => [doc.file, doc]));
+  const docByFile = new Map(documents.map((doc) => [doc.file, doc]));
   const instructions = taskInstructions(node, snapshot.req_id);
 
   const sections: string[] = [
@@ -84,9 +90,10 @@ export function buildContextPack(
     `- req_id: ${snapshot.req_id}`,
     `- 标题: ${snapshot.title ?? "（未命名）"}`,
     `- 当前节点: ${node.id}${node.artifact !== undefined ? `（产物: ${node.artifact}）` : ""}`,
-    `- 已完成节点: ${snapshot.workflow.exited.join(" → ") || "（无）"}`,
+    `- 已完成节点: ${progress.join(" → ") || "（无）"}`,
     `- 快照指纹: ${snapshot.snapshot_id}（事件 seq ≤ ${snapshot.event_seq}）`,
     `- 上下文策略: ${WORKER_CONTEXT_POLICY}`,
+    ...(files === null ? [] : [`- 输入范围策略: ${NODE_INPUT_SCOPE_POLICY}`, `- 声明输入文档: ${JSON.stringify([...files].sort())}`]),
     ...(snapshot.workflow_revision !== undefined ? [`- 执行版本: ${snapshot.workflow_revision}`] : []),
     ``,
     `## 任务`,
@@ -103,7 +110,7 @@ export function buildContextPack(
     `clarifications: ${JSON.stringify(snapshot.clarifications)}`,
     `- 这些是原问题下的人工选择，不代表测试、gate 或执行授权；status=revoked/choice=null 表示未确定，不可沿用已撤回选项。新材料与选择矛盾时明确报告并等待确认。`);
 
-  const locators = snapshot.docs
+  const locators = documents
     .filter((doc) => doc.exists)
     .map((doc) => `- cord/${snapshot.req_id}/${doc.file}`);
   sections.push(
@@ -133,10 +140,14 @@ export function buildContextPack(
   }
 
   if (options.additional_context) sections.push(``, options.additional_context);
-  sections.push(``, `## 文档片段`, `- PRD 与已退出上游产物按首尾采集、均衡预算提供。document_excerpts 是 UTF-16 原文范围与省略数；未显示内容不能声称已核验，材料不足时明确标注待补充。`);
+  sections.push(``, `## 文档片段`, files === null
+    ? `- PRD 与已退出上游产物按首尾采集、均衡预算提供。document_excerpts 是 UTF-16 原文范围与省略数；未显示内容不能声称已核验，材料不足时明确标注待补充。`
+    : `- 声明输入文档按首尾采集、均衡预算提供；本节点自产输出不作为正文输入。document_excerpts 是 UTF-16 原文范围与省略数；未显示内容不能声称已核验。`);
   const required = sections.join("\n");
   if (required.length > maxPackChars) throw new ContextPackBudgetError("worker 必需元信息超过上下文预算，请缩小任务、账本或增大预算");
-  const docs = [...new Set(["prd.md", ...upstream])].flatMap((file) => {
+  const excerpt_files = files === null ? [...new Set(["prd.md", ...upstream])]
+    : [...files].filter(file => !nodeProducesArtifact(node) || file !== node.artifact).sort();
+  const docs = excerpt_files.flatMap((file) => {
     const doc = docByFile.get(file);
     return doc !== undefined && doc.exists && !isPlaceholderDoc(doc.content + (doc.tail_content ?? "")) ? [doc] : [];
   });

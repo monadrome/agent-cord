@@ -311,6 +311,12 @@ export const AgentCapabilityRequirementSchema = z.strictObject({
   readonly_resume: z.enum(["supported", "unsupported"]).optional(),
 }).refine(value => Object.keys(value).length > 0, "至少需要声明一个Agent能力要求");
 export type AgentCapabilityRequirement = z.infer<typeof AgentCapabilityRequirementSchema>;
+/** ADR-0098：额外输入文档不改变节点执行拓扑。 */
+export const NodeInputScopeSchema = z.strictObject({
+  kind: z.literal("dependencies"),
+  documents: z.array(SourcePathSchema).max(64).refine(paths => new Set(paths).size === paths.length, "额外输入文档不能重复").default([]),
+});
+export type NodeInputScope = z.infer<typeof NodeInputScopeSchema>;
 
 export const WorkflowDefSchema = z.object({
   apiVersion: z.literal("agent-cord.dev/v1alpha1"),
@@ -331,6 +337,7 @@ export const WorkflowDefSchema = z.object({
               /** 任务模板（支持 {{req_id}} / {{node_id}} / {{artifact}} 占位）；缺省按产物类型给模板 */
               prompt: z.string().optional(),
               readonly: z.boolean().default(false),
+              input_scope: NodeInputScopeSchema.optional(),
               /** ADR-0081：要求headless显式只读启动映射；缺省保留旧语义。 */
               require_readonly_mapping: z.boolean().optional(),
               /** ADR-0094：通用Agent能力准入；派发/协调/checkpoint共用。 */

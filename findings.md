@@ -1,5 +1,13 @@
 # 调研发现
 
+## 阶段88（2026-10-12）：下游报告不能使上游自测自行过期
+
+- executionInputHash/readApprovalContextHash目前读取所有固定文档和全部workflow产物。Goal→readonly findings成功后，Goal current变false并非源码漂移，而是下游输出进入上游指纹；这会使最新协调无法正确陈述交付就绪。
+- 节点语义输入和独立协调全局观察需要各自范围：显式dependencies+额外documents绑定任务/自测/恢复/人审，上游有效事实可保持；独立协调仍完整读取全部产物，旧提议在新报告出现后过期。
+- 新scope必须同时约束读取与prompt/hash，不能只过滤哈希而仍给worker未绑定正文；内置文件gate路径和共享artifact需保留，未知plugin文档依赖由发布者声明。
+- 实测两协议Goal和verification在readonly findings之后均current=true，而下游报告变化使全局旧协调过期；额外输入的正文和身份同时生效。范围解决误失效，不新增跨节点业务checker；仅检查报告存在的gate仍不能证明源码业务正确。
+- 旧stdin fixture PID文件先创建后写内容，测试若观察空文件会得到0并轮询宿主进程组；接受正整数PID是同步修正，不应靠延长回收上限掩盖该竞态。
+
 ## 阶段87（2026-10-11）：原生检查限制与宿主证据
 
 - Firecrawl官方runtime全文与npm0.0.79可用，Apache-2.0/Node>=22.12；SDK用SandboxManager全局状态，不可在多个server/run共享可变配置。采用每检查独立监督进程，runtime可选固定版本，不提高裸模式Node最低版本。

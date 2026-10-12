@@ -21,6 +21,8 @@ agent-cord 的设计决策分为四类，共 71 条，一条决策一个文件�
 
 宿主检查限制：[ADR-0097：只读工作区沙箱](./ADR-0097-sandboxed-host-checks.md)，定义每检查独立原生限制、可信IPC退出、模式/策略证据与不降级行为；[Human Review指南](../research/2026-10-12-sandboxed-host-checks.md)。
 
+节点输入边界：[ADR-0098：声明依赖范围](./ADR-0098-dependency-scoped-inputs.md)，统一任务/自测/人审的依赖文档，正常下游产物不令上游证据误失效，协调保留全观察；[Human Review指南](../research/2026-10-12-dependency-scoped-inputs.md)。
+
 设计决策先于技术决策成立：技术选型都是设计约束的推论，而不是流行度比较的结果。每份 ADR 的「理由」一节都给出从痛点出发的第一性原理推导链。
 
 ---

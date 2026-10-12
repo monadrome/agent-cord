@@ -101,7 +101,7 @@ const AGENT_COLLAB: WorkflowDef = {
       { id: "intake", artifact: "prd.md", depends_on: [], gates: [] },
       {
         id: "deliver", artifact: "review.md", depends_on: ["intake"],
-        run: { agent: "claude", readonly: false, timeout_ms: 600_000,
+        run: { agent: "claude", readonly: false, timeout_ms: 600_000, input_scope: { kind: "dependencies", documents: [] },
           prompt: "按当前 PRD 自主调研、计划、实现与自测，保持代码 Draft。review.md 包含变更定位、验收与风险，宿主验证失败后继续修复。",
           goal: { inputs: ["src", "apps", "tests", "package.json", "package-lock.json", "tsconfig.json", "vitest.config.ts"],
             review_changes: true,

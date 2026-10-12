@@ -1,5 +1,15 @@
 # 工作进度
 
+## 2026-10-12（阶段88）
+
+- 接续9308364干净/ahead2，阶段87实现/1680项/本地提交属于实际进展，远端未确认；无需重做已验证付费调用或状态-only重试。审查ACP/headless进程边界后，发现更直接的Goal→readonly报告输入漂移：全docs/exited会让有效上游ready自行过期，先完善显式依赖范围和完整协调共存语义。ADR-0098先于schema，保持原7306真实Draft/人工gate未操作，无子agent/付费模型。
+- 首14项9失败复现原全docs/exited问题；严格input_scope/依赖闭包、共用readNodeSnapshot/执行/verification/人审、完整协调补充文件与有界worker正文已接通。22项输入回归及checkpoint/context-pack通过，root build通过；started落盘后/最终代写前重检，仅声明输入漂移拒绝，缺/空/占位/链接额外资料零派发、修复可恢复，旧全域保持兼容。
+- 首双协议TCP的Goal current=true已通过，verification列表为空定位测试没有声明verification gate；该投影按发布gate引用观察，不从所有历史测试猜测。补scope测试的机器gate后继续核验当前verification，不改生产投影语义。未缩减完整目标，worker OS限制与可信验证资产仍待后续。
+- 最新输入范围26项和双协议新增TCP3项通过；首全量1705项通过，后新增边界全量1709项中1708通过。既有stdin abort PID poll失败，OS进程列表没有遗留never-read fixture；代码定位PID读取会在文件已创建未写完时Number("")=0，错误轮询当前进程组而非子进程。改为只接受正整数PID并保留原4秒同步/2秒回收上限，不改driver或放宽超时；继续完整重验。
+- 最终全量1709项/122文件通过（/tmp/cord-stage88-tests.json），typecheck/build:all/diff、最终274个本地文档链接与完整Goal示例解析通过；推荐Goal模板已声明scope，旧发布版本/旧无scope域保持语义。ADR-0098、人审指南/协议/架构/Feature同步，未添加第二套状态机。
+- 隔离双Git worktree实际TCP PID66997：headless http://127.0.0.1:64636、ACP http://127.0.0.1:64649。Goal实现→宿主实测→readonly报告后Goal/verification current=true，报告更新让旧协调过期，新prompt含最新报告和manual；cold零重复worker/原run/审批ID，最终协调/doctor=true、审批各1/人工决定0、仅deliver退出/done未退出，主树initial/付费0。/tmp/cord-stage88-real-result.json保留定位；Playwright三视口六截图无pageerror/横向溢出，桌面/320已查看，指南可只读查看。未操作原7306真实Draft。
+- 同步此前阶段87提交的HTTP/2 push成功（6a9c360→9308364），独立ls-remote15秒上限尚未确认；当前阶段88准备小步提交、远端最终核验，整体持续目标active。
+
 ## 2026-10-11至12（阶段87）
 
 - 6a9c360干净/同步，上一轮worktree/1663项/远端与预览为实际进展；读取Goal/checkpoint/host-check后确定检查OS权限尚未提供。使用Firecrawl（已告知）search --scrape2条并保存临时资料，不重复抓网页；npm pack0.0.79/许可/类型/源码核对。Docker daemon不可用，sandbox-exec成功；临时runtime安装完成，两个spike核验规范路径后真实只读/无网络/字面参数成立，无付费模型/子agent/7306操作。

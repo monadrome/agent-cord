@@ -10,6 +10,8 @@ agent-cord 是一个多 agent 共识协作基座：把需求、决策、证据�
 
 已实现覆盖 ACP/headless 的节点内 Goal 原型：`run.goal` 声明源码、验证命令和资源上限，宿主实际检查、自动反馈修复并补入指南证据。“Agent 协作”模板默认使用 Goal；自动卡点协调、人工答复后续跑及原授权恢复原型已接通。完整验收条件覆盖与跨 driver 资源治理待完善。详见 [核心 feature](./docs/core-features.md)、[Goal 示例](./examples/goal-sdlc.yaml) 和 [ADR-0056](./docs/adr/ADR-0056-goal-node-execution.md)。
 
+推荐Goal模板使用`run.input_scope: {kind: dependencies}`，任务/验证/恢复和人审绑定PRD与声明的上游材料，额外文档可用documents补充。下游评审生成报告不会让上游自测自行过期；独立协调仍看完整最新报告并刷新旧提议。配置和范围限制见[节点输入人审指南](./docs/research/2026-10-12-dependency-scoped-inputs.md)。
+
 适合无网络、源码只读验证的Goal可显式配置`check_sandbox: readonly_workspace`，宿主每检查使用独立原生沙箱/临时HOME，不继承凭据、不修改源码或事件；缺依赖拒绝裸执行。严格模式需要Node>=22.12和可选Sandbox Runtime0.0.79，本轮macOS实测，Linux待实际验收；默认工程模板保持原模式。配置与限制见[宿主检查人审指南](./docs/research/2026-10-12-sandboxed-host-checks.md)。
 
 ## 能做什么

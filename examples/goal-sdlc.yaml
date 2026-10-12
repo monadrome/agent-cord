@@ -17,6 +17,7 @@ spec:
       depends_on: [intake]
       run:
         agent: codex-implementer
+        input_scope: { kind: dependencies }
         timeout_ms: 600000
         prompt: >-
           在隔离开发工作区依据当前 PRD 自主调研、计划、实现和自测。

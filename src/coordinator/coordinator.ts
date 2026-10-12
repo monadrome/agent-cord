@@ -25,7 +25,8 @@ import { delay } from "../driver/headless.js";
 import type { ErrorEventData, ResultEventData, TextEventData } from "../driver/headless.js";
 import type { WorkflowNode } from "../workflow/executor.js";
 import { buildContextPack, ContextPackBudgetError } from "./context-pack.js";
-import { readSnapshot, resolveSessionFile, type RequirementSnapshot } from "./snapshot.js";
+import { resolveSessionFile, type RequirementSnapshot } from "./snapshot.js";
+import { readNodeSnapshot } from "./node-input.js";
 import { readSessionDocument, SessionFileConflictError, SessionFileError, writeSessionDocument } from "./session-files.js";
 import { executionInputHash } from "./checkpoint.js";
 import { nodeProducesArtifact } from "./artifact-policy.js";
@@ -169,11 +170,10 @@ function createTaskNodeRunner(def: WorkflowDef, options: CoordinatorOptions): No
       if (payload.status !== "ok" || payload.failure_stage !== undefined || payload.execution_input_hash === undefined) return false;
       if (payload.attempt !== undefined && payload.max_attempts !== undefined && payload.attempt > payload.max_attempts) return false;
       if (payload["workflow_revision"] !== ctx.workflow_revision) return false;
-      const snapshot = await readSnapshot(session, {
+      const snapshot = await readNodeSnapshot(def, node, session, {
         workflow_id: ctx.workflow_id,
         workflow_revision: ctx.workflow_revision,
         excerpt_mode: "head_tail",
-        files: [...def.spec.nodes, node].flatMap((item) => item.artifact === undefined ? [] : [item.artifact]),
       });
       const driver = options.resolveDriver(node.run?.agent ?? "");
       if (!readonly_mapping_satisfied(node, driver.capabilities) || !capability_requirements_satisfied(node, driver.capabilities)) return false;
@@ -285,11 +285,10 @@ function createTaskNodeRunner(def: WorkflowDef, options: CoordinatorOptions): No
 
     // 1. 每次尝试重新读取输入；准备失败也要落终态，不能派发缺失上下文。
     try {
-      snapshot = await readSnapshot(session, {
+      snapshot = await readNodeSnapshot(def, node, session, {
         workflow_id: ctx.workflow_id,
         workflow_revision: ctx.workflow_revision,
         excerpt_mode: "head_tail",
-        files: [...def.spec.nodes, node].flatMap((item) => item.artifact === undefined ? [] : [item.artifact]),
       });
       snapshotFields = {
         snapshot_id: snapshot.snapshot_id,
@@ -337,6 +336,14 @@ function createTaskNodeRunner(def: WorkflowDef, options: CoordinatorOptions): No
     }
 
     snapshotFields["execution_input_hash"] = executionInputHash(def, node, snapshot!, options.maxPackChars, driver.configuration_hash ?? null, source_hash);
+    const assert_scoped_input = async (): Promise<void> => {
+      if (node.run?.input_scope === undefined) return;
+      const current = await readNodeSnapshot(def, node, session, { workflow_id: ctx.workflow_id, workflow_revision: ctx.workflow_revision, excerpt_mode: "head_tail" });
+      const current_source = await read_source_hash(node);
+      if (executionInputHash(def, node, current, options.maxPackChars, driver.configuration_hash ?? null, current_source) !== snapshotFields["execution_input_hash"]) {
+        throw new SessionFileError("worker声明输入已变化，停止派发或采用旧结果");
+      }
+    };
     if (driver.configuration_hash !== undefined) snapshotFields["agent_configuration_hash"] = driver.configuration_hash;
     await started(driver.name);
     if (!readonly_mapping_satisfied(node, driver.capabilities)) {
@@ -345,6 +352,12 @@ function createTaskNodeRunner(def: WorkflowDef, options: CoordinatorOptions): No
     if (!capability_requirements_satisfied(node, driver.capabilities)) {
       return complete("failed", { error: "节点声明的Agent能力要求不满足，停止派发", text: "", failure_stage: "configuration", retryable: false });
     }
+    try { await assert_scoped_input(); }
+    catch (error) {
+      if (ctx.signal?.aborted) return complete("cancelled", { error: "声明输入重检期间run已取消", text: "", retryable: false });
+      return complete("failed", { error: error instanceof Error ? error.message : "声明输入重检失败", text: "", failure_stage: "snapshot", retryable: false });
+    }
+    if (node.run?.input_scope !== undefined && ctx.signal?.aborted) return complete("cancelled", { error: "run已取消，不派发worker", text: "", retryable: false });
 
     // 3. 派发 worker：聚合流式文本，result 事件优先；中间事件不入事件流
     let chunks = "";
@@ -452,6 +465,15 @@ function createTaskNodeRunner(def: WorkflowDef, options: CoordinatorOptions): No
           failure_stage: "snapshot", retryable: !(error instanceof SessionFileError || error instanceof SessionEventReadError),
         });
       }
+    }
+
+    if (node.run?.input_scope !== undefined) {
+      try { await assert_scoped_input(); } catch (error) {
+        if (ctx.signal?.aborted) return complete("cancelled", { error: "声明输入重检期间run已取消", text: "", agent_session_id: agentSessionId, usage, retryable: false });
+        return complete("failed", { error: error instanceof Error ? error.message : "声明输入重检失败", text: "", agent_session_id: agentSessionId, usage,
+          failure_stage: "snapshot", retryable: false, artifact: node.artifact ?? null, artifact_written: false, written_by: "none" });
+      }
+      if (ctx.signal?.aborted) return complete("cancelled", { error: "输入重检期间run已取消", text: "", usage, retryable: false });
     }
 
     // 4. artifact 写回校验（双通道）

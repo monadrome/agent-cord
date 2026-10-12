@@ -13,7 +13,7 @@ import { resolveGoalReadiness } from "./goal-evidence.js";
 import { goalAcceptanceEvidence, renderGoalAcceptance } from "./goal-acceptance.js";
 import { accumulateGoalUsage, usageBudgetExceeded } from "./goal-usage.js";
 import { executionInputHash } from "./checkpoint.js";
-import { readSnapshot } from "./snapshot.js";
+import { readNodeSnapshot } from "./node-input.js";
 import { goal_change_evidence, render_goal_changes, source_manifest_hash } from "./goal-changes.js";
 import type { CoordinatorOptions } from "./coordinator.js";
 
@@ -43,8 +43,7 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
       source_manifest = SourceManifestSchema.parse(input.source_manifest);
       if (source_manifest_hash(source_manifest) !== input.source_hash) throw new Error("Goal 源码清单与被测摘要不一致");
     }
-    const snapshot = await readSnapshot(session, { workflow_id: ctx.workflow_id, workflow_revision: ctx.workflow_revision, excerpt_mode: "head_tail",
-      files: def.spec.nodes.flatMap(item => item.artifact === undefined ? [] : [item.artifact]) });
+    const snapshot = await readNodeSnapshot(def, node, session, { workflow_id: ctx.workflow_id, workflow_revision: ctx.workflow_revision, excerpt_mode: "head_tail" });
     return { input_hash: input.input_hash, source_hash: input.source_hash, source_manifest,
       stable_hash: executionInputHash(def, node, snapshot, options.maxPackChars, options.resolveDriver(node.run!.agent).configuration_hash ?? null, input.source_hash) };
   };

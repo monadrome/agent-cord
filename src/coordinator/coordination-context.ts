@@ -2,12 +2,14 @@
 import type { SessionHandle } from "../core/ports.js";
 import type { WorkflowDef } from "../core/schema.js";
 import { readSnapshot, sliceDocumentExcerpt, type SnapshotDoc } from "./snapshot.js";
+import { node_input_files } from "./node-input.js";
 
 export const COORDINATION_CONTEXT_POLICY = "balanced-head-tail.v1";
 
 export function readCoordinationSnapshot(def: WorkflowDef, session: SessionHandle, workflow_revision?: string) {
   return readSnapshot(session, { workflow_id: def.metadata.id, workflow_revision, excerpt_mode: "head_tail",
-    files: def.spec.nodes.flatMap((node) => node.artifact === undefined ? [] : [node.artifact]) });
+    files: [...def.spec.nodes.flatMap(node => node.artifact === undefined ? [] : [node.artifact]),
+      ...def.spec.nodes.flatMap(node => [...(node_input_files(def, node) ?? [])])] });
 }
 
 interface DocumentSelection {

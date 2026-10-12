@@ -19,6 +19,7 @@ export {
 
 export { createNodeRunner, type CoordinatorOptions } from "./coordinator.js";
 export { readApprovalContextHash } from "./checkpoint.js";
+export { readNodeSnapshot, node_input_files, node_ancestors, NODE_INPUT_SCOPE_POLICY } from "./node-input.js";
 export { readGoalRetryAuthorization, readGoalRetryAgentIdentity } from "./goal-retry.js";
 export { goalRecoveryInputHash, goalRecoveryCheckpoint, readGoalRecoveryRequest } from "./goal-recovery.js";
 export { readGoalCoordinationRequest, resolveGoalBlocker } from "./goal-coordination.js";

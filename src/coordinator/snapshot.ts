@@ -68,6 +68,8 @@ export interface SnapshotOptions {
   excerpt_mode?: "head" | "head_tail";
   /** workflow 声明的自定义 artifact；会与固定四个快照文档合并去重 */
   files?: readonly string[];
+  /** ADR-0098：显式节点范围可精确选择文档；旧调用默认保留固定文档。 */
+  include_default_documents?: boolean;
   /** 仅投影该 workflow 的节点进度；省略时保留 session 全部进度 */
   workflow_id?: string;
   workflow_revision?: string;
@@ -93,7 +95,7 @@ export async function readSnapshot(
   if (options.workflow_revision !== undefined && options.workflow_id === undefined) throw new Error("执行版本必须同时指定 workflow_id");
   const maxDocChars = options.maxDocChars ?? 20_000;
 
-  const files = [...new Set([...SNAPSHOT_DOC_FILES, ...(options.files ?? [])])];
+  const files = [...new Set([...(options.include_default_documents === false ? [] : SNAPSHOT_DOC_FILES), ...(options.files ?? [])])];
   const docs: SnapshotDoc[] = [];
   for (const file of files) {
     let content = "";

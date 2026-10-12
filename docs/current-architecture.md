@@ -50,6 +50,8 @@ worker agent 子进程（ACP / 裸 headless CLI）
 
 ### 已采纳的 Goal 执行设计
 
+推荐Goal模板使用`run.input_scope:{kind:dependencies}`，node-input.ts统一PRD、传递上游/当前artifact、非节点产物的固定手工文档、extra documents与当前文件gate路径。worker正文/定位符、执行/checkpoint、Goal和server的verification/approval共同读取此集合；执行只排除自产输出并核验其后态，真实输入变化仍拒绝。started落盘后/代写前重检，未知/不可读输入不派发；旧流程缺省保持全域。独立协调仍读取完整产物与所有补充文件，因此下游评审使旧提议过期而不使上游有效Goal自行stale（[ADR-0098](./adr/ADR-0098-dependency-scoped-inputs.md)、[人审指南](./research/2026-10-12-dependency-scoped-inputs.md)）。
+
 独立工作单元可以由`cord worktree <path> [--base <ref>]`准备，再以该root启动server。创建解析固定commit、拒绝dirty默认/既有目标/旧运行数据，不复制当前未提交输入；AgentService核验Git登记、反向引用和目录身份后包装ACP/headless，公开worktree能力并生成root绑定配置hash。driver前后、源码/验证/人审/协调重检同一物理绑定，整个root内的输入、检查、事件和产物沿用现有契约；普通根仍shared_lease。双工作树可独立运行，Git公共元数据和验证器可写环境仍共享，非OS隔离（[ADR-0096](./adr/ADR-0096-linked-worktree-execution.md)、[人审指南](./research/2026-10-11-linked-worktree-execution.md)）。
 
 [默认 Goal 驱动的自主 Draft 交付](./core-features.md) 是真实 agent 开发流程的核心设计基线：自主完成代码、实际自测与 human review 指南，正常执行无需中途人工干预，最终 review 与关键权限仍人工控制（[ADR-0055](./adr/ADR-0055-goal-driven-draft-delivery.md)）。
