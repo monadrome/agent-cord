@@ -793,7 +793,8 @@ export class HeadlessDriver implements AgentDriver {
     const [bin = this.bin, ...args] = argv;
     if (task.signal?.aborted) { yield errorEvent("task aborted by caller", "agent"); return; }
     let launch;
-    try { launch = await prepare_worker_launch(bin, args, task, { ...process.env, ...this.env }, this.configuration_hash, this.sandbox); }
+    try { launch = await prepare_worker_launch(bin, args, task, { ...process.env, ...this.env }, this.configuration_hash, this.sandbox,
+      prompt => this.buildArgv({ ...task, prompt }, resumeSessionId).slice(1)); }
     catch { yield errorEvent(task.signal?.aborted ? "任务已取消" : "Worker沙箱启动准备失败", task.signal?.aborted ? "agent" : "configuration"); return; }
     if (task.signal?.aborted || Date.now() - started_at >= timeoutMs) {
       await launch.cleanup(); yield errorEvent(task.signal?.aborted ? "任务已取消" : "Worker启动准备超时", task.signal?.aborted ? "agent" : "timeout"); return;
@@ -811,7 +812,7 @@ export class HeadlessDriver implements AgentDriver {
       // 进程组组长 → 超时可整树清理（CLI 常自带子进程/MCP server）
       detached: true,
       reject: false,
-      ...(this.template.prompt_input === "stdin" ? { input: task.prompt } : { stdin: "ignore" as const }),
+      ...(this.template.prompt_input === "stdin" ? { input: launch.prompt ?? task.prompt } : { stdin: "ignore" as const }),
       stdout: "pipe",
       stderr: "pipe",
     });

@@ -10,6 +10,7 @@ import type { RequirementSnapshot } from "./snapshot.js";
 import { buildCoordinationDocuments } from "./coordination-context.js";
 import { node_input_files, node_ancestors, NODE_INPUT_SCOPE_POLICY } from "./node-input.js";
 import { nodeProducesArtifact } from "./artifact-policy.js";
+import { INPUT_DOCUMENTS_PROMPT_RESERVE } from "../driver/input-documents.js";
 
 export const WORKER_CONTEXT_POLICY = "worker-balanced-head-tail.v1";
 export class ContextPackBudgetError extends Error {}
@@ -19,6 +20,8 @@ export interface ContextPackOptions {
   maxPackChars?: number;
   /** 宿主源码身份与重试附记，属于必需预算，不能在返回后追加。 */
   additional_context?: string;
+  /** ADR-0101：实际临时根由driver追加，宿主提前预留同一最终预算。 */
+  input_documents?: boolean;
 }
 
 /** 按产物类型的缺省任务模板（node.run.prompt 未提供时使用） */
@@ -72,11 +75,12 @@ export function buildContextPack(
   snapshot: RequirementSnapshot,
   options: ContextPackOptions = {},
 ): string {
-  const maxPackChars = options.maxPackChars ?? 60_000;
+  const maxPackChars = (options.maxPackChars ?? 60_000) - (options.input_documents === true ? INPUT_DOCUMENTS_PROMPT_RESERVE : 0);
   if (!Number.isSafeInteger(maxPackChars) || maxPackChars < 0) throw new ContextPackBudgetError("worker 上下文预算必须是非负安全整数");
   const exited = new Set(snapshot.workflow.exited);
   const files = node_input_files(def, node);
-  const documents = snapshot.docs.filter(doc => files === null || files.has(doc.file));
+  const documents = snapshot.docs.filter(doc => (files === null || files.has(doc.file))
+    && (options.input_documents !== true || !nodeProducesArtifact(node) || doc.file !== node.artifact));
   const ancestors = files === null ? null : node_ancestors(def, node);
   const progress = snapshot.workflow.exited.filter(id => ancestors === null || ancestors.has(id));
   const upstream = upstreamArtifacts(def, node, exited);
@@ -115,8 +119,9 @@ export function buildContextPack(
     .map((doc) => `- cord/${snapshot.req_id}/${doc.file}`);
   sections.push(
     ``,
-    `## 定位符层（按需自取全文）`,
+    options.input_documents === true ? `## 全文输入清单（宿主提供只读副本）` : `## 定位符层（按需自取全文）`,
     ...locators,
+    ...(options.input_documents === true ? [`- 本次driver将追加input_documents_root与manifest。以上cord定位符对应副本documents/<file>，原cord目录保持禁止访问。`] : []),
     ``,
     `## 纪律`,
     `- 结论必须可指认证据（文件锚点 / 命令输出）；无证据的推断显式标注为假设。`,

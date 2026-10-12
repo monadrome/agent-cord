@@ -515,7 +515,7 @@ export class AcpDriver implements AgentDriver {
 
         const response = await ctx.request("session/prompt", {
           sessionId,
-          prompt: [{ type: "text", text: task.prompt }],
+          prompt: [{ type: "text", text: worker_launch.prompt ?? task.prompt }],
         });
         assert_running();
         launch_state.assert_ready();

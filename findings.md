@@ -1,5 +1,11 @@
 # 调研发现
 
+## 阶段91（2026-10-12）：省略全文必须有可验证访问路径
+
+- 当前pack定位符仍指向cord，OS模式禁止该路径。按snapshot完整hash复制所选全文到一次性只读树，才能提供实际可读取中段而不开放事件或无关文档。
+- executionInputHash排除自产artifact，副本集合也必须排除；scope缺省全域仍绑定全部snapshot.docs，新能力需在执行后重检此全域，不能私有旧副本冒称最新。
+- 独立Context Session Agent禁止所有工具通知，副本能力仅接入节点Worker；不通过此优化扩大协调权限。随机实际输入根追加需要先预留原prompt预算，不能任意token替换用户材料。
+
 ## 阶段90（2026-10-12）：Worker需要实际权限隔离
 
 - 现有worktree不限制访问宿主事实/Git/env，readonly通知审计不能阻止未报告IO；worker和宿主检查需各自独立runtime进程。

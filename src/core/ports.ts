@@ -4,6 +4,7 @@
  */
 import type {
   Actor,
+  AgentInputDocuments,
   Anchor,
   CoordinationProposal,
   CoordinationStatus,
@@ -254,6 +255,10 @@ export interface AgentTask {
   readonly?: boolean;
   timeout_ms?: number;
   session_id?: string;
+  /** ADR-0101：当前快照绑定的全文输入，由支持该能力的沙箱driver核验并复制。 */
+  input_documents?: AgentInputDocuments;
+  /** 副本实际定位指令也必须计入本次最终prompt预算。 */
+  max_prompt_chars?: number;
   /** 取消信号（ADR-0025）：abort 后 driver 立即收束——杀进程树并关闭事件流，不等超时 */
   signal?: AbortSignal;
 }
@@ -278,7 +283,7 @@ export interface AgentCapabilities {
   /** ADR-0093：工作区隔离事实；shared_lease不等于worktree/OS sandbox。 */
   workspace_isolation: "shared_lease" | "worktree" | "os_sandbox";
   /** ADR-0100：已配置的强制启动策略，安装仍未查询；不公开域名/路径/环境值。 */
-  sandbox?: { policy: string; network: "allowlist"; environment: "allowlist"; state: "ephemeral" | "persistent" };
+  sandbox?: { policy: string; network: "allowlist"; environment: "allowlist"; state: "ephemeral" | "persistent"; input_documents?: "verified_copy" };
   launch_options: readonly string[];
   native_resume: "supported" | "unsupported" | "negotiated";
   /** ADR-0080：仅描述headless实参映射，不证明工具/OS隔离。 */

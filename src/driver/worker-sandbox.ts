@@ -9,10 +9,11 @@ import { z } from "zod";
 import { canonicalJson, sha256Hex } from "../core/hash.js";
 import type { AgentTask } from "../core/ports.js";
 import { read_worktree } from "../workspace/worktree.js";
+import { prepare_input_documents, input_documents_prompt, unlock_input_documents } from "./input-documents.js";
 
-export const WORKER_SANDBOX_POLICY = "workspace.srt-0.0.79.v1";
+export const WORKER_SANDBOX_POLICY = "workspace.srt-0.0.79.v2";
 const absolute_path = z.string().min(1).max(4096).refine(value => isAbsolute(value) && value !== "/" && !/[\x00-\x1f\x7f]/.test(value), "沙箱路径必须是明确绝对路径");
-const env_name = z.string().regex(/^[A-Z_][A-Z0-9_]{0,63}$/).refine(value => !/^(HOME|TMPDIR|TMP|TEMP|PATH|LANG|NODE_.*|LD_.*|DYLD_.*|PYTHON.*|BASH_ENV|ENV|SHELL|.*_PROXY|CLOUDSDK_PROXY_.*|JAVA_TOOL_OPTIONS|GIT_SSH_COMMAND|SANDBOX_.*)$/i.test(value), "不能覆盖运行时或沙箱环境");
+const env_name = z.string().regex(/^[A-Z_][A-Z0-9_]{0,63}$/).refine(value => !/^(HOME|TMPDIR|TMP|TEMP|PATH|LANG|NODE_.*|LD_.*|DYLD_.*|PYTHON.*|BASH_ENV|ENV|SHELL|.*_PROXY|CLOUDSDK_PROXY_.*|JAVA_TOOL_OPTIONS|GIT_SSH_COMMAND|SANDBOX_.*|CORD_INPUT_.*)$/i.test(value), "不能覆盖运行时或沙箱环境");
 const domain = z.string().min(1).max(253).regex(/^(?:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)(?::[1-9][0-9]{0,4})?$/).refine(value => !value.includes("..") && (!value.includes(":") || Number(value.split(":")[1]) <= 65535), "网络域名或端口无效");
 const unique = <T extends z.ZodType>(schema: T, limit: number) => z.array(schema).max(limit).refine(values => new Set(values).size === values.length, "沙箱配置不能重复").default([]);
 export const WorkerSandboxSchema = z.strictObject({ kind: z.literal("workspace"),
@@ -25,20 +26,24 @@ export const WorkerSandboxLaunchSchema = z.strictObject({
   cwd: z.string().min(1), scratch: z.string().min(1), home: z.string().min(1), readonly: z.boolean(),
   sandbox: WorkerSandboxSchema, git_paths: z.array(z.string()), read_paths: z.array(z.string()),
   environment: z.record(z.string(), z.string().refine(value => !value.includes("\0"))),
+  input_documents_dir: z.string().min(1).optional(),
 });
 export type WorkerSandboxLaunch = z.infer<typeof WorkerSandboxLaunchSchema>;
-export interface WorkerLaunch { bin: string; args: string[]; env: NodeJS.ProcessEnv; input?: WorkerSandboxLaunch; cleanup(): Promise<void>; }
+export interface WorkerLaunch { bin: string; args: string[]; env: NodeJS.ProcessEnv; input?: WorkerSandboxLaunch; prompt?: string; cleanup(): Promise<void>; }
 const inside = (path: string, parent: string) => { const suffix = relative(parent, path); return suffix === "" || suffix !== ".." && !suffix.startsWith(`..${sep}`) && !isAbsolute(suffix); };
 async function state_destination(path: string): Promise<string> {
   try { const info = await lstat(path); if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("invalid state"); return await realpath(path); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; return join(await state_destination(dirname(path)), basename(path)); }
 }
 export function sandbox_capability(sandbox: WorkerSandbox) {
-  return { policy: WORKER_SANDBOX_POLICY, network: "allowlist" as const, environment: "allowlist" as const, state: sandbox.state_dir === undefined ? "ephemeral" as const : "persistent" as const };
+  return { policy: WORKER_SANDBOX_POLICY, network: "allowlist" as const, environment: "allowlist" as const, state: sandbox.state_dir === undefined ? "ephemeral" as const : "persistent" as const, input_documents: "verified_copy" as const };
 }
 
-export async function prepare_worker_launch(bin: string, args: string[], task: AgentTask, environment: NodeJS.ProcessEnv, configuration_hash: string, sandbox?: WorkerSandbox): Promise<WorkerLaunch> {
-  if (sandbox === undefined) return { bin, args, env: environment, async cleanup() {} };
+export async function prepare_worker_launch(bin: string, args: string[], task: AgentTask, environment: NodeJS.ProcessEnv, configuration_hash: string, sandbox?: WorkerSandbox, build_args?: (prompt: string) => string[]): Promise<WorkerLaunch> {
+  if (sandbox === undefined) {
+    if (task.input_documents !== undefined) throw new Error("全文输入副本需要Worker沙箱");
+    return { bin, args, env: environment, async cleanup() {} };
+  }
   let scratch: string | undefined;
   try {
     if (task.readonly !== undefined && typeof task.readonly !== "boolean") throw new Error("invalid task mode");
@@ -52,6 +57,8 @@ export async function prepare_worker_launch(bin: string, args: string[], task: A
     const read_paths = await Promise.all(sandbox.read_paths.map(path => realpath(path)));
     if (read_paths.some(path => path === "/")) throw new Error("unbounded read asset");
     scratch = await realpath(await mkdtemp(join(tmpdir(), "cord-worker-sandbox-")));
+    const input_documents_dir = task.input_documents === undefined ? undefined : await prepare_input_documents(task.input_documents, root, scratch, task.signal);
+    const prompt = input_documents_dir === undefined ? task.prompt : input_documents_prompt(task.prompt, input_documents_dir, task.max_prompt_chars);
     let home = scratch;
     if (sandbox.state_dir !== undefined) {
       const state = await state_destination(sandbox.state_dir);
@@ -70,12 +77,13 @@ export async function prepare_worker_launch(bin: string, args: string[], task: A
     for (const name of sandbox.env_allowlist) { const value = environment[name]; if (value === undefined) throw new Error("missing environment"); selected[name] = value; }
     const helper_js = fileURLToPath(new URL("./worker-sandbox-helper.js", import.meta.url));
     const helper = existsSync(helper_js) ? [helper_js] : ["--import", pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href, fileURLToPath(new URL("./worker-sandbox-helper.ts", import.meta.url))];
-    const input = WorkerSandboxLaunchSchema.parse({ bin, args, cwd: root, scratch, home, readonly: task.readonly === true, sandbox, git_paths, read_paths, environment: selected });
+    const input = WorkerSandboxLaunchSchema.parse({ bin, args: input_documents_dir === undefined || build_args === undefined ? args : build_args(prompt), cwd: root, scratch, home, readonly: task.readonly === true, sandbox, git_paths, read_paths, environment: selected,
+      ...(input_documents_dir === undefined ? {} : { input_documents_dir }) });
     let cleanup: Promise<void> | undefined; const private_scratch = scratch;
-    return { bin: process.execPath, args: helper, env: { PATH: environment["PATH"] ?? "/usr/bin:/bin", LANG: "C.UTF-8", HOME: scratch, TMPDIR: scratch, TMP: scratch, TEMP: scratch }, input,
-      cleanup: () => cleanup ??= rm(private_scratch, { recursive: true, force: true }) };
+    return { bin: process.execPath, args: helper, env: { PATH: environment["PATH"] ?? "/usr/bin:/bin", LANG: "C.UTF-8", HOME: scratch, TMPDIR: scratch, TMP: scratch, TEMP: scratch }, input, prompt,
+      cleanup: () => cleanup ??= unlock_input_documents(private_scratch).then(() => rm(private_scratch, { recursive: true, force: true })) };
   } catch {
-    if (scratch !== undefined) await rm(scratch, { recursive: true, force: true }).catch(() => undefined);
+    if (scratch !== undefined) await unlock_input_documents(scratch).then(() => rm(scratch!, { recursive: true, force: true })).catch(() => undefined);
     throw new Error("无法准备Worker沙箱，请核验工作区、只读资产、环境名单与状态目录");
   }
 }

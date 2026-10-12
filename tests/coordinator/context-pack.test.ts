@@ -1,5 +1,5 @@
 /** worker 的实际可见材料、完整预算与失败恢复，不只校验文件 hash。 */
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -11,6 +11,8 @@ import { readSnapshot } from "../../src/coordinator/snapshot.js";
 import { buildContextPack } from "../../src/coordinator/context-pack.js";
 import { executionInputHash } from "../../src/coordinator/checkpoint.js";
 import { createNodeRunner } from "../../src/coordinator/coordinator.js";
+import { HeadlessDriver } from "../../src/driver/headless.js";
+import { INPUT_DOCUMENTS_PROMPT_RESERVE } from "../../src/driver/input-documents.js";
 
 const def: WorkflowDef = { apiVersion: "agent-cord.dev/v1alpha1", kind: "Workflow", metadata: { id: "worker-context" }, spec: { nodes: [
   { id: "design", artifact: "design.md", depends_on: [], gates: [] },
@@ -41,6 +43,42 @@ function worker() {
 }
 
 describe("worker 上下文覆盖与预算", () => {
+  it("沙箱全文描述与现有语义输入共用集合，排除自产artifact并预留最终预算", async () => {
+    const tasks: AgentTask[] = []; const base = new HeadlessDriver({ cli: "codex", sandbox: { kind: "workspace" } });
+    const driver: AgentDriver = { name: base.name, configuration_hash: base.configuration_hash, capabilities: base.capabilities,
+      async *run(task) { tasks.push(task); yield { type: "result", data: { text: "# 完整评审\n宿主保存报告。" } }; }, async *resume() {} };
+    const runner = createNodeRunner(def, { workspaceRoot: root, resolveDriver: () => driver, maxPackChars: 12000 });
+    expect(await runner.runNode(node, session, { workflow_id: def.metadata.id, node_id: node.id })).toMatchObject({ status: "ok" });
+    expect(tasks).toHaveLength(1); expect(tasks[0]!.max_prompt_chars).toBe(12000); expect(tasks[0]!.prompt.length).toBeLessThanOrEqual(12000 - INPUT_DOCUMENTS_PROMPT_RESERVE);
+    const docs = tasks[0]!.input_documents!; expect(docs).toMatchObject({ session_dir: session.dir, req_id: session.req_id });
+    expect(docs.files.map(file => file.file)).toContain("adr.md"); expect(docs.files.map(file => file.file)).not.toContain("findings.md");
+    expect(tasks[0]!.prompt).not.toContain(`- cord/${session.req_id}/findings.md`);
+    expect(docs.files.find(file => file.file === "prd.md")).toMatchObject({ content_hash: sha256Hex(await readFile(join(session.dir, "prd.md"), "utf8")), content_length: expect.any(Number) });
+  });
+  it("声明scope只复制上游/明确材料，不能用全文能力加入下游或自产输出", async () => {
+    const workflow = structuredClone(def); workflow.spec.nodes[2]!.run!.input_scope = { kind: "dependencies", documents: [] };
+    workflow.spec.nodes.push({ id: "future", depends_on: ["implement"], artifact: "adr.md", gates: [] });
+    const tasks: AgentTask[] = []; const base = new HeadlessDriver({ cli: "codex", sandbox: { kind: "workspace" } });
+    const driver: AgentDriver = { name: base.name, configuration_hash: base.configuration_hash, capabilities: base.capabilities,
+      async *run(task) { tasks.push(task); yield { type: "result", data: { text: "# 当前报告\n只有合法输入。" } }; }, async *resume() {} };
+    expect(await createNodeRunner(workflow, { workspaceRoot: root, resolveDriver: () => driver }).runNode(workflow.spec.nodes[2]!, session,
+      { workflow_id: def.metadata.id, node_id: node.id })).toMatchObject({ status: "ok" });
+    expect(tasks[0]!.input_documents!.files.map(file => file.file).sort()).toEqual(["design.md", "plan.md", "prd.md", "review.md"]);
+  });
+  it("无scope全文副本执行期间输入漂移仍拒绝报告，不回退旧私有副本", async () => {
+    let calls = 0; const base = new HeadlessDriver({ cli: "codex", sandbox: { kind: "workspace" } });
+    const driver: AgentDriver = { name: base.name, configuration_hash: base.configuration_hash, capabilities: base.capabilities,
+      async *run() { calls++; await writeFile(join(session.dir, "adr.md"), "# CURRENT_CHANGED_INPUT\n"); yield { type: "result", data: { text: "# 旧副本报告\n不能作为当前事实。" } }; }, async *resume() {} };
+    expect(await createNodeRunner(def, { workspaceRoot: root, resolveDriver: () => driver }).runNode(node, session,
+      { workflow_id: def.metadata.id, node_id: node.id })).toMatchObject({ status: "failed" });
+    expect(calls).toBe(1); const completed = (await session.events.readOrdered()).filter(event => event.type === "agent.task.completed").at(-1)!;
+    expect(completed.payload).toMatchObject({ failure_stage: "snapshot", retryable: false, artifact_written: false });
+  });
+  it("副本必需定位预算不足时零driver调用，不把最终prompt扩到发布上限之外", async () => {
+    const { driver, tasks } = worker(); const base = new HeadlessDriver({ cli: "codex", sandbox: { kind: "workspace" } });
+    const runner = createNodeRunner(def, { workspaceRoot: root, resolveDriver: () => ({ ...driver, configuration_hash: base.configuration_hash, capabilities: base.capabilities }), maxPackChars: INPUT_DOCUMENTS_PROMPT_RESERVE });
+    expect(await runner.runNode(node, session, { workflow_id: def.metadata.id, node_id: node.id })).toMatchObject({ status: "failed" }); expect(tasks).toHaveLength(0);
+  });
   it("受限预算同时覆盖 PRD/上游首尾、小报告与定位符，不加入无关正文", async () => {
     const pack = buildContextPack(def, node, await snapshot(), { maxPackChars: 6_000 });
     expect(pack.length).toBeLessThanOrEqual(6_000);

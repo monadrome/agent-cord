@@ -129,6 +129,14 @@
 - [x] 小步功能提交ada578b；HTTP/2和HTTP/1.1有界push各20秒上限、独立ls-remote15秒无结果，进程已停止，本地实现/验收保留；整个目标active
 - [ ] 网络恢复后推送当前分支并独立核验远端；可信验证资产/冻结源码/全文输入复制/Linux及真实厂商继续推进
 
+## 阶段91：沙箱Worker当前全文输入（已实现并验证，提交中）
+
+- [x] 接续c3afe1e干净/ahead4，阶段90实现/1799项/实际预览为progress；审查snapshot/pack/hash/driver，ADR-0101先于契约
+- [x] 严格AgentTask输入描述、snapshot集合/预算预留、当前全文副本/manifest/真实只读OS/新身份，new/resume/stdin/argv/ACP共用
+- [x] 24项副本来源/资源/UTF8/整组漂移、两协议/argv/resume/取消清理与3项TCP省略中段实际交付/current/cold/最终人审
+- [x] 最终1834项/128文件、build/typecheck/build:all/diff与304链接、compiled/pack与隔离双协议TCP/18截图，人审指南同步
+- [ ] 小步提交推送/独立核验；完整目标active
+
 ## 阶段79：只读命令参数与策略身份（已实现并验证，功能已同步）
 
 - [x] d45942e干净/ahead4，阶段78实现/1513项/实际HTTP为progress；远端独立查询仍超时

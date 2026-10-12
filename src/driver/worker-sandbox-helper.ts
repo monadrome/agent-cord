@@ -45,12 +45,13 @@ process.once("message", async raw => {
       filesystem: { denyRead: [literal("/"), literal(join(input.cwd, "cord")), ...input.git_paths.map(literal)],
         allowRead: [input.cwd, input.scratch, input.home, ...input.read_paths, ...system].map(literal),
         allowWrite: [input.scratch, input.home, ...(input.readonly ? [] : [input.cwd])].map(literal),
-        denyWrite: [join(input.cwd, "cord"), ...input.git_paths, "/tmp/claude", "/private/tmp/claude"].map(literal) },
+        denyWrite: [join(input.cwd, "cord"), ...input.git_paths, "/tmp/claude", "/private/tmp/claude", ...(input.input_documents_dir === undefined ? [] : [input.input_documents_dir])].map(literal) },
       enableWeakerNestedSandbox: false, enableWeakerNetworkIsolation: false, allowAppleEvents: false, allowPty: false }, undefined, false);
     if (!SandboxManager.isSandboxingEnabled()) throw new Error("disabled");
     const wrapped = await SandboxManager.wrapWithSandboxArgv("exec " + quote(["/usr/bin/env", `HOME=${input.home}`, `TMPDIR=${input.scratch}`, `TMP=${input.scratch}`, `TEMP=${input.scratch}`,
       process.execPath, "-e", `(${run_agent.toString()})()`, executable, ...input.args]), "/bin/bash", undefined, undefined, input.cwd);
-    const child = spawn(wrapped.argv[0], wrapped.argv.slice(1), { cwd: input.cwd, env: { ...wrapped.env, ...input.environment }, shell: false, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(wrapped.argv[0], wrapped.argv.slice(1), { cwd: input.cwd, env: { ...wrapped.env, ...input.environment,
+      ...(input.input_documents_dir === undefined ? {} : { CORD_INPUT_DIR: input.input_documents_dir }) }, shell: false, stdio: ["pipe", "pipe", "pipe"] });
     child.stdout.pipe(process.stdout); child.stderr.pipe(process.stderr);
     child.stdin.on("error", () => { process.stdin.unpipe(child.stdin); });
     process.once("disconnect", () => child.kill("SIGKILL"));

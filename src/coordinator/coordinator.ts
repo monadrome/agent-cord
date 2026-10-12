@@ -17,7 +17,7 @@ import type {
   NodeRunStatus,
   SessionHandle,
 } from "../core/ports.js";
-import { AgentTaskCompletedPayloadSchema, type EventDraft, type WorkflowDef, type SourceManifest } from "../core/schema.js";
+import { AgentInputDocumentsSchema, AgentTaskCompletedPayloadSchema, type AgentInputDocuments, type EventDraft, type WorkflowDef, type SourceManifest } from "../core/schema.js";
 import { isPlaceholderDoc } from "../core/session.js";
 import { sha256Hex } from "../core/hash.js";
 import { SessionEventReadError } from "../core/session-events.js";
@@ -240,6 +240,8 @@ function createTaskNodeRunner(def: WorkflowDef, options: CoordinatorOptions): No
     let artifact_fields: Record<string, unknown> = {};
     let artifact_before_hash: string | null = null;
     let source_hash: string | null = null;
+    let additional_context = "";
+    let input_documents: AgentInputDocuments | undefined;
     const complete = async (
       status: NodeRunStatus,
       fields: Record<string, unknown>,
@@ -301,7 +303,7 @@ function createTaskNodeRunner(def: WorkflowDef, options: CoordinatorOptions): No
         artifact_before_hash = snapshot.docs.find((doc) => doc.file === node.artifact)?.content_hash ?? null;
         artifact_fields = { artifact_before_hash };
       }
-      const additional_context = [
+      additional_context = [
         ...(options.additional_context === undefined ? [] : [options.additional_context]),
         ...(source_hash === null ? [] : [`## 源码输入身份\nsource_hash: ${source_hash}\n报告必须依据本次只读源码输入；完成后协调层会重新核验源码摘要。`]),
         ...(previousError === null ? [] : [`## 上次尝试失败（第 ${attempt - 1} 次）\n${truncate(previousError, 2_000)}\n请避开同一失败模式。`]),
@@ -336,8 +338,19 @@ function createTaskNodeRunner(def: WorkflowDef, options: CoordinatorOptions): No
     }
 
     snapshotFields["execution_input_hash"] = executionInputHash(def, node, snapshot!, options.maxPackChars, driver.configuration_hash ?? null, source_hash);
+    if (driver.capabilities?.sandbox?.input_documents === "verified_copy") {
+      try {
+        if (driver.configuration_hash === undefined || !/^[0-9a-f]{64}$/.test(driver.configuration_hash)) throw new Error("missing input policy identity");
+        input_documents = AgentInputDocumentsSchema.parse({ session_dir: session.dir, req_id: session.req_id,
+          files: snapshot!.docs.filter(doc => doc.exists && (!nodeProducesArtifact(node) || doc.file !== node.artifact))
+            .map(({ file, content_hash, content_length }) => ({ file, content_hash, content_length })) });
+        prompt = buildContextPack(def, node, snapshot!, { maxPackChars: options.maxPackChars, additional_context, input_documents: true });
+      } catch {
+        await started(driver.name); return complete("failed", { error: "当前全文输入描述或定位预算不可验证", text: "", failure_stage: "snapshot", retryable: false });
+      }
+    }
     const assert_scoped_input = async (): Promise<void> => {
-      if (node.run?.input_scope === undefined) return;
+      if (node.run?.input_scope === undefined && input_documents === undefined) return;
       const current = await readNodeSnapshot(def, node, session, { workflow_id: ctx.workflow_id, workflow_revision: ctx.workflow_revision, excerpt_mode: "head_tail" });
       const current_source = await read_source_hash(node);
       if (executionInputHash(def, node, current, options.maxPackChars, driver.configuration_hash ?? null, current_source) !== snapshotFields["execution_input_hash"]) {
@@ -372,6 +385,7 @@ function createTaskNodeRunner(def: WorkflowDef, options: CoordinatorOptions): No
         prompt,
         cwd: options.workspaceRoot,
         readonly: node.run?.readonly === true,
+        ...(input_documents === undefined ? {} : { input_documents, max_prompt_chars: options.maxPackChars ?? 60000 }),
         ...(node.run?.timeout_ms !== undefined ? { timeout_ms: node.run.timeout_ms } : {}),
         // ADR-0025：取消信号直达 driver（静默期也能即时杀进程树），不依赖事件到达
         ...(ctx.signal !== undefined ? { signal: ctx.signal } : {}),
@@ -467,7 +481,7 @@ function createTaskNodeRunner(def: WorkflowDef, options: CoordinatorOptions): No
       }
     }
 
-    if (node.run?.input_scope !== undefined) {
+    if (node.run?.input_scope !== undefined || input_documents !== undefined) {
       try { await assert_scoped_input(); } catch (error) {
         if (ctx.signal?.aborted) return complete("cancelled", { error: "声明输入重检期间run已取消", text: "", agent_session_id: agentSessionId, usage, retryable: false });
         return complete("failed", { error: error instanceof Error ? error.message : "声明输入重检失败", text: "", agent_session_id: agentSessionId, usage,

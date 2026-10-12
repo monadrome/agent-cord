@@ -27,6 +27,8 @@ agent-cord 的设计决策分为四类，共 71 条，一条决策一个文件�
 
 Worker实际权限：[ADR-0100：ACP/headless OS沙箱](./ADR-0100-worker-os-sandbox.md)，独立helper、可信启动回执、源码/事实/Git/网络/env限制与分区状态缓存；[Human Review指南](../research/2026-10-12-worker-os-sandbox.md)。
 
+沙箱全文输入：[ADR-0101：当前文档只读副本](./ADR-0101-sandbox-input-documents.md)，snapshot完整hash、scope/自产输出边界、原prompt预算与真实只读manifest，独立协调禁工具不变；[Human Review指南](../research/2026-10-12-sandbox-input-documents.md)。
+
 设计决策先于技术决策成立：技术选型都是设计约束的推论，而不是流行度比较的结果。每份 ADR 的「理由」一节都给出从痛点出发的第一性原理推导链。
 
 ---

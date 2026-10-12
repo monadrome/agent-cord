@@ -35,6 +35,8 @@ worker agent 子进程（ACP / 裸 headless CLI）
 
 ## 2. 仓库边界
 
+沙箱节点Worker接收当前snapshot的严格input_documents描述，排除自产artifact；driver在实际派发前复制完整hash匹配的UTF-8文本到只读树并追加真实定位，原cord/Git禁令保持。ContextPack预留原预算，NodeRunner执行后重检源输入，私有副本不能冒称变化后的当前交付；独立Context Session Agent仍禁工具，只分析其已有有界投影（[ADR-0101](./adr/ADR-0101-sandbox-input-documents.md)、[人审指南](./research/2026-10-12-sandbox-input-documents.md)）。
+
 最终评审的`goal-ready` checker复用协调/runner的完整ready来源，宿主RunService读取上游当前输入/源码/指南并在读取前后对账。证据摘要进入原gate evaluation，人审REST与冷恢复按同一配置/来源重检；过期等待恢复原run，保留Goal预算与退出事实，不再因报告存在放行旧代码（[ADR-0099](./adr/ADR-0099-upstream-goal-ready-gate.md)、[人审指南](./research/2026-10-12-upstream-goal-ready-gate.md)）。
 
 可选worker-sandbox在driver实际spawn之前准备私有环境，独立helper初始化固定runtime后才启动agent。受限bootstrap只规范runtime代理地址，真实agent保持原stdio；宿主ACP SDK、NodeRunner产物代写、Goal实测与人工gate职责不变。强制源码/cord/Git/外部用户路径与网络/env名单约束，state HOME按workspace/config分区；可信安装不允许位于可写源码根，worktree仍做物理身份检查且保留os_sandbox能力。readonly工具审计继续独立工作，Linux/实际厂商兼容仍待验收（[ADR-0100](./adr/ADR-0100-worker-os-sandbox.md)、[人审指南](./research/2026-10-12-worker-os-sandbox.md)）。

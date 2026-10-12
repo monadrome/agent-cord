@@ -1,5 +1,13 @@
 # 工作进度
 
+## 2026-10-12（阶段91）
+
+- 接续c3afe1e干净/ahead4，上一轮ada578b/1799项/两协议隔离交付为progress；检查snapshot完整hash/片段、pack定位符、executionInputHash与OS政策后，确定全文路径缺口，ADR-0101先于schema/ports。选择按当前snapshot描述的有界只读副本/manifest，原cord/Git保护和独立协调禁工具保持；不派生子agent/付费模型/操作7306真实Draft。
+- AgentInputDocuments严格schema/ports、新sandbox v2与能力、预算预留、snapshot选择/排除自产输出、固定hash全文复制/manifest/OS只读和两个driver(new/resume/argv/stdin)已接通。首21项3失败定位helper直接调用使用/var别名而比较canonical，统一realpath根后21项通过；缺runtime替身因新增安全读取模块依赖yaml/ulid而先在加载阶段退出，补隔离symlink依赖后实际sandbox_failed验证通过。34项既有pack/driver中33通过，唯一缺runtime替身问题已修正；2协议全文/别名/新resume副本+argv/裸拒绝4项实测通过，新增4项pack范围/预算/全域漂移通过。
+- 23项副本资源/来源/UTF8与预算测试通过，原sandbox TCP5项兼容；新TCP两协议省略中段驱动实际代码、failed→passed自动修复、全文readonly、current/cold/最终人工2项通过。漂移首例fixture把业务差异抛为协议失败，run=failed而非预期gate blocked；修正为正常差异报告并保留INPUT_VALUE_MISMATCH核验，再由原goal-ready严格阻断。封存前整组源文件重读，覆盖早复制文件在后文件读取期间变化，取消检查放入有界读取循环；继续全量验证。
+- 新TCP3项全部通过，首全量1833项/128文件通过；整组复制期间漂移新增测试遇到ESM内置namespace不可spy，改Vitest定向mock工厂后24项副本回归通过。最终1834项/128文件通过，root build/typecheck/build:all/diff与304本地链接通过；进一步让既有真实取消/timeout父子进程测试携带只读全文，以验证保护目录实际清理，准备隔离预览/Agent新能力UI与编译入口验收。
+- 携带只读全文的两协议取消/超时父子进程与保护目录清理通过，最终全量1834项/128文件再次通过（/tmp/cord-stage91-final-tests.json）；root build/typecheck/build:all、304链接/diff与编译Headless全文中段/OS拒写/pack模块通过。两棵隔离工作树实际TCP PID74192，headless61385/ACP61400：关键中段未进prompt、实际副本读值7实现，自测failed→passed、readonly全文评审/cold零重跑/当前协调Goal/doctor=true；另需求改值8旧审批409且报告差异/same run blocked。正常各审批1/决定0/仅deliver退出、主树值0/付费0。18张三视口Agent/协调/审批截图与指南读取通过、无pageerror/溢出，1440/320 Agent图已查看。准备小步提交/有界推送，完整目标active，冻结源码/可信验证资产/Linux/真实厂商继续待完善。
+
 ## 2026-10-12（阶段90）
 
 - 接续0c95902干净/ahead2，上一轮2c6303e/1771项/双协议真实验收为实际progress，网络同步仍待确认。读取worker spawn、host sandbox、worktree/AgentService、IPC库与固定runtime本地源码，选可选实际OS约束；ADR-0100与实现前调研先行，不缩减整个目标，不派生子agent/付费模型/操作7306真实Draft。

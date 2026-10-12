@@ -12,6 +12,8 @@ import { custom_headless_template } from "../../src/driver/custom-template.js";
 import { createAgentRegistry, parseAgentsYaml } from "../../src/driver/agents-yaml.js";
 import { WorkerSandboxSchema, type WorkerSandboxInput } from "../../src/driver/worker-sandbox.js";
 import type { AgentDriver, AgentEvent } from "../../src/core/ports.js";
+import type { AgentInputDocuments } from "../../src/core/schema.js";
+import { sha256Hex } from "../../src/core/hash.js";
 import { stringify } from "yaml";
 
 const fixture = fileURLToPath(new URL("./fixtures/sandbox-worker.mjs", import.meta.url));
@@ -26,7 +28,10 @@ function driver(protocol: "headless" | "acp", sandbox: WorkerSandboxInput | null
   return new HeadlessDriver({ cli: "sandbox", name: "sandbox-headless", bin: process.execPath, sandbox: sandbox ?? undefined, env,
     template: custom_headless_template("sandbox", process.execPath, [fixture, ...args, "--readonly", "{{readonly}}", "-"], [fixture, ...args, "--readonly", "{{readonly}}", "--session", "{{resume_session_id}}", "-"], { prompt_input: "stdin" }) });
 }
-async function run(driver: AgentDriver, readonly = false, resume = false) { const events: AgentEvent[] = []; for await (const event of resume ? driver.resume("sandbox-session", { prompt: "current", cwd: root, readonly, timeout_ms: 10000 }) : driver.run({ prompt: "current", cwd: root, readonly, timeout_ms: 10000 })) events.push(event); return events; }
+async function run(driver: AgentDriver, readonly = false, resume = false, input_documents?: AgentInputDocuments) {
+  const task = { prompt: "current {{cord_input_dir}}", cwd: root, readonly, timeout_ms: 10000, input_documents, max_prompt_chars: 60000 };
+  const events: AgentEvent[] = []; for await (const event of resume ? driver.resume("sandbox-session", task) : driver.run(task)) events.push(event); return events;
+}
 function result(events: AgentEvent[]) { expect(events.filter(event => event.type === "error"), JSON.stringify(events)).toHaveLength(0); return JSON.parse((events.find(event => event.type === "result")!.data as { text: string }).text); }
 
 describe("Worker实际OS沙箱", () => {
@@ -57,7 +62,7 @@ describe("Worker实际OS沙箱", () => {
   it("独立helper缺runtime时不裸执行，控制失败来自IPC", async () => {
     const isolated = join(directory, "isolated"); await mkdir(isolated); await cp(fileURLToPath(new URL("../../src", import.meta.url)), join(isolated, "src"), { recursive: true });
     await writeFile(join(isolated, "package.json"), '{"type":"module"}'); await mkdir(join(isolated, "node_modules")); const require_ = createRequire(import.meta.url);
-    for (const name of ["zod", "execa"]) await symlink(dirname(require_.resolve(name)), join(isolated, "node_modules", name));
+    for (const name of ["zod", "execa", "yaml", "ulid"]) await symlink(fileURLToPath(new URL("../../node_modules/" + name, import.meta.url)), join(isolated, "node_modules", name));
     const scratch = join(directory, "scratch"); await mkdir(scratch);
     const child = fork(join(isolated, "src/driver/worker-sandbox-helper.ts"), [], { execArgv: ["--import", require_.resolve("tsx")], stdio: ["ignore", "ignore", "ignore", "ipc"] });
     const messages: unknown[] = []; child.on("message", message => messages.push(message));
@@ -107,15 +112,41 @@ describe("Worker实际OS沙箱", () => {
     const changed = result(await run(driver("headless", config({ state_dir: state, allowed_domains: ["api.example.com"] }))));
     expect(new Set([first.home, other.home, changed.home]).size).toBe(3); expect([first.count, other.count, changed.count]).toEqual([1, 1, 1]);
   });
+  native_it.each(["headless", "acp"] as const)("%s读取当前全文中段，实际副本写/改名/chmod/别名拒绝，resume重建副本并清理", async protocol => {
+    const session_dir = join(root, "cord/REQ-INPUT"); await mkdir(session_dir); let text = "# HEAD\n" + "a".repeat(30000) + "MID_ONLY 中文" + "b".repeat(30000) + "\nTAIL";
+    const input = (): AgentInputDocuments => ({ session_dir, req_id: "REQ-INPUT", files: [{ file: "prd.md", content_hash: sha256Hex(text), content_length: text.length }] });
+    await writeFile(join(session_dir, "prd.md"), text); const worker = driver(protocol, config({ state_dir: join(directory, "state") }), ["--operation", "documents"]);
+    const first = result(await run(worker, false, false, input()));
+    expect(first).toMatchObject({ middle: true, root_matches_prompt: true, literal: true, write: "blocked", rename: "blocked", chmod: "blocked", manifest_write: "blocked", hardlink: "blocked", facts: "blocked", count: 1 });
+    expect(first.prompt_chars).toBeLessThanOrEqual(60000); expect(first.manifest.files).toEqual(input().files); await expect(access(first.directory)).rejects.toThrow();
+    text += "\nCURRENT_RESUME_INPUT"; await writeFile(join(session_dir, "prd.md"), text);
+    const second = result(await run(worker, true, true, input())); expect(second).toMatchObject({ middle: true, root_matches_prompt: true, count: 2 });
+    expect(second.manifest.files).toEqual(input().files); expect(second.directory).not.toBe(first.directory); await expect(access(second.directory)).rejects.toThrow();
+    expect(await readFile(join(session_dir, "prd.md"), "utf8")).toBe(text);
+  });
+  native_it("argv任务使用追加后的真实全文根，省略中段可读且字面token保留", async () => {
+    const session_dir = join(root, "cord/REQ-INPUT"); await mkdir(session_dir); const text = "MID_ONLY 中文"; await writeFile(join(session_dir, "prd.md"), text);
+    const worker = new HeadlessDriver({ cli: "documents", sandbox: config(), template: custom_headless_template("documents", process.execPath,
+      [fixture, "--operation", "documents", "--prompt", "{{prompt}}"], undefined) });
+    const observed = result(await run(worker, false, false, { session_dir, req_id: "REQ-INPUT", files: [{ file: "prd.md", content_hash: sha256Hex(text), content_length: text.length }] }));
+    expect(observed).toMatchObject({ middle: true, root_matches_prompt: true, literal: true }); await expect(access(observed.directory)).rejects.toThrow();
+  });
+  it("显式输入副本请求在裸driver下拒绝，不能静默只用旧prompt", async () => {
+    const input = { session_dir: join(root, "cord/REQ-INPUT"), req_id: "REQ-INPUT", files: [] };
+    for (const protocol of ["headless", "acp"] as const) expect(await run(driver(protocol, null), false, false, input)).toMatchObject([{ type: "error", data: { kind: "configuration" } }]);
+    expect(await readFile(join(root, "value.txt"), "utf8")).toBe("initial");
+  });
   native_it.each(["headless", "acp"] as const)("%s readonly指定恢复保留缓存并继续限制写入，临时HOME无法伪造持久session", async protocol => {
     const worker = driver(protocol, config({ state_dir: join(directory, "state") })); await run(worker);
     const readonly = result(await run(worker, true, true)); expect(readonly).toMatchObject({ count: 2, source_write: "blocked" });
     const ephemeral = driver(protocol); await run(ephemeral); expect((await run(ephemeral, false, true)).some(event => event.type === "error")).toBe(true);
   });
-  native_it.each(["headless", "acp"] as const)("%s取消/超时真正收束忽略SIGTERM的agent与子进程", async protocol => {
+  native_it.each(["headless", "acp"] as const)("%s取消/超时收束忽略SIGTERM的agent与子进程，并清理只读全文副本", async protocol => {
+    const session_dir = join(root, "cord/REQ-CANCEL"); await mkdir(session_dir); const content = "# CANCEL_BOUND_INPUT\n"; await writeFile(join(session_dir, "prd.md"), content);
+    const input_documents = { session_dir, req_id: "REQ-CANCEL", files: [{ file: "prd.md", content_hash: sha256Hex(content), content_length: content.length }] };
     for (const mode of ["cancel", "timeout"] as const) {
       const worker = driver(protocol, config(), ["--operation", "never"]); const controller = new AbortController(); let pids: number[] = []; let home = ""; const errors: unknown[] = [];
-      for await (const event of worker.run({ prompt: "current", cwd: root, timeout_ms: mode === "timeout" ? 1800 : 10000, signal: controller.signal })) {
+      for await (const event of worker.run({ prompt: "current", cwd: root, input_documents, max_prompt_chars: 60000, timeout_ms: mode === "timeout" ? 1800 : 10000, signal: controller.signal })) {
         const data = event.data as { text?: string; kind?: string };
         if ((event.type === "result" || event.type === "text") && data.text?.startsWith("{\"pids\"")) { const observed = JSON.parse(data.text); pids = observed.pids; home = observed.home; if (mode === "cancel") controller.abort(); }
         if (event.type === "error") errors.push(data);

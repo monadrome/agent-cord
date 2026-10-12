@@ -1,5 +1,5 @@
 // 真实OS反例与Goal替身：明确报告访问结果，不读取真实用户凭据。
-import { existsSync, readFileSync, writeFileSync, renameSync, linkSync, symlinkSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, renameSync, linkSync, symlinkSync, chmodSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { spawn } from "node:child_process";
@@ -15,6 +15,17 @@ const options = [{ id: "workflow", type: "select", name: "Mode", currentValue: "
 function resume(session) { if (session !== "sandbox-session" || !existsSync(join(process.env.HOME, "session.txt"))) throw new Error("SESSION_NOT_FOUND"); }
 async function work(prompt) {
   const state = join(process.env.HOME, "session.txt"); const count = existsSync(state) ? Number(readFileSync(state, "utf8")) : 0; writeFileSync(state, String(count + 1));
+  if (operation === "documents") {
+    const root = process.env.CORD_INPUT_DIR; const manifest = JSON.parse(readFileSync(join(root, "manifest.json"), "utf8"));
+    const texts = manifest.files.map(file => readFileSync(join(root, "documents", file.file), "utf8"));
+    const first = join(root, "documents", manifest.files[0].file);
+    return JSON.stringify({ directory: root, manifest, middle: texts.some(text => text.includes("MID_ONLY")), prompt_chars: prompt.length, literal: prompt.includes("{{cord_input_dir}}"),
+      write: attempt(() => writeFileSync(first, "INVALID_INPUT")), rename: attempt(() => renameSync(root, join(process.env.TMPDIR, "MOVED_INPUT"))),
+      chmod: attempt(() => chmodSync(first, 0o600)), manifest_write: attempt(() => writeFileSync(join(root, "manifest.json"), "{}")),
+      hardlink: attempt(() => { linkSync(first, join(process.env.TMPDIR, "alias-input")); writeFileSync(join(process.env.TMPDIR, "alias-input"), "INVALID_INPUT"); }),
+      facts: attempt(() => readFileSync("cord/events.jsonl")), count: count + 1,
+      root_matches_prompt: prompt.includes("input_documents_root: " + JSON.stringify(root)) });
+  }
   if (operation === "never") {
     const child = spawn(process.execPath, ["-e", "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"], { stdio: "ignore" });
     process.on("SIGTERM", () => {}); const text = JSON.stringify({ pids: [process.pid, child.pid], home: process.env.HOME });
@@ -24,8 +35,24 @@ async function work(prompt) {
   }
   if (operation === "workflow") {
     const readonly = acp ? options[0].currentValue === "plan" : value("--readonly") === "true";
+    let input_risk = "";
+    if (args.includes("--require-documents") && !prompt.startsWith("# Context Session Agent")) {
+      const directory = process.env.CORD_INPUT_DIR; const manifest = JSON.parse(readFileSync(join(directory, "manifest.json"), "utf8"));
+      const prd = readFileSync(join(directory, "documents/prd.md"), "utf8"); const number = prd.match(/MID_ONLY_VALUE=(\d+)/)?.[1];
+      const manual = readFileSync(join(directory, "documents/manual.md"), "utf8");
+      if (number === undefined || !manual.includes("MANUAL_MID_ONLY")) throw new Error("FULL_INPUT_MIDDLE_MISSING");
+      const files = manifest.files.map(file => file.file);
+      if (files.includes(readonly ? "findings.md" : "review.md")) throw new Error("OWN_OUTPUT_IN_INPUTS");
+      if (readonly) {
+        if (!files.includes("review.md")) throw new Error("REVIEW_GUIDE_MISSING");
+        if (readFileSync("document-value.txt", "utf8") !== number) input_risk = "\nINPUT_VALUE_MISMATCH：当前代码与最新PRD中段不一致，不能放行。\n";
+      }
+      else writeFileSync("document-value.txt", number);
+      appendFileSync(join(process.env.HOME, "input-observations.jsonl"), JSON.stringify({ readonly, directory, files, number, prompt_chars: prompt.length,
+        prompt_has_middle: prompt.includes("MID_ONLY_VALUE="), prompt_has_manual_middle: prompt.includes("MANUAL_MID_ONLY"), manifest }) + "\n");
+    }
     if (!readonly) writeFileSync("value.txt", args.includes("--first-broken") && count === 0 ? "broken" : "fixed"); else if (readFileSync("value.txt", "utf8") !== "fixed") throw Error("CODE_NOT_FIXED");
-    return prompt.startsWith("# Context Session Agent") ? JSON.stringify({ summary: "当前隔离Goal已交付，等待最终人审", next_action: { kind: "wait", reason: "最终人工gate未决", evidence: [{ source: "workflow", id: "review" }] }, risks: [] }) : report;
+    return prompt.startsWith("# Context Session Agent") ? JSON.stringify({ summary: "当前隔离Goal已交付，等待最终人审", next_action: { kind: "wait", reason: "最终人工gate未决", evidence: [{ source: "workflow", id: "review" }] }, risks: [] }) : report + input_risk;
   }
   const observed = { home: process.env.HOME, tmp: process.env.TMPDIR, count: count + 1, source: readFileSync("value.txt", "utf8"),
     source_write: attempt(() => writeFileSync("value.txt", "fixed")), facts_read: attempt(() => readFileSync("cord/events.jsonl")),
@@ -55,7 +82,7 @@ async function work(prompt) {
 if (!acp) {
   if (args.includes("--session")) resume(value("--session"));
   const chunks = []; for await (const chunk of process.stdin) chunks.push(chunk);
-  const result = await work(Buffer.concat(chunks).toString("utf8")); send({ type: "result", subtype: "success", result, session_id: "sandbox-session" });
+  const result = await work(args.includes("--prompt") ? value("--prompt") : Buffer.concat(chunks).toString("utf8")); send({ type: "result", subtype: "success", result, session_id: "sandbox-session" });
 } else {
   const lines = createInterface({ input: process.stdin });
   lines.on("line", async line => {

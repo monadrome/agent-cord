@@ -40,6 +40,7 @@ export function AgentCapabilityDetails({ id, agent, inspection, current, catalog
           <div><dt>沙箱策略</dt><dd className="mono">{capabilities.sandbox.policy}</dd></div>
           <div><dt>网络 / 环境</dt><dd>显式白名单</dd></div>
           <div><dt>会话状态</dt><dd>{capabilities.sandbox.state === "persistent" ? "按配置持久化" : "每调用临时目录"}</dd></div>
+          {capabilities.sandbox.input_documents === "verified_copy" ? <div><dt>全文输入</dt><dd>当前快照只读副本</dd></div> : null}
         </> : null}
         {capabilities.readonly_launch !== undefined ? <div><dt>只读启动</dt><dd>{capabilities.readonly_launch === "mapped" ? "已映射" : "未声明映射"}</dd></div> : null}
         {capabilities.readonly_resume !== undefined ? <div><dt>只读会话恢复</dt><dd>{RESUME_TEXT[capabilities.readonly_resume]}</dd></div> : null}

@@ -253,6 +253,16 @@ export const SourceManifestSchema = z.array(SourceEntrySchema).min(1).max(10_000
   .refine(values => JSON.stringify(values).length <= 1_000_000, "源码清单超过 1,000,000 字符预算");
 export type SourceEntry = z.infer<typeof SourceEntrySchema>;
 export type SourceManifest = z.infer<typeof SourceManifestSchema>;
+/** ADR-0101：描述宿主绑定的当前输入，不包含正文或任意文件读取许可。 */
+export const AgentInputDocumentsSchema = z.strictObject({
+  session_dir: z.string().min(1).max(4096),
+  req_id: z.string().min(1).max(200).refine(value => !/[\\/\x00-\x1f\x7f]/.test(value) && value !== "." && value !== "..", "需求ID不能作为目录路径"),
+  files: z.array(z.strictObject({ file: SourcePathSchema.refine(value => !/^[A-Za-z]:/.test(value)
+    && value.split("/").every(part => !["events.jsonl", "ledger.yaml", "agents.yaml", ".git", ".index", ".sdlc"].includes(part.toLowerCase())), "输入副本不能包含事实或管理路径"),
+    content_hash: z.string().regex(/^[0-9a-f]{64}$/), content_length: z.number().int().min(0).max(16 * 1024 * 1024),
+  })).max(128).refine(files => new Set(files.map(file => file.file)).size === files.length, "输入文档不能重复"),
+});
+export type AgentInputDocuments = z.infer<typeof AgentInputDocumentsSchema>;
 export const GoalChangeEvidenceSchema = z.strictObject({
   baseline_event_id: z.string().regex(ULID_RE), baseline_source_hash: z.string().regex(/^[0-9a-f]{64}$/),
   changes: z.array(z.strictObject({ path: SourcePathSchema, status: z.enum(["added", "modified", "deleted"]),
@@ -907,7 +917,7 @@ export const CoordinationAgentCapabilitiesSchema = z.strictObject({
   inspection: z.enum(["acp_handshake", "cli_help", "unsupported"]).optional(),
   prompt_input: z.enum(["argv", "stdin"]).optional(),
   workspace_isolation: z.enum(["shared_lease", "worktree", "os_sandbox"]),
-  sandbox: z.strictObject({ policy: z.string().min(1).max(100), network: z.literal("allowlist"), environment: z.literal("allowlist"), state: z.enum(["ephemeral", "persistent"]) }).optional(),
+  sandbox: z.strictObject({ policy: z.string().min(1).max(100), network: z.literal("allowlist"), environment: z.literal("allowlist"), state: z.enum(["ephemeral", "persistent"]), input_documents: z.literal("verified_copy").optional() }).optional(),
   launch_options: z.array(z.string().min(1).max(64)).max(32).refine(values => new Set(values).size === values.length, "启动选项必须唯一"),
   native_resume: z.enum(["supported", "unsupported", "negotiated"]), goal: z.literal("host"), workflow_resume: z.literal("authorized_unexited_goal"),
   readonly_launch: z.enum(["mapped", "unmapped"]).optional(), readonly_resume: z.enum(["supported", "unsupported"]).optional(),
