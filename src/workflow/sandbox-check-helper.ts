@@ -1,14 +1,14 @@
 /** ADR-0097：单次检查的可信监督进程；测试进程不继承IPC控制通道。 */
 import { spawn } from "node:child_process";
-import { access, readFile, stat } from "node:fs/promises";
+import { access, readFile, realpath, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { createRequire } from "node:module";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { GoalCommandSchema } from "../core/schema.js";
 
-const input_schema = z.strictObject({ command: GoalCommandSchema, cwd: z.string().min(1), scratch: z.string().min(1), git_paths: z.array(z.string()) });
+const input_schema = z.strictObject({ command: GoalCommandSchema, cwd: z.string().min(1), scratch: z.string().min(1), git_paths: z.array(z.string()), assets_dir: z.string().optional() });
 let received = false;
 process.once("message", async raw => {
   if (received || process.send === undefined) { process.exitCode = 1; return; }
@@ -27,6 +27,15 @@ process.once("message", async raw => {
       catch { /* 按原PATH顺序查找，不把不存在的命令转为验证失败重试。 */ }
     }
     if (executable === undefined) throw new Error("missing command");
+    const original_assets_root = input.command.assets === undefined ? undefined : await realpath(input.command.assets.root);
+    if (input.command.assets !== undefined) {
+      if (input.assets_dir !== join(input.scratch, "pinned-check-assets")) throw new Error("missing assets copy");
+      executable = await realpath(executable);
+      const inside = (path: string, parent: string) => { const suffix = relative(parent, path); return suffix === "" || suffix !== ".." && !suffix.startsWith(`..${sep}`) && !isAbsolute(suffix); };
+      if ([input.cwd, original_assets_root!, ...input.git_paths].some(path => inside(executable!, path))) throw new Error("untrusted interpreter");
+    } else if (input.assets_dir !== undefined) throw new Error("unexpected assets");
+    const args = input.command.args.map(arg => input.assets_dir === undefined ? arg : arg === "{{check_assets}}" ? input.assets_dir
+      : arg.startsWith("{{check_assets}}/") ? join(input.assets_dir, arg.slice("{{check_assets}}/".length)) : arg);
     const require_ = createRequire(import.meta.url);
     const package_path = require_.resolve("@anthropic-ai/sandbox-runtime/package.json");
     const metadata = JSON.parse(await readFile(package_path, "utf8"));
@@ -41,15 +50,15 @@ process.once("message", async raw => {
       : ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/dev", "/etc", "/proc", "/sys", "/opt"];
     await SandboxManager.initialize({
       network: { allowedDomains: [], deniedDomains: ["*"], strictAllowlist: true, allowLocalBinding: false, allowUnixSockets: [], allowAllUnixSockets: false, allowMachLookup: [] },
-      filesystem: { denyRead: [literal("/"), literal(join(input.cwd, "cord")), ...input.git_paths.map(literal)],
+      filesystem: { denyRead: [literal("/"), literal(join(input.cwd, "cord")), ...input.git_paths.map(literal), ...(original_assets_root === undefined ? [] : [literal(original_assets_root)])],
         allowRead: [input.cwd, input.scratch, ...system].map(literal), allowWrite: [literal(input.scratch)],
-        denyWrite: ["/tmp/claude", "/private/tmp/claude"].map(literal) },
+        denyWrite: ["/tmp/claude", "/private/tmp/claude", ...(input.assets_dir === undefined ? [] : [input.assets_dir])].map(literal) },
       enableWeakerNestedSandbox: false, enableWeakerNetworkIsolation: false, allowAppleEvents: false, allowPty: false,
     }, undefined, false);
     if (!SandboxManager.isSandboxingEnabled()) throw new Error("disabled");
     // runtime默认设置共享/tmp/claude；真正的检查覆盖为本次私有scratch。
     const wrapped = await SandboxManager.wrapWithSandboxArgv("exec " + quote(["/usr/bin/env", `HOME=${input.scratch}`, `TMPDIR=${input.scratch}`, `TMP=${input.scratch}`, `TEMP=${input.scratch}`,
-      executable, ...input.command.args]), "/bin/bash", undefined, undefined, input.cwd);
+      executable, ...args]), "/bin/bash", undefined, undefined, input.cwd);
     const child = spawn(wrapped.argv[0], wrapped.argv.slice(1), { cwd: input.cwd, env: wrapped.env, shell: false, stdio: ["ignore", "pipe", "pipe"] });
     child.stdout.pipe(process.stdout); child.stderr.pipe(process.stderr);
     let spawn_error = false;

@@ -205,12 +205,25 @@ export const GateDefSchema = z.object({
   "goal-ready门禁必须require=all、on_fail=block，不能绕过当前交付证据");
 export type GateDef = z.infer<typeof GateDefSchema>;
 
+/** ADR-0102：发布者明确固定的外部验证文件，禁止自动使用当前内容认证。 */
+export const GoalCheckAssetsSchema = z.strictObject({
+  root: z.string().min(1).max(4096).refine(value => value.startsWith("/") && value !== "/" && !/[\\\x00-\x1f\x7f]/.test(value), "资产根须明确绝对目录"),
+  files: z.array(z.strictObject({ file: z.string().min(1).max(1000).refine(value => !/[\\\x00-\x1f\x7f]/.test(value)
+    && !/^[A-Za-z]:/.test(value) && value.split("/").every(part => !["", ".", "..", ".git", "cord", "events.jsonl", "ledger.yaml", "agents.yaml", ".index", ".sdlc"].includes(part.toLowerCase())), "资产文件须规范且不是事实/管理路径"),
+    content_hash: z.string().regex(/^[0-9a-f]{64}$/),
+  })).min(1).max(128).refine(files => new Set(files.map(file => file.file)).size === files.length, "验证资产文件不能重复"),
+});
+export type GoalCheckAssets = z.infer<typeof GoalCheckAssetsSchema>;
 export const GoalCommandSchema = z.strictObject({
   id: z.string().min(1).max(200),
   bin: z.string().min(1).max(500).refine(value => !value.includes("\0"), "检查bin不能包含NUL"),
   args: z.array(z.string().max(10_000).refine(value => !value.includes("\0"), "检查参数不能包含NUL")).max(128).default([]),
   timeout_ms: z.number().int().positive().max(86_400_000).default(120_000),
-});
+  assets: GoalCheckAssetsSchema.optional(),
+}).refine(command => command.assets === undefined ? !command.args.some(arg => arg.includes("{{check_assets}}"))
+  : command.bin.startsWith("/") && command.args.some(arg => arg === "{{check_assets}}" || command.assets!.files.some(file => arg === `{{check_assets}}/${file.file}`))
+    && command.args.every(arg => !arg.includes("{{check_assets}}") || arg === "{{check_assets}}" || command.assets!.files.some(file => arg === `{{check_assets}}/${file.file}`)),
+  "固定资产检查需要绝对bin和明确声明的资产定位参数");
 export const GoalAcceptanceSchema = z.strictObject({
   id: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/),
   criterion: z.string().trim().min(1).max(500),
@@ -311,6 +324,7 @@ export const GoalConfigSchema = z.strictObject({
   /** ADR-0095：supervisor自身失败/超时的有界自动重试，不增加Goal预算。 */
   supervisor_max_attempts: z.number().int().min(1).max(3).optional(),
 }).refine(value => (value.supervisor_timeout_ms === undefined && value.supervisor_max_attempts === undefined) || value.supervisor_agent !== undefined, "supervisor_timeout_ms/max_attempts 必须与 supervisor_agent 一起声明")
+  .refine(value => !value.checks.some(command => command.assets !== undefined) || value.check_sandbox === "readonly_workspace", "固定验证资产必须使用readonly_workspace检查沙箱")
   .refine(value => value.acceptance === undefined || (value.acceptance.every(condition => condition.checks.every(id => value.checks.some(check => check.id === id)))
     && value.checks.every(check => value.acceptance!.some(condition => condition.checks.includes(check.id)))), "Goal 验收清单必须引用已声明检查且覆盖全部检查");
 export type GoalConfig = z.infer<typeof GoalConfigSchema>;

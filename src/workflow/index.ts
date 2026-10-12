@@ -39,3 +39,4 @@ export { readVerificationEvents, parseVerificationResult, isVerificationRunCance
 export { resolveReusedCompletion } from "./task-evidence.js";
 export { runHostCheck, goalCommandHash, type HostCheckResult } from "./host-verification.js";
 export { createGoalReadyChecker } from "./goal-ready-checker.js";
+export { CHECK_ASSETS_POLICY, check_assets_hash, verify_check_assets } from "./check-assets.js";

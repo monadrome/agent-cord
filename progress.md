@@ -1,5 +1,12 @@
 # 工作进度
 
+## 2026-10-12（阶段92）
+
+- 接续038232c干净/同步，上一轮1f04575/1834项/实际双协议全文交付为progress；读取host-verification/sandbox-helper、Goal命令/ready和RunService输入后确认可写测试资产不足。ADR-0102与实现前调研先行，选显式外部文件pin+严格检查只读副本，当前资产核验进入原人审/协调/恢复输入；无子agent/付费模型/7306操作。
+- 严格GoalCommand.assets/pin/定位与严格mode发布、只读副本/资产v3命令hash、RunService当前pin输入、库Goal/reuse核验和指南证据已接通。build首错误sha256Hex仅接收文本，二进制pin改Node createHash，不修改纯hash契约；root build/typecheck通过。22项新契约/物理/真实OS测试与原86项Goal/ready/host回归通过，两协议本地tests被改为exit0仍failed→业务修复passed，外部写被OS拒绝；自身人审漂移/还原原pin可消费的TCP通过，继续跨节点/资源/整组漂移与完整验证。
+- 27项资产来源/资源/二进制/复制期间漂移/真实OS/解释器/取消timeout清理与7项两协议TCP通过；首全量1868项/130文件绿。最终审查让runHostCheck命令结束后也重验当前原pin，库独立调用不能凭旧副本冒称当前资产；最终全量1869项/130文件、root build/typecheck/build:all/diff、308链接、compiled/pack和18截图通过，双协议预览62670/62687健康且审批各1/决定0/Goal current=true/doctor=true。付费模型0，原7306未操作。
+- 27项资产来源/资源/二进制/复制期间漂移/真实OS/解释器/取消timeout清理与7项两协议TCP通过；首全量1868项/130文件绿。最终审查让runHostCheck命令结束后也重验当前原pin，库独立调用不能凭旧副本冒称当前资产；原Goal后核验保持，转入最后完整验证/隔离实测和文档收尾。
+
 ## 2026-10-12（阶段91）
 
 - 接续c3afe1e干净/ahead4，上一轮ada578b/1799项/两协议隔离交付为progress；检查snapshot完整hash/片段、pack定位符、executionInputHash与OS政策后，确定全文路径缺口，ADR-0101先于schema/ports。选择按当前snapshot描述的有界只读副本/manifest，原cord/Git保护和独立协调禁工具保持；不派生子agent/付费模型/操作7306真实Draft。

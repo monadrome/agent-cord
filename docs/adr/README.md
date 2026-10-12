@@ -29,6 +29,8 @@ Worker实际权限：[ADR-0100：ACP/headless OS沙箱](./ADR-0100-worker-os-san
 
 沙箱全文输入：[ADR-0101：当前文档只读副本](./ADR-0101-sandbox-input-documents.md)，snapshot完整hash、scope/自产输出边界、原prompt预算与真实只读manifest，独立协调禁工具不变；[Human Review指南](../research/2026-10-12-sandbox-input-documents.md)。
 
+独立验证资产：[ADR-0102：发布字节pin与只读检查](./ADR-0102-pinned-verification-assets.md)，显式外部资产、副本和真实命令身份，当前人审/恢复/协调重验原pin；[Human Review指南](../research/2026-10-12-pinned-verification-assets.md)。
+
 设计决策先于技术决策成立：技术选型都是设计约束的推论，而不是流行度比较的结果。每份 ADR 的「理由」一节都给出从痛点出发的第一性原理推导链。
 
 ---

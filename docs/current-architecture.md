@@ -35,6 +35,8 @@ worker agent 子进程（ACP / 裸 headless CLI）
 
 ## 2. 仓库边界
 
+带assets的Goal检查消费独立root/发布文件内容pin，宿主check-assets在每检查前核验并复制为真实OS只读树；解释器不从可写workspace加载，原cwd读取被测源码。新commandHash/Guide与当前Goal输入在执行、人审/恢复/协调共用pin核验，本地可写tests不认证为可信。该边界未冻结源码或动态依赖，原无pin检查保持语义（[ADR-0102](./adr/ADR-0102-pinned-verification-assets.md)、[人审指南](./research/2026-10-12-pinned-verification-assets.md)）。
+
 沙箱节点Worker接收当前snapshot的严格input_documents描述，排除自产artifact；driver在实际派发前复制完整hash匹配的UTF-8文本到只读树并追加真实定位，原cord/Git禁令保持。ContextPack预留原预算，NodeRunner执行后重检源输入，私有副本不能冒称变化后的当前交付；独立Context Session Agent仍禁工具，只分析其已有有界投影（[ADR-0101](./adr/ADR-0101-sandbox-input-documents.md)、[人审指南](./research/2026-10-12-sandbox-input-documents.md)）。
 
 最终评审的`goal-ready` checker复用协调/runner的完整ready来源，宿主RunService读取上游当前输入/源码/指南并在读取前后对账。证据摘要进入原gate evaluation，人审REST与冷恢复按同一配置/来源重检；过期等待恢复原run，保留Goal预算与退出事实，不再因报告存在放行旧代码（[ADR-0099](./adr/ADR-0099-upstream-goal-ready-gate.md)、[人审指南](./research/2026-10-12-upstream-goal-ready-gate.md)）。

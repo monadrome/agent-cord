@@ -37,6 +37,7 @@ import {
   readSessionDocument,
   readSessionEvents,
   read_coordination_agents,
+  verify_check_assets,
   type AgentDriver,
   type Anchor,
   type EventEnvelope,
@@ -214,10 +215,18 @@ export class RunService {
       throw new VerificationInputError("无法读取声明的验证输入，请检查工作区文件与访问权限");
     }
     const context_hash = await readApprovalContextHash(def, node, session, configuration_hash, workflow_revision);
+    const asset_pins: Array<{ verification_id: string; assets_hash: string }> = [];
+    try {
+      for (const command of node.run?.goal?.checks ?? []) if (command.assets !== undefined) {
+        if (this.options.workspaceRoot === undefined) throw new VerificationInputError("固定资产检查需要明确工作区");
+        asset_pins.push({ verification_id: command.id, assets_hash: await verify_check_assets(command.assets, this.options.workspaceRoot) });
+      }
+    } catch { throw new VerificationInputError("固定验证资产缺失、内容漂移或来源不可验证，请恢复发布的资产pin"); }
     const { source_manifest, ...source_identity } = source;
-    const input_hash = source.source_hash === null ? context_hash : sha256Hex(canonicalJson({
+    const base_hash = source.source_hash === null ? context_hash : sha256Hex(canonicalJson({
       domain: "cord.verification-input.v1", context_hash, ...source_identity,
     }));
+    const input_hash = asset_pins.length === 0 ? base_hash : sha256Hex(canonicalJson({ domain: "cord.pinned-verification-input.v1", base_hash, asset_pins }));
     return { input_hash, ...source };
   }
 

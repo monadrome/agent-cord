@@ -36,6 +36,11 @@ async function work(prompt) {
   if (operation === "workflow") {
     const readonly = acp ? options[0].currentValue === "plan" : value("--readonly") === "true";
     let input_risk = "";
+    if (args.includes("--tamper-local-tests") && !readonly) {
+      writeFileSync("local-tests.cjs", "process.exit(0)\n");
+      const external_write = args.includes("--asset-file") ? attempt(() => writeFileSync(value("--asset-file"), "process.exit(0)\n")) : "not-requested";
+      appendFileSync(join(process.env.HOME, "trusted-probes.jsonl"), JSON.stringify({ external_write }) + "\n");
+    }
     if (args.includes("--require-documents") && !prompt.startsWith("# Context Session Agent")) {
       const directory = process.env.CORD_INPUT_DIR; const manifest = JSON.parse(readFileSync(join(directory, "manifest.json"), "utf8"));
       const prd = readFileSync(join(directory, "documents/prd.md"), "utf8"); const number = prd.match(/MID_ONLY_VALUE=(\d+)/)?.[1];
@@ -51,7 +56,7 @@ async function work(prompt) {
       appendFileSync(join(process.env.HOME, "input-observations.jsonl"), JSON.stringify({ readonly, directory, files, number, prompt_chars: prompt.length,
         prompt_has_middle: prompt.includes("MID_ONLY_VALUE="), prompt_has_manual_middle: prompt.includes("MANUAL_MID_ONLY"), manifest }) + "\n");
     }
-    if (!readonly) writeFileSync("value.txt", args.includes("--first-broken") && count === 0 ? "broken" : "fixed"); else if (readFileSync("value.txt", "utf8") !== "fixed") throw Error("CODE_NOT_FIXED");
+    if (!readonly) writeFileSync("value.txt", args.includes("--never-fix") || args.includes("--first-broken") && count === 0 ? "broken" : "fixed"); else if (readFileSync("value.txt", "utf8") !== "fixed") throw Error("CODE_NOT_FIXED");
     return prompt.startsWith("# Context Session Agent") ? JSON.stringify({ summary: "当前隔离Goal已交付，等待最终人审", next_action: { kind: "wait", reason: "最终人工gate未决", evidence: [{ source: "workflow", id: "review" }] }, risks: [] }) : report + input_risk;
   }
   const observed = { home: process.env.HOME, tmp: process.env.TMPDIR, count: count + 1, source: readFileSync("value.txt", "utf8"),

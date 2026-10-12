@@ -12,6 +12,7 @@ import { canonicalJson, sha256Hex } from "../core/hash.js";
 import { GoalCommandSchema, GoalCheckSandboxSchema, type GoalCheckSandbox, type GoalCommand } from "../core/schema.js";
 import { killProcessTree } from "../driver/headless.js";
 import { read_worktree } from "../workspace/worktree.js";
+import { CHECK_ASSETS_POLICY, check_assets_hash, prepare_check_assets, unlock_check_assets, verify_check_assets } from "./check-assets.js";
 
 export interface HostCheckResult {
   command_hash: string;
@@ -28,7 +29,8 @@ export interface HostCheckResult {
 export const HOST_CHECK_SANDBOX_POLICY = "readonly-workspace.srt-0.0.79.v1";
 export function goalCommandHash(command: GoalCommand, sandbox?: GoalCheckSandbox): string {
   if (sandbox !== undefined) GoalCheckSandboxSchema.parse(sandbox);
-  return sha256Hex(canonicalJson(sandbox === undefined ? { domain: "cord.goal-command.v1", command }
+  return sha256Hex(canonicalJson(command.assets !== undefined ? { domain: "cord.goal-command.v3", command, sandbox: sandbox ?? null, policy: CHECK_ASSETS_POLICY, assets_hash: check_assets_hash(command.assets) }
+    : sandbox === undefined ? { domain: "cord.goal-command.v1", command }
     : { domain: "cord.goal-command.v2", command, sandbox, policy: HOST_CHECK_SANDBOX_POLICY }));
 }
 
@@ -43,19 +45,22 @@ export async function runHostCheck(command: GoalCommand, cwd: string, signal?: A
   let cancelled = signal?.aborted === true; let timed_out = remaining_ms <= 0;
   let spawn_error = false; let exit_code: number | null = null;
   let scratch: string | undefined;
-  let launch: { bin: string; args: string[]; cwd: string; env?: NodeJS.ProcessEnv; input?: { command: GoalCommand; cwd: string; scratch: string; git_paths: string[] } } = { bin: checked.bin, args: checked.args, cwd };
+  let launch: { bin: string; args: string[]; cwd: string; env?: NodeJS.ProcessEnv; input?: { command: GoalCommand; cwd: string; scratch: string; git_paths: string[]; assets_dir?: string } } = { bin: checked.bin, args: checked.args, cwd };
   const budget = Math.min(checked.timeout_ms, remaining_ms);
+  if (checked.assets !== undefined && sandbox !== "readonly_workspace") spawn_error = true;
   if (sandbox !== undefined && !cancelled && !timed_out) {
     try {
       if (!["darwin", "linux"].includes(process.platform)) throw new Error("unsupported");
       const root = await realpath(cwd);
       scratch = await realpath(await mkdtemp(join(tmpdir(), "cord-host-sandbox-")));
+      const assets_dir = checked.assets === undefined ? undefined : await prepare_check_assets(checked.assets, root, scratch, signal);
       const linked = await read_worktree(root, signal, Math.max(1, budget - (Date.now() - started_at)));
       const helper_js = fileURLToPath(new URL("./sandbox-check-helper.js", import.meta.url));
       const helper = existsSync(helper_js) ? [helper_js] : ["--import", pathToFileURL(createRequire(import.meta.url).resolve("tsx")).href, fileURLToPath(new URL("./sandbox-check-helper.ts", import.meta.url))];
       const env: NodeJS.ProcessEnv = { HOME: scratch, TMPDIR: scratch, TMP: scratch, TEMP: scratch, PATH: process.env["PATH"] ?? "/usr/bin:/bin", LANG: "C.UTF-8" };
       launch = { bin: process.execPath, args: helper, cwd: root, env,
-        input: { command: checked, cwd: root, scratch, git_paths: [join(root, ".git"), ...(linked === null ? [] : [linked.git_directory, linked.common_directory])] } };
+        input: { command: checked, cwd: root, scratch, git_paths: [join(root, ".git"), ...(linked === null ? [] : [linked.git_directory, linked.common_directory])],
+          ...(assets_dir === undefined ? {} : { assets_dir }) } };
     } catch { spawn_error = true; }
     cancelled = signal?.aborted === true;
     timed_out = Date.now() - started_at >= budget;
@@ -101,7 +106,10 @@ export async function runHostCheck(command: GoalCommand, cwd: string, signal?: A
       signal?.removeEventListener("abort", on_abort); resolve();
     });
   });
-  if (scratch !== undefined) try { await rm(scratch, { recursive: true, force: true }); } catch { spawn_error = true; }
+  if (checked.assets !== undefined && !cancelled && !timed_out && !spawn_error) {
+    try { await verify_check_assets(checked.assets, cwd, signal); } catch { spawn_error = true; }
+  }
+  if (scratch !== undefined) try { await unlock_check_assets(scratch); await rm(scratch, { recursive: true, force: true }); } catch { spawn_error = true; }
   return {
     command_hash: goalCommandHash(checked, sandbox), status: cancelled ? "cancelled" : timed_out ? "timeout" : !spawn_error && exit_code === 0 ? "passed" : "failed",
     exit_code, duration_ms: Date.now() - started_at, stdout_hash: stdout_hash.digest("hex"), stderr_hash: stderr_hash.digest("hex"),

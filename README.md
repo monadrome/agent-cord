@@ -18,6 +18,8 @@ ACP/headless可以显式声明`sandbox: {kind: workspace}`，实际限制worker�
 
 沙箱节点Worker现在获得按当前snapshot完整hash核验的只读全文副本，能按需读取prompt省略的中段；排除自产输出和事实，保留输入scope、原预算与执行后漂移核验。独立协调仍禁工具，能力不表示模型已读完全文。[全文输入人审指南](./docs/research/2026-10-12-sandbox-input-documents.md)说明定位、恢复和限制。
 
+Goal检查可显式固定工作区之外的验证文件内容pin，在`readonly_workspace`内运行其只读副本；worker把本地tests改为exit0也不能替代这些验收。当前pin漂移会拒绝执行或旧人审/ready，原无pin检查保持原语义。[固定验证资产指南](./docs/research/2026-10-12-pinned-verification-assets.md)列出配置、实测与可信依赖限制。
+
 适合无网络、源码只读验证的Goal可显式配置`check_sandbox: readonly_workspace`，宿主每检查使用独立原生沙箱/临时HOME，不继承凭据、不修改源码或事件；缺依赖拒绝裸执行。严格模式需要Node>=22.12和可选Sandbox Runtime0.0.79，本轮macOS实测，Linux待实际验收；默认工程模板保持原模式。配置与限制见[宿主检查人审指南](./docs/research/2026-10-12-sandboxed-host-checks.md)。
 
 ## 能做什么

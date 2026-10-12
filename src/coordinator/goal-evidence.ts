@@ -25,7 +25,8 @@ export function resolveGoalReadiness(candidate: EventEnvelope, events: readonly 
   const goal = node.run?.goal;
   const index = events.findIndex(event => event.event_id === candidate.event_id);
   const event = events[index];
-  if (goal === undefined || node.artifact === undefined || index < 0 || event?.type !== "goal.attempt.completed"
+  if (goal === undefined || goal.checks.some(command => command.assets !== undefined) && goal.check_sandbox !== "readonly_workspace"
+    || node.artifact === undefined || index < 0 || event?.type !== "goal.attempt.completed"
     || events.filter(item => item.event_id === candidate.event_id).length !== 1
     || event.actor.kind !== "system" || event.actor.id !== "goal-runner" || event.source.adapter !== "goal-runner" || event.correlation_id !== node.id) return null;
   const parsed = GoalAttemptCompletedPayloadSchema.safeParse(event.payload);

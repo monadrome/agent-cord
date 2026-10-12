@@ -24,6 +24,7 @@ export {
   GoalChangeEvidenceSchema,
   GoalChangeSummarySchema,
   GoalCommandSchema,
+  GoalCheckAssetsSchema,
   GoalAttemptStartedPayloadSchema,
   GoalAttemptCompletedPayloadSchema,
   GoalRetryAuthorizedPayloadSchema,
@@ -106,6 +107,7 @@ export type {
   GoalChangeEvidence,
   GoalChangeSummary,
   GoalCommand,
+  GoalCheckAssets,
 } from "./schema.js";
 
 export type {
