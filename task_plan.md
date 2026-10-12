@@ -27,6 +27,8 @@
 
 ## 错误记录
 
+- 阶段89 TCP失效落盘后无pending，旧recover跳过waiting_human；增加原run最新goal-ready失效事实重检。浏览器长摘要造成手机审批溢出，局部断行与min-width后12截图通过。
+- 阶段89 build的unknown payload改为解析第二次严格事件读取的GoalCompleted；首TCP fixture context_revision误用字符串，Agent registry正确拒绝，修正为正整数并保留输入预检。
 - 阶段80研究缓存/tmp/.firecrawl不存在，改用隔离/tmp/cord-stage80-research/.firecrawl；官方页面search --scrape已抓正文，不重复抓取。
 - 阶段79启动远端查询仍15秒上限，阶段78最终记录push亦20秒上限；只读/验证/审批文件猜测路径不存在，已按rg --files实际路径定位。
 - 阶段78首全量1512/1513通过，既有关闭help查询等待超时；19项单独回归通过，补先终止查询的公共状态诊断后保持预算重跑。临时实际脚本误用snapshot()接口，实际为resolver()，已确认原PID结束后修正并重新执行。
@@ -107,6 +109,14 @@
 - [x] 全量1709项/122文件、typecheck/build:all/diff、Goal示例解析；隔离两worktree当前Goal/verification/协调/doctor=true，审批1/决定0/done未退出；三视口6截图通过
 - [x] 小步提交7d53bdf（fixture正整数PID同步）与558627b（声明依赖输入）完成；完整目标active
 - [x] 先前HTTP/2低速/HTTP1.1总时长失败保留；最后HTTP/2 push成功（9308364→a9167d0），独立ls-remote核验a9167d055009b5e17f9307948e3a77e5ba1f4a01，功能/测试/验收记录同步；worker OS/可信验证资产与Linux原生实测继续待完善，完整目标active
+
+## 阶段89：最终评审Goal就绪门禁（已实现并验证，提交中）
+
+- [x] 核验fdabaf8干净/同步，阶段88为progress；定位verification-passed不能跨节点/报告存在不足，ADR-0099先行
+- [x] goal-ready/schema/ports/宿主input钩子、来源/自身上游/当前三hash、审批身份/冷恢复原run共用
+- [x] 核心发布/失败来源/执行与ACP/headless TCP恢复/人审反例，Goal评审示例/指南/协议同步
+- [x] 最终1771项/124文件、build/typecheck/build:all/diff与280链接、两个Goal示例解析、隔离双协议TCP/12截图通过
+- [ ] 完整验证、实际隔离验收、小步提交推送/独立核验；完整目标active
 
 ## 阶段79：只读命令参数与策略身份（已实现并验证，功能已同步）
 

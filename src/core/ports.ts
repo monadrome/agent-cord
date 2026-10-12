@@ -13,6 +13,7 @@ import type {
   GateDef,
   GateResult,
   GoalBlockerTrigger,
+  GoalReadinessInput,
   Ledger,
   VoteRecord,
   VoteVerdict,
@@ -116,6 +117,8 @@ export interface CheckerContext {
    * 未提供时须退回只依赖 `session_dir` 的读法；ledger gate 默认从 events.jsonl 派生（ADR-0029）。
    */
   session?: SessionHandle;
+  /** ADR-0099：只读宿主输入能力；缺少时goal-ready必须block。 */
+  read_goal_input?: (goal_node_id: string) => Promise<GoalReadinessInput>;
 }
 
 export interface Checker {

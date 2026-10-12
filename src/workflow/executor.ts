@@ -42,6 +42,8 @@ import type {
   SessionHandle,
   WorkflowExecutor,
 } from "../core/ports.js";
+import type { GoalReadinessInput } from "../core/schema.js";
+import { validateReferences } from "./loader.js";
 import { createBuiltinRegistry } from "./checkers.js";
 import { canonicalJson, sha256Hex } from "../core/hash.js";
 import { matchesWorkflowScope } from "./scope.js";
@@ -92,6 +94,8 @@ export interface ExecutorOptions {
   nodeRunner?: NodeRunner;
   /** ADR-0030：宿主提供稳定的审批输入指纹（不含控制事件），server 使用需求快照 */
   gateInputHash?: (node: WorkflowNode, gate: GateDef, session: SessionHandle) => Promise<string>;
+  /** ADR-0099：当前Goal输入能力；checker独立核验事实/目标关系。 */
+  read_goal_input?: (goal_node_id: string, consumer: WorkflowNode, session: SessionHandle) => Promise<GoalReadinessInput>;
   /** run 取消信号（ADR-0025）：节点边界与人工挂起点检查；abort 后执行器止步（不落假判定） */
   signal?: AbortSignal;
   actor?: Actor;
@@ -111,6 +115,10 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
      * `gate.resolved`——那是重试痕迹（同节点同类事件取最后一条即最新判定），不是新判定。
      */
     async run(def: WorkflowDef, session: SessionHandle): Promise<void> {
+      if (def.spec.nodes.some(node => node.gates.some(gate => gate.checks.some(check => check.ref === "goal-ready")))) {
+        const issues = validateReferences(def);
+        if (issues.length !== 0) throw new WorkflowDefinitionError(issues.join("；"));
+      }
       const workflow_id = def.metadata.id;
       const workflow_revision = options.workflow_revision;
       if (workflow_revision !== undefined && !/^[0-9a-f]{64}$/.test(workflow_revision)) throw new WorkflowDefinitionError("workflow_revision 必须是 SHA-256 指纹");
@@ -139,6 +147,7 @@ export function createExecutor(options: ExecutorOptions): WorkflowExecutor {
             payload,
             node_id: nodeId,
             session,
+            ...(options.read_goal_input === undefined ? {} : { read_goal_input: (goal_id: string) => options.read_goal_input!(goal_id, node, session) }),
           };
 
           await appendEvent(

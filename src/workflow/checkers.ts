@@ -22,6 +22,7 @@ import {
 } from "../core/schema.js";
 import type { Checker, CheckerContext, CheckerRegistry, SessionHandle } from "../core/ports.js";
 import { createReducer } from "../core/reducer.js";
+import { createGoalReadyChecker } from "./goal-ready-checker.js";
 
 export const BUILTIN_CHECKER_NAMES = [
   "anchors-present",
@@ -33,6 +34,7 @@ export const BUILTIN_CHECKER_NAMES = [
   "anchors-min-count",
   "event-emitted",
   "verification-passed",
+  "goal-ready",
 ] as const;
 export type BuiltinCheckerName = (typeof BUILTIN_CHECKER_NAMES)[number];
 
@@ -55,6 +57,7 @@ export function createBuiltinRegistry(options: BuiltinRegistryOptions = {}): Che
     createAnchorsMinCountChecker(),
     createEventEmittedChecker(),
     createVerificationPassedChecker(),
+    createGoalReadyChecker(),
   ]) {
     checkers.set(checker.name, checker);
   }

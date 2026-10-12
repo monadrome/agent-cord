@@ -93,6 +93,7 @@ flowchart LR
 | 最新快照、输入/产物指纹、checkpoint 校验、版本化审批 | 已实现 |
 | 节点声明依赖输入 | 可选 `run.input_scope.kind=dependencies`：任务/Goal/验证/人审按PRD、上游/自身产物与明确补充文档共同核验，下游报告不使上游自测自行过期；独立协调仍完整读取最新产物（[ADR-0098](./adr/ADR-0098-dependency-scoped-inputs.md)） |
 | Goal ready 来源与当前新鲜度 | 已实现；恢复/协调共用 worker/宿主验证来源，过期/不可读/取消不冒称当前交付 |
+| 最终评审的上游 Goal 证明 | `goal-ready {node_id}` 要求自身/传递上游、同 run 的最新完整交付与当前源码/输入/指南一致；严格 all/block，旧审批失效后重检原 run，不重授预算（[ADR-0099](./adr/ADR-0099-upstream-goal-ready-gate.md)、[人审指南](./research/2026-10-12-upstream-goal-ready-gate.md)） |
 | `verification.completed`、源码范围、验证 checker 与证据新鲜度 | 已实现；接入结果事实不等于自动运行并可信观察测试 |
 | 宿主检查原生限制 | 可选 `run.goal.check_sandbox=readonly_workspace`，每检查独立helper/临时环境，只读源码、保护事件/Git并禁止网络，缺依赖fail-closed；macOS实测，Linux仍待实际验收，不改变worker能力（[ADR-0097](./adr/ADR-0097-sandboxed-host-checks.md)） |
 | `run.retry` 的失败摘要、次数与退避 | 已实现；成功任务后的验证失败尚不会自动触发实现修复闭环 |

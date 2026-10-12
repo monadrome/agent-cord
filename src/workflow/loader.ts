@@ -8,7 +8,8 @@
  */
 import { readFile } from "node:fs/promises";
 import { parse as parseYaml } from "yaml";
-import { WorkflowDefSchema, type WorkflowDef } from "../core/schema.js";
+import { WorkflowDefSchema, GoalReadyParamsSchema, GateDefSchema, type WorkflowDef } from "../core/schema.js";
+import { node_ancestors } from "../coordinator/node-input.js";
 
 export class WorkflowLoadError extends Error {
   readonly source: string;
@@ -84,6 +85,17 @@ export function validateReferences(def: WorkflowDef): string[] {
       }
       if (gate.checks.length === 0) {
         issues.push(`${gateAt}.checks: gate 未声明任何 checker（空 checks 不放行，fail-closed）`);
+      }
+      for (const check of gate.checks) if (check.ref === "goal-ready") {
+        if (!GateDefSchema.safeParse(gate).success) issues.push(`${gateAt}: goal-ready必须require=all、on_fail=block`);
+        const params = GoalReadyParamsSchema.safeParse(check.with ?? {});
+        if (!params.success) { issues.push(`${gateAt}: goal-ready需要明确Goal节点参数`); continue; }
+        const target = def.spec.nodes.find(item => item.id === params.data.node_id);
+        try {
+          if (target?.run?.goal === undefined || (target.id !== node.id && !node_ancestors(def, node).has(target.id))) {
+            issues.push(`${gateAt}: goal-ready目标必须是自身或传递上游的Goal节点`);
+          }
+        } catch { issues.push(`${gateAt}: goal-ready依赖关系不可验证`); }
       }
     }
   }

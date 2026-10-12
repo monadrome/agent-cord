@@ -119,6 +119,7 @@ const AGENT_COLLAB: WorkflowDef = {
             ] },
         },
         gates: [gate("human-review", "deliver", [
+          { ref: "goal-ready", with: { node_id: "deliver" } },
           { ref: "verification-passed", with: { verification_id: "offline-tests" } },
           { ref: "verification-passed", with: { verification_id: "typecheck" } },
           { ref: "verification-passed", with: { verification_id: "build" } },

@@ -12,6 +12,8 @@
 
 ## 报告清单
 
+最终交付门禁：[2026-10-12 上游Goal就绪与人审](./2026-10-12-upstream-goal-ready-gate.md)，记录跨节点完整ready、当前源码/指南、旧审批与原run冷恢复核验。
+
 后续接入验证：[2026-10-07 真实 Context Session Agent](./2026-10-07-real-context-agent.md)，记录 Codex 0.160.0 两轮最新需求快照调用、真实协议故障与修复，以及验收范围限制。
 
 真实开发验证：[2026-10-07 开发 Draft 与只读报告](./2026-10-07-development-draft-workflow.md)，记录属性测试 Draft、宿主验证、超时恢复、只读报告与未决人工 gate，明确模型内环境限制。

@@ -1,0 +1,62 @@
+apiVersion: agent-cord.dev/v1alpha1
+kind: Workflow
+metadata: { id: goal-review-example, name: Goal 自主交付与只读评审 }
+spec:
+  nodes:
+    - id: intake
+      artifact: prd.md
+      gates:
+        - id: requirement-ready
+          role: {}
+          attach: { node: intake, when: pre }
+          checks: [{ ref: file-nonempty, with: { path: prd.md, min_bytes: 20 } }]
+          pass: { require: all, human_confirm: false }
+          on_fail: block
+    - id: deliver
+      artifact: review.md
+      depends_on: [intake]
+      run:
+        agent: codex-implementer
+        input_scope: { kind: dependencies }
+        timeout_ms: 600000
+        prompt: >-
+          按当前 PRD 自主调研、实现和自测，交付未合入的代码 Draft。
+          review.md 包含非空的变更、验收、风险章节与审查定位。
+          宿主反馈普通检查失败后在原预算内修复，不提交、推送、合入、发布或批准 gate。
+        goal:
+          inputs: [src, apps, tests, package.json, package-lock.json, tsconfig.json, vitest.config.ts]
+          review_changes: true
+          max_attempts: 3
+          timeout_ms: 1800000
+          no_progress_limit: 2
+          acceptance:
+            - { id: regression, criterion: 全部离线回归通过, checks: [offline-tests] }
+            - { id: types, criterion: 各 workspace 类型检查通过, checks: [typecheck] }
+            - { id: build, criterion: 内核与控制台构建通过, checks: [build] }
+          checks:
+            - { id: offline-tests, bin: npm, args: [test], timeout_ms: 180000 }
+            - { id: build, bin: npm, args: [run, build:all], timeout_ms: 180000 }
+            - { id: typecheck, bin: npm, args: [run, typecheck], timeout_ms: 120000 }
+    - id: review
+      artifact: findings.md
+      depends_on: [deliver]
+      run:
+        agent: codex-reviewer
+        readonly: true
+        output: text
+        input_scope: { kind: dependencies }
+        timeout_ms: 300000
+        prompt: >-
+          只读检查当前 Draft、review.md 与宿主自测证据，输出 findings.md 正文。
+          列出缺陷、相关文件/符号、未覆盖风险和需人决定事项，不改代码或批准 gate。
+      gates:
+        - id: final-human-review
+          role: { approvers: [local-human] }
+          attach: { node: review, when: post }
+          checks:
+            - { ref: goal-ready, with: { node_id: deliver } }
+            - { ref: file-nonempty, with: { path: findings.md, min_bytes: 100 } }
+          pass: { require: all, human_confirm: true }
+          on_fail: block
+    - id: done
+      depends_on: [review]

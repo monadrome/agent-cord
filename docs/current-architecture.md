@@ -35,6 +35,8 @@ worker agent 子进程（ACP / 裸 headless CLI）
 
 ## 2. 仓库边界
 
+最终评审的`goal-ready` checker复用协调/runner的完整ready来源，宿主RunService读取上游当前输入/源码/指南并在读取前后对账。证据摘要进入原gate evaluation，人审REST与冷恢复按同一配置/来源重检；过期等待恢复原run，保留Goal预算与退出事实，不再因报告存在放行旧代码（[ADR-0099](./adr/ADR-0099-upstream-goal-ready-gate.md)、[人审指南](./research/2026-10-12-upstream-goal-ready-gate.md)）。
+
 | 目录 | 当前职责 |
 |---|---|
 | `src/core` | EventEnvelope、JSONL store、哈希链、reducer、session、doctor |

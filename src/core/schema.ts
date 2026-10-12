@@ -168,6 +168,8 @@ export type GateResult = z.infer<typeof GateResultSchema>;
 /** gate 结果（result）与后续动作（action）正交（codex 评审 P1） */
 export const GateActionSchema = z.enum(["continue", "escalate", "stop"]);
 export type GateAction = z.infer<typeof GateActionSchema>;
+/** ADR-0099：目标只允许当前节点或其传递上游的Goal，关系由发布/执行核验。 */
+export const GoalReadyParamsSchema = z.strictObject({ node_id: z.string().min(1).max(500) });
 
 export const GateDefSchema = z.object({
   id: z.string().min(1),
@@ -199,7 +201,8 @@ export const GateDefSchema = z.object({
   timeout: z
     .object({ after: z.string(), on_timeout: z.literal("escalate_human") })
     .optional(),
-});
+}).refine(gate => !gate.checks.some(check => check.ref === "goal-ready") || (gate.pass.require === "all" && gate.on_fail === "block"),
+  "goal-ready门禁必须require=all、on_fail=block，不能绕过当前交付证据");
 export type GateDef = z.infer<typeof GateDefSchema>;
 
 export const GoalCommandSchema = z.strictObject({
@@ -372,6 +375,14 @@ export const WorkflowDefSchema = z.object({
   }),
 });
 export type WorkflowDef = z.infer<typeof WorkflowDefSchema>;
+/** ADR-0099：宿主只报告当前输入，checker仍需独立核验事实来源。 */
+export const GoalReadinessInputSchema = z.strictObject({
+  workflow: WorkflowDefSchema,
+  workflow_revision: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  input_hash: z.string().regex(/^[0-9a-f]{64}$/), source_hash: z.string().regex(/^[0-9a-f]{64}$/),
+  artifact_hash: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
+});
+export type GoalReadinessInput = z.infer<typeof GoalReadinessInputSchema>;
 /** ADR-0034：公开 workflow 名称与执行版本分离，省略版本为库的兼容模式。 */
 export const WorkflowScopeSchema = z.object({ workflow_id: z.string().min(1), workflow_revision: z.string().length(64).optional() });
 export type WorkflowScope = z.infer<typeof WorkflowScopeSchema>;

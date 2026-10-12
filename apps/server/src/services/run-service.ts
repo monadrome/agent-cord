@@ -221,6 +221,19 @@ export class RunService {
     return { input_hash, ...source };
   }
 
+  /** ADR-0099：指南读取两侧核验同一输入，采用当前run固定的配置解析器。 */
+  private async readGoalInput(def: WorkflowDef, session: SessionHandle, workflow_revision: string | undefined, goal_node_id: string, resolver?: (name: string) => AgentDriver) {
+    const node = def.spec.nodes.find(item => item.id === goal_node_id);
+    if (node?.run?.goal === undefined || node.artifact === undefined || resolver === undefined) throw new VerificationInputError("缺少Goal节点或固定Agent配置");
+    const configuration_hash = resolver(node.run.agent).configuration_hash;
+    if (configuration_hash === undefined) throw new VerificationInputError("Goal Agent缺少稳定配置身份");
+    const before = await this.readNodeInput(def, node, session, configuration_hash, workflow_revision);
+    const guide = await readSessionDocument(session.dir, node.artifact);
+    const after = await this.readNodeInput(def, node, session, configuration_hash, workflow_revision);
+    if (before.input_hash !== after.input_hash || before.source_hash !== after.source_hash || after.source_hash === null) throw new VerificationInputError("Goal输入在核验期间变化或源码不可验证");
+    return { workflow: def, workflow_revision, input_hash: after.input_hash, source_hash: after.source_hash, artifact_hash: guide === null ? null : sha256Hex(guide) };
+  }
+
   /** 当前绑定按启动事实的因果顺序确定；没有新协议事实时只读旧操作登记。 */
   async latestRun(req_id: string, events?: readonly EventEnvelope[]): Promise<RunRow | null> {
     const facts = events ?? await readSessionEvents(await this.sessions.open(req_id));
@@ -414,7 +427,7 @@ export class RunService {
       this.decided.delete(stale_key);
       if (pending !== undefined) pending.resolve({ kind: "recheck" });
       else if (!this.active.has(reqId)) {
-        if (latest.goal_retry_round_id != null) await this.recover(latest.run_id);
+        if (latest.goal_retry_round_id != null || gate.checks.some(check => check.ref === "goal-ready")) await this.recover(latest.run_id);
         else await this.start(reqId, versioned.sdlc_id, versioned.version);
       }
       throw conflict("审批依据已变化，已重新检查；请确认当前审批");
@@ -593,7 +606,7 @@ export class RunService {
           return parsed.success && matchesWorkflowScope(parsed.data, scope) && parsed.data.run_id === run.run_id
             && parsed.data.node_id === node.id && ids.includes(parsed.data.verification_id);
         });
-        if (!has_result) continue;
+        if (!has_result && !gate.checks.some(check => check.ref === "goal-ready")) continue;
         try {
           const evaluated = await this.evaluateRunGate(session, run, versioned.def, node, gate, driverResolver);
           if (evaluated.evaluation_hash !== waiting.evaluation_hash) {
@@ -621,7 +634,14 @@ export class RunService {
         this.index.setRunStatus(run.run_id, "waiting_human");
         continue;
       }
-      if (run.status === "waiting_human" && !recorded_decision && !recorded_verification) continue;
+      // 失效先落盘；cold或REST重检必须接续这条事实，不能因等待已被删除而跳过。
+      const run_started_seq = events.find(event => event.type === "workflow.run.started" && matchesWorkflowScope(event.payload, scope) && event.payload["run_id"] === run.run_id)?.seq ?? Infinity;
+      const invalidated_goal_gate = is_current && versioned.def.spec.nodes.some(node => node.gates.some(gate =>
+        gate.checks.some(check => check.ref === "goal-ready") && events.filter(event => event.seq > run_started_seq
+          && ["gate.waiting", "gate.resolved", "gate.invalidated"].includes(event.type) && matchesWorkflowScope(event.payload, scope)
+          && event.payload["node_id"] === node.id && event.payload["gate_id"] === gate.id).at(-1)?.type === "gate.invalidated",
+      ));
+      if (run.status === "waiting_human" && !recorded_decision && !recorded_verification && !invalidated_goal_gate) continue;
       if (finalStatus !== null && !(finalStatus === "waiting_human" && (recorded_decision || recorded_verification)) && !(pending_recovery && finalStatus === "failed")) {
         this.index.finishRun(run.run_id, finalStatus, new Date().toISOString(), null);
         continue;
@@ -753,6 +773,7 @@ export class RunService {
       humanGate,
       gateInputHash: async (node) => (await this.readNodeInput(def, node, session,
         node.run !== undefined ? driverResolver?.(node.run.agent).configuration_hash ?? null : null, run.workflow_revision ?? undefined)).input_hash,
+      read_goal_input: async goal_id => this.readGoalInput(def, session, run.workflow_revision ?? undefined, goal_id, driverResolver),
       payloadFor: (node) => ({ anchors: nodeAnchors(session.req_id, node.artifact) }),
       signal: controller.signal,
       // ADR-0023：节点声明 run 时由协调 agent 派发 worker；未配置 resolver 时执行器记 notes 跳过
@@ -862,7 +883,7 @@ export class RunService {
           };
           this.pendingAsks.set(fullKey, pending_ask);
         });
-        if (node !== undefined && gate !== undefined && verification_ids.length > 0) {
+        if (node !== undefined && gate !== undefined && (verification_ids.length > 0 || gate.checks.some(check => check.ref === "goal-ready"))) {
           // 先登记挂起者再读事实：早到的结果由本次重检发现，晚到的结果由 recheck 唤醒。
           try {
             const evaluated = await this.evaluateRunGate(session, run, def, node, gate);
@@ -884,11 +905,18 @@ export class RunService {
 
   private async evaluateRunGate(session: SessionHandle, run: RunRow, def: WorkflowDef, node: WorkflowDef["spec"]["nodes"][number], gate: GateDef, resolver?: (name: string) => AgentDriver) {
     const anchors = nodeAnchors(session.req_id, node.artifact);
-    const configuration_hash = node.run === undefined ? null : resolver === undefined ? this.configurationHashFor(session.req_id, node.run.agent) : resolver(node.run.agent).configuration_hash ?? null;
+    const fixed_resolver = resolver ?? this.active.get(session.req_id)?.driverResolver ?? this.options.driverResolverForRun?.() ?? this.options.driverResolver;
+    let configuration_hash: string | null;
+    try { configuration_hash = node.run === undefined ? null : fixed_resolver?.(node.run.agent).configuration_hash ?? null; }
+    catch (error) {
+      if (!gate.checks.some(check => check.ref === "goal-ready")) throw error;
+      throw new VerificationInputError("当前评审Agent配置不可解析，请修复后重检");
+    }
     const { input_hash } = await this.readNodeInput(def, node, session, configuration_hash, run.workflow_revision ?? undefined);
     return evaluateGate(gate, createBuiltinRegistry(), {
       session_dir: session.dir, session, node_id: node.id, run_id: run.run_id,
       workflow_id: def.metadata.id, workflow_revision: run.workflow_revision ?? undefined, anchors, payload: { anchors },
+      read_goal_input: async goal_id => this.readGoalInput(def, session, run.workflow_revision ?? undefined, goal_id, fixed_resolver),
     }, input_hash);
   }
 

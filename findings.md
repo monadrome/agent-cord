@@ -1,5 +1,12 @@
 # 调研发现
 
+## 阶段89（2026-10-12）：最终gate需要完整当前Goal证明
+
+- verification-passed的within_node=false只放宽correlation检查，仍限定payload.node_id和当前input；不能把它当跨节点自测引用。
+- Goal→readonly最终人审仅file-nonempty无法绑定上游当前源码/完整交付。新增goal-ready消费完整共享ready来源和宿主当前input/source/guide，目标必须自身/上游、同run，证据摘要进入现有gate evaluation。
+- gate严格all/block避免warning/人工escalation配置直接消解交付条件；冷等待变化要恢复原run，不使用start增加预算或生成无法证明上游Goal的新run。
+- 真实TCP反例发现失效先落盘后pending等待为空，旧recover仅看waiting而跳过原run；按本run启动后的最新goal-ready gate invalidated恢复，覆盖只落盘失效即重启窗口。改写readonly报告会使完成后态失效并重新评审，是现有恢复保证，上游有效Goal不重跑。
+
 ## 阶段88（2026-10-12）：下游报告不能使上游自测自行过期
 
 - executionInputHash/readApprovalContextHash目前读取所有固定文档和全部workflow产物。Goal→readonly findings成功后，Goal current变false并非源码漂移，而是下游输出进入上游指纹；这会使最新协调无法正确陈述交付就绪。
