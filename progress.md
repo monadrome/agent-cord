@@ -8,6 +8,7 @@
 - 27项资产来源/资源/二进制/复制期间漂移/真实OS/解释器/取消timeout清理与7项两协议TCP通过；首全量1868项/130文件绿。最终审查让runHostCheck命令结束后也重验当前原pin，库独立调用不能凭旧副本冒称当前资产；原Goal后核验保持，转入最后完整验证/隔离实测和文档收尾。
 - 功能提交7b9368a6341bfe7f372c5c07e687ce1dc3cb03d0，HTTP/2与HTTP/1.1 push均20秒低速超时，独立HTTP/2 ls-remote15秒无结果，进程组停止；远端同步未确认，本地提交/验收保留，完整目标active。
 - 运行期间资产替换与命令结束后pin重验反例通过；最终全量1869项/130文件（/tmp/cord-stage92-final-final2-tests.json）、root build/typecheck/build:all/diff与308链接通过，资产/Goal/ready/host/TCP回归均绿；准备小步提交/推送，完整目标active。
+- 最终全量重验1869项/130文件（/tmp/cord-stage92-final-final3-tests.json），typecheck/build:all/diff绿；ADR-0102更新为已实现/macOS验收，固定资产阶段完成审查，准备提交/推送。
 
 ## 2026-10-12（阶段91）
 

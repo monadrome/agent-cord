@@ -1,6 +1,6 @@
 # ADR-0102 ｜ 固定内容的独立验证资产
 
-- 状态：accepted（实现中）
+- 状态：accepted（已实现，macOS离线验收）
 - 日期：2026-10-12
 - 关联：ADR-0097（宿主检查限制）、ADR-0100（Worker限制）、ADR-0099（当前Goal门禁）
 
@@ -27,6 +27,6 @@ RunService.readNodeInput在Goal验证、人审、恢复和协调当前就绪核�
 
 ## 验证与限制
 
-覆盖发布/库参数、旧hash兼容、pin/路径/链接/资源/取消/读故障、真实检查副本只读与字面argv/非零；两协议可写Worker改本地测试无法通过独立验证，正常业务失败→自动修复→当前ready/readonly/最终人审；资产在等待/cold改变拒绝旧审批/协调，缺来源不沿用旧验证。全量离线，不操作7306真实Draft，不付费模型或子agent。
+覆盖发布/库参数、旧hash兼容、pin/路径/链接/资源/取消/读故障、命令开始后资产替换、真实检查副本只读与字面argv/非零；两协议可写Worker改本地测试无法通过独立验证，正常业务失败→自动修复→当前ready/readonly/最终人审；资产在等待/cold改变拒绝旧审批/协调，缺来源不沿用旧验证。最终全量1869项/130文件、root build/typecheck/build:all/diff、308链接、compiled/pack与18截图通过；实际TCP固定资产验证结果见[Human Review指南](../research/2026-10-12-pinned-verification-assets.md)。全部离线，不操作7306真实Draft，不付费模型或子agent。
 
 可信资产仍是显式配置者的责任，hash只证明所声明字节。验证器可以主动加载可写源码（被测对象）或不安全依赖，所以不证明业务充分、动态依赖安全、可信系统解释器完整性或宿主同OS用户抗篡改。Linux真实路径、冻结源码和每节点worktree分配仍待推进。
