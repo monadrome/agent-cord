@@ -55,7 +55,11 @@ describe("Headless明确stdin Prompt输入", () => {
     const driver = new HeadlessDriver({ cli: "custom", template: { name: "custom", bin: process.execPath, prompt_input: "stdin", args: () => [fixture, "--never-read", "--pid-file", pid_file, "-"] }, kill_grace_ms: 50 });
     const pending = collect(driver.run({ prompt: "PRIVATE_BACKPRESSURE".repeat(100000), cwd, timeout_ms: mode === "timeout" ? 1000 : 10000, signal: controller.signal }));
     const deadline = Date.now() + 4000; let pid: number | undefined;
-    while (pid === undefined) { try { pid = Number(await readFile(pid_file, "utf8")); } catch { if (Date.now() >= deadline) throw new Error("stdin fixture未启动"); await new Promise(resolve => setTimeout(resolve, 10)); } }
+    while (pid === undefined) {
+      try { const value = (await readFile(pid_file, "utf8")).trim(); if (/^[1-9][0-9]*$/.test(value)) pid = Number(value); }
+      catch { /* fixture尚未写出PID。 */ }
+      if (pid === undefined) { if (Date.now() >= deadline) throw new Error("stdin fixture未启动"); await new Promise(resolve => setTimeout(resolve, 10)); }
+    }
     if (mode === "abort") controller.abort(); const events = await pending;
     expect(events.some(event => event.type === "result")).toBe(false); expect(events.find(event => event.type === "error")).toMatchObject({ data: { kind: mode === "timeout" ? "timeout" : "agent" } });
     await expect.poll(() => { try { process.kill(pid!, 0); return true; } catch { return false; } }, { timeout: 2000 }).toBe(false);
