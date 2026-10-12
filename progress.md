@@ -8,6 +8,8 @@
 - 最终扩展17项新回归（原生检查9/ready1/TCP7）、全量1680项/121文件通过（/tmp/cord-stage87-tests.json），typecheck/build:all/diff通过；compiled入口严格检查passed/pack包含helper。取消/timeout用忽略SIGTERM的父子进程仍整组收束，输出伪造completed JSON不覆盖非零；缺runtime实际独立helper拒绝，不依赖mock。最后补检查bin按PATH的可执行定位，缺bin归环境错误而不反复重做worker，待最终完整重验。
 - 独立两Git worktree TCP预览PID4762：headless http://127.0.0.1:58480、ACP http://127.0.0.1:58527；各worker2次/严格checks failed→passed/current wait/doctor=true/审批1/决定0/退出0，主树initial未改，付费0；冷启动保留同run/审批且不重做worker。/tmp/cord-stage87-real-result.json与浏览器结果保留；1440/390/320六截图无pageerror/横向溢出，完整review只读展示模式/版本/命令/矩阵，桌面/320已查看。ADR/README/Feature/协议/架构/指南同步，原7306真实Draft未操作，完整目标active。
 - 最后可执行bin定位后完整1680项/121文件、typecheck/build:all/diff全部通过；265个本地文档链接无缺失，固定runtime可选依赖及BSD/MIT传递许可已核对。生产代码稳定，准备feature提交推送与远端hash核验；worker真实OS限制/冻结源码与可信验证器资产/Linux实际环境仍待继续。
+- 功能提交491f95d完成，工作树干净；首次HTTP/2 push因连续15秒低速失败，HTTP/1.1有界重试中。提交后独立TCP读取双协议current=true/审批1，未消费人工决定；无sandbox helper残留，只有查看用PID4762预览。整体目标active，网络状态不代替功能验收。
+- HTTP/1.1 push达到25秒总上限，保留本地491f95d与完整验收；独立HTTP/2 ls-remote核验远端仍6a9c36060b63a071a62c04b2819591c8796de5eb，功能尚未同步。未恢复/改写真实Draft，当前目标还有worker隔离、可信验证资产与Linux实测待继续。
 
 ## 2026-10-11（阶段86）
 

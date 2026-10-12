@@ -90,13 +90,14 @@
 - [x] 功能提交795f32e（feat: run agent work units in linked worktrees）；保留共享Git元数据/验证器未OS隔离限制，完整目标active
 - [x] HTTP/2 push成功（89fe1d2→d328316），独立ls-remote核验d328316adafe11fbb063054fc9d5a7a185372e6d；功能795f32e与验收记录已同步，完整目标active
 
-## 阶段87：宿主检查只读沙箱（已实现并验证，待提交同步）
+## 阶段87：宿主检查只读沙箱（已实现并验证，待远端同步）
 
 - [x] 核验6a9c360干净/同步，阶段86为progress；实际命令边界与runtime调研/许可/API核验，本机原生写/读/网络/argv spike，ADR-0097先行
 - [x] 可选固定runtime/严格check_sandbox、每检查独立helper/临时环境、真实进程与证据hash/ready统一
 - [x] 17项新回归覆盖正常/拒绝/缺依赖/timeout/cancel父子进程/并发/冷恢复/最新协调/人审TCP与指南
 - [x] 全量1680项/121文件、typecheck/build:all/diff、隔离双worktree实际交付/当前wait/doctor与三视口6截图，编译入口/pack helper通过
-- [ ] 小步提交推送/独立核验；整体目标active，worker OS限制/可信验证资产/冻结代码快照/Linux实测仍待完善
+- [x] 功能提交491f95d（feat: sandbox goal host verification commands）；完整目标active
+- [ ] 远端同步/独立hash核验：HTTP/2连续15秒低速失败，HTTP/1.1 push达到25秒上限；worker OS限制/可信验证资产/冻结代码快照/Linux实测仍待完善
 
 ## 阶段79：只读命令参数与策略身份（已实现并验证，功能已同步）
 
