@@ -9,6 +9,8 @@
 - 最终全量1709项/122文件通过（/tmp/cord-stage88-tests.json），typecheck/build:all/diff、最终274个本地文档链接与完整Goal示例解析通过；推荐Goal模板已声明scope，旧发布版本/旧无scope域保持语义。ADR-0098、人审指南/协议/架构/Feature同步，未添加第二套状态机。
 - 隔离双Git worktree实际TCP PID66997：headless http://127.0.0.1:64636、ACP http://127.0.0.1:64649。Goal实现→宿主实测→readonly报告后Goal/verification current=true，报告更新让旧协调过期，新prompt含最新报告和manual；cold零重复worker/原run/审批ID，最终协调/doctor=true、审批各1/人工决定0、仅deliver退出/done未退出，主树initial/付费0。/tmp/cord-stage88-real-result.json保留定位；Playwright三视口六截图无pageerror/横向溢出，桌面/320已查看，指南可只读查看。未操作原7306真实Draft。
 - 同步此前阶段87提交的HTTP/2 push成功（6a9c360→9308364），独立ls-remote15秒上限尚未确认；当前阶段88准备小步提交、远端最终核验，整体持续目标active。
+- 小步提交7d53bdf与558627b完成，diff已审查/工作树干净；首阶段88 HTTP/2 push因连续15秒低速失败，HTTP/1.1有界重试。提交后独立TCP读取双协议health/current=true/审批1，实际Draft与人审未决保留查看；没有必需测试/构建进程遗留。
+- HTTP/1.1 push达到25秒总上限，保留本地功能与1709项完整验收；独立HTTP/2 ls-remote核验远端9308364fa4e19f0517d671146aa73d73cc1bf376，阶段87积压确认同步，阶段88尚未同步。完整目标active，网络故障不回退已验证功能。
 
 ## 2026-10-11至12（阶段87）
 
