@@ -111,31 +111,31 @@
 - [x] 小步提交7d53bdf（fixture正整数PID同步）与558627b（声明依赖输入）完成；完整目标active
 - [x] 先前HTTP/2低速/HTTP1.1总时长失败保留；最后HTTP/2 push成功（9308364→a9167d0），独立ls-remote核验a9167d055009b5e17f9307948e3a77e5ba1f4a01，功能/测试/验收记录同步；worker OS/可信验证资产与Linux原生实测继续待完善，完整目标active
 
-## 阶段89：最终评审Goal就绪门禁（已实现并验证，远端同步未确认）
+## 阶段89：最终评审Goal就绪门禁（已实现并验证，已同步）
 
 - [x] 核验fdabaf8干净/同步，阶段88为progress；定位verification-passed不能跨节点/报告存在不足，ADR-0099先行
 - [x] goal-ready/schema/ports/宿主input钩子、来源/自身上游/当前三hash、审批身份/冷恢复原run共用
 - [x] 核心发布/失败来源/执行与ACP/headless TCP恢复/人审反例，Goal评审示例/指南/协议同步
 - [x] 最终1771项/124文件、build/typecheck/build:all/diff与280链接、两个Goal示例解析、隔离双协议TCP/12截图通过
 - [x] 功能提交2c6303e；HTTP/2和HTTP/1.1有界推送均因GitHub15秒低速失败，独立查询无结果已停止；保留本地提交/实际验收，完整目标active
-- [ ] 网络恢复后推送当前分支并独立核验实际远端hash
+- [x] 阶段91 HTTP/2 push成功，推送后独立ls-remote核验1f04575，阶段89积压一并确认同步
 
-## 阶段90：Worker实际OS沙箱（已实现并验证，远端同步未确认）
+## 阶段90：Worker实际OS沙箱（已实现并验证，已同步）
 
 - [x] 接续0c95902干净/ahead2，上一轮为1771项/实际交付/小步提交的progress；审查worker spawn/环境/状态与固定runtime，ADR-0100与实现前调研先行
 - [x] 两协议可选sandbox、独立helper/可信回执、环境/网络/源码/事实保护与持久状态，身份/能力/查询/协调共用
 - [x] 23项driver真实OS反例、显式恢复/取消/缺依赖，5项首次failed→passed自主修复/Goal→readonly/当前协调/cold TCP/最终人审
 - [x] 最终1799项/126文件、build/typecheck/build:all/diff、287链接/Agent示例、compiled/pack helper与隔离TCP/18截图；人审指南同步
 - [x] 小步功能提交ada578b；HTTP/2和HTTP/1.1有界push各20秒上限、独立ls-remote15秒无结果，进程已停止，本地实现/验收保留；整个目标active
-- [ ] 网络恢复后推送当前分支并独立核验远端；可信验证资产/冻结源码/全文输入复制/Linux及真实厂商继续推进
+- [x] 阶段91 HTTP/2 push成功，推送后独立ls-remote核验1f04575，阶段90积压同步；全文副本已接通，可信验证资产/冻结源码/Linux及真实厂商继续推进
 
-## 阶段91：沙箱Worker当前全文输入（已实现并验证，提交中）
+## 阶段91：沙箱Worker当前全文输入（已实现并验证，功能已同步）
 
 - [x] 接续c3afe1e干净/ahead4，阶段90实现/1799项/实际预览为progress；审查snapshot/pack/hash/driver，ADR-0101先于契约
 - [x] 严格AgentTask输入描述、snapshot集合/预算预留、当前全文副本/manifest/真实只读OS/新身份，new/resume/stdin/argv/ACP共用
 - [x] 24项副本来源/资源/UTF8/整组漂移、两协议/argv/resume/取消清理与3项TCP省略中段实际交付/current/cold/最终人审
 - [x] 最终1834项/128文件、build/typecheck/build:all/diff与304链接、compiled/pack与隔离双协议TCP/18截图，人审指南同步
-- [ ] 小步提交推送/独立核验；完整目标active
+- [x] 功能提交1f04575，HTTP/2 push成功（fdabaf8→1f04575）且推送后独立远端核验同hash，阶段89/90积压一并同步；完整目标active
 
 ## 阶段79：只读命令参数与策略身份（已实现并验证，功能已同步）
 

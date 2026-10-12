@@ -7,6 +7,7 @@
 - 23项副本资源/来源/UTF8与预算测试通过，原sandbox TCP5项兼容；新TCP两协议省略中段驱动实际代码、failed→passed自动修复、全文readonly、current/cold/最终人工2项通过。漂移首例fixture把业务差异抛为协议失败，run=failed而非预期gate blocked；修正为正常差异报告并保留INPUT_VALUE_MISMATCH核验，再由原goal-ready严格阻断。封存前整组源文件重读，覆盖早复制文件在后文件读取期间变化，取消检查放入有界读取循环；继续全量验证。
 - 新TCP3项全部通过，首全量1833项/128文件通过；整组复制期间漂移新增测试遇到ESM内置namespace不可spy，改Vitest定向mock工厂后24项副本回归通过。最终1834项/128文件通过，root build/typecheck/build:all/diff与304本地链接通过；进一步让既有真实取消/timeout父子进程测试携带只读全文，以验证保护目录实际清理，准备隔离预览/Agent新能力UI与编译入口验收。
 - 携带只读全文的两协议取消/超时父子进程与保护目录清理通过，最终全量1834项/128文件再次通过（/tmp/cord-stage91-final-tests.json）；root build/typecheck/build:all、304链接/diff与编译Headless全文中段/OS拒写/pack模块通过。两棵隔离工作树实际TCP PID74192，headless61385/ACP61400：关键中段未进prompt、实际副本读值7实现，自测failed→passed、readonly全文评审/cold零重跑/当前协调Goal/doctor=true；另需求改值8旧审批409且报告差异/same run blocked。正常各审批1/决定0/仅deliver退出、主树值0/付费0。18张三视口Agent/协调/审批截图与指南读取通过、无pageerror/溢出，1440/320 Agent图已查看。准备小步提交/有界推送，完整目标active，冻结源码/可信验证资产/Linux/真实厂商继续待完善。
+- 小步功能提交1f04575dd44b6bb4bb6c780c78f4a88253f3d34c，HTTP/2 push成功（fdabaf8→1f04575），推送后独立ls-remote核验同hash。阶段89/90的2c6303e/0c95902/ada578b/c3afe1e积压一并确认同步；工作树干净，预览health200/当前协调true、最终人工仍未决。完整持续目标active，不把本阶段交付视为全部目标完成。
 
 ## 2026-10-12（阶段90）
 
