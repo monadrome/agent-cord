@@ -99,14 +99,14 @@
 - [x] 功能提交491f95d（feat: sandbox goal host verification commands）；完整目标active
 - [x] 阶段88 HTTP/2 push成功清掉积压，独立ls-remote核验9308364fa4e19f0517d671146aa73d73cc1bf376；worker OS限制/可信验证资产/冻结代码快照/Linux实测仍待完善
 
-## 阶段88：节点依赖范围与有效交付（已实现并验证，待远端同步）
+## 阶段88：节点依赖范围与有效交付（已实现并验证，已同步）
 
 - [x] 核验9308364干净/ahead2，阶段87为实际进展；定位下游报告改变上游Goal/input与无关exited改变checkpoint，ADR-0098先行
 - [x] 显式input_scope/额外documents，共用节点snapshot/执行/verification/approval/prompt；旧域兼容，推荐Goal模板接通
 - [x] 26项范围回归与3项新增双协议TCP，失败反例/共享路径/读故障/在途/取消/冷恢复/人审与完整协调已验证，指南/协议同步
 - [x] 全量1709项/122文件、typecheck/build:all/diff、Goal示例解析；隔离两worktree当前Goal/verification/协调/doctor=true，审批1/决定0/done未退出；三视口6截图通过
 - [x] 小步提交7d53bdf（fixture正整数PID同步）与558627b（声明依赖输入）完成；完整目标active
-- [ ] 远端同步/独立核验：HTTP/2 push连续15秒低速失败，HTTP/1.1达到25秒上限；worker OS/可信验证资产与Linux原生实测继续待完善
+- [x] 先前HTTP/2低速/HTTP1.1总时长失败保留；最后HTTP/2 push成功（9308364→a9167d0），独立ls-remote核验a9167d055009b5e17f9307948e3a77e5ba1f4a01，功能/测试/验收记录同步；worker OS/可信验证资产与Linux原生实测继续待完善，完整目标active
 
 ## 阶段79：只读命令参数与策略身份（已实现并验证，功能已同步）
 
