@@ -1,8 +1,8 @@
+import { native_sandbox_available } from "../../../tests/helpers/native-sandbox.js";
 import { mkdtemp, mkdir, readFile, writeFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
 import { execa } from "execa";
 import { stringify } from "yaml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -12,8 +12,7 @@ import { createClient, type ApiClient } from "../../console/src/api.js";
 import { readCoordinationExecutionContext } from "../src/services/execution-context.js";
 
 const fixture = fileURLToPath(new URL("../../../tests/driver/fixtures/sandbox-worker.mjs", import.meta.url));
-const [major = 0, minor = 0] = process.versions.node.split(".").map(Number);
-const native = process.platform === "darwin" && (major > 22 || major === 22 && minor >= 12) && (() => { try { createRequire(import.meta.url).resolve("@anthropic-ai/sandbox-runtime"); return true; } catch { return false; } })();
+const native = native_sandbox_available;
 const req_id = "REQ-PINNED-CHECK";
 const verifier = "const fs=require('node:fs');if(fs.readFileSync('value.txt','utf8')!=='fixed'){console.error('PINNED_VALUE_FAILURE');process.exit(3)}if(process.argv[2]){if(process.cwd()===process.argv[2]||fs.existsSync('unlisted'))process.exit(8);for(const f of [()=>fs.readFileSync(process.argv[2]+'/value.txt'),()=>fs.writeFileSync('value.txt','bad'),()=>fs.chmodSync('value.txt',0o600)]){let blocked=false;try{f()}catch{blocked=true}if(!blocked)process.exit(9)}}console.log('PINNED_VALUE_PASSED');";
 let directory: string; let root: string; let assets_root: string; let server: BuiltServer; let client: ApiClient;

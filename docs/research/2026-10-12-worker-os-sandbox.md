@@ -1,5 +1,7 @@
 # Worker OS 沙箱调研与实现边界
 
+2026-10-13更新：macOS与专用Ubuntu22.04 ARM64各114项原生验收零skip。当前Worker策略为workspace.srt-0.0.79.v3，Linux隐藏目录也强制拒写；下文2026-10-12的Linux待验收记录为历史状态。环境、策略迁移与CI范围见[跨平台指南](./2026-10-13-native-sandbox-validation.md)。
+
 关联：[ADR-0100](../adr/ADR-0100-worker-os-sandbox.md)、[宿主检查沙箱](./2026-10-12-sandboxed-host-checks.md)。
 
 ## 实现前证据

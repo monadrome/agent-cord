@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { WorkerSandboxLaunchSchema, WORKER_SANDBOX_POLICY } from "./worker-sandbox.js";
+import { prepare_linux_bwrap } from "../sandbox/linux-bwrap.js";
 
 // 受限child不做DNS；runtime生成的localhost代理在沙箱内改为IPv4字面地址。
 function run_agent(): void {
@@ -46,6 +47,7 @@ process.once("message", async raw => {
         allowRead: [input.cwd, input.scratch, input.home, ...input.read_paths, ...system].map(literal),
         allowWrite: [input.scratch, input.home, ...(input.readonly ? [] : [input.cwd])].map(literal),
         denyWrite: [join(input.cwd, "cord"), ...input.git_paths, "/tmp/claude", "/private/tmp/claude", ...(input.input_documents_dir === undefined ? [] : [input.input_documents_dir])].map(literal) },
+      ...(process.platform === "linux" ? { bwrapPath: await prepare_linux_bwrap(input.scratch, quote) } : {}),
       enableWeakerNestedSandbox: false, enableWeakerNetworkIsolation: false, allowAppleEvents: false, allowPty: false }, undefined, false);
     if (!SandboxManager.isSandboxingEnabled()) throw new Error("disabled");
     const wrapped = await SandboxManager.wrapWithSandboxArgv("exec " + quote(["/usr/bin/env", `HOME=${input.home}`, `TMPDIR=${input.scratch}`, `TMP=${input.scratch}`, `TEMP=${input.scratch}`,

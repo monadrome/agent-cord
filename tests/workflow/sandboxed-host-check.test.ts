@@ -1,3 +1,4 @@
+import { native_sandbox_available } from "../helpers/native-sandbox.js";
 import { mkdtemp, mkdir, readFile, writeFile, rm, access, copyFile, symlink } from "node:fs/promises";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
@@ -9,13 +10,11 @@ import { dirname } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runHostCheck, goalCommandHash } from "../../src/workflow/host-verification.js";
 import { GoalConfigSchema } from "../../src/core/schema.js";
-import { sha256Hex } from "../../src/core/hash.js";
+import { canonicalJson, sha256Hex } from "../../src/core/hash.js";
 
 let root: string;
 const sandbox = "readonly_workspace" as const;
-const [node_major = 0, node_minor = 0] = process.versions.node.split(".").map(Number);
-const native_available = process.platform === "darwin" && (node_major > 22 || node_major === 22 && node_minor >= 12)
-  && (() => { try { createRequire(import.meta.url).resolve("@anthropic-ai/sandbox-runtime"); return true; } catch { return false; } })();
+const native_available = native_sandbox_available;
 const command = (script: string, timeout_ms = 5000, args: string[] = []) => ({ id: "check", bin: process.execPath, args: ["-e", script, ...args], timeout_ms });
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), "cord-sandbox-check-")); await writeFile(join(root, "value.txt"), "initial"); });
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
@@ -26,6 +25,7 @@ describe("宿主检查严格只读沙箱", () => {
     expect(GoalConfigSchema.parse({ ...base, check_sandbox: sandbox })).toMatchObject({ check_sandbox: sandbox });
     expect(GoalConfigSchema.safeParse({ ...base, check_sandbox: "auto" }).success).toBe(false);
     expect(goalCommandHash(base.checks[0], sandbox)).not.toBe(goalCommandHash(base.checks[0]));
+    expect(goalCommandHash(base.checks[0], sandbox)).not.toBe(sha256Hex(canonicalJson({ domain: "cord.goal-command.v2", command: base.checks[0], sandbox, policy: "readonly-workspace.srt-0.0.79.v1" })));
   });
 
   it("cancel/耗尽预算不启动命令，未知模式fail-closed", async () => {
@@ -43,6 +43,8 @@ describe("宿主检查严格只读沙箱", () => {
     const require_ = createRequire(import.meta.url);
     try {
       await mkdir(join(isolated, "workflow")); await mkdir(join(isolated, "core")); await mkdir(join(isolated, "node_modules"));
+      await mkdir(join(isolated, "sandbox"));
+      await copyFile(fileURLToPath(new URL("../../src/sandbox/linux-bwrap.ts", import.meta.url)), join(isolated, "sandbox/linux-bwrap.ts"));
       await writeFile(join(isolated, "package.json"), '{"type":"module"}');
       await copyFile(fileURLToPath(new URL("../../src/workflow/sandbox-check-helper.ts", import.meta.url)), join(isolated, "workflow/sandbox-check-helper.ts"));
       await copyFile(fileURLToPath(new URL("../../src/core/schema.ts", import.meta.url)), join(isolated, "core/schema.ts"));
@@ -69,7 +71,7 @@ describe("宿主检查严格只读沙箱", () => {
       expect(result).toMatchObject({ status: "passed", exit_code: 0, spawn_error: false, command_hash: goalCommandHash(command(script, 10000, [join(private_root, "outside"), secret]), sandbox) });
       const observed = JSON.parse(result.stdout_tail);
       expect(observed).toMatchObject({ source: "initial", env: null, cache: "ok", network: "blocked" });
-      for (const key of ["source_write", "facts", "outside", "facts_read", "secret"]) expect(observed[key]).not.toBe("allowed");
+      for (const key of ["source_write", "facts", "outside", "facts_read", "secret"]) expect(observed[key], key).not.toBe("allowed");
       expect(await readFile(join(root, "value.txt"), "utf8")).toBe("initial"); expect(await readFile(join(root, "cord/events.jsonl"), "utf8")).toBe("PROTECTED_FACTS");
       expect(JSON.stringify(result)).not.toContain("FAKE_ENV_CREDENTIAL"); expect(JSON.stringify(result)).not.toContain("FAKE_CREDENTIAL");
     } finally { if (previous === undefined) delete process.env["CORD_TEST_FAKE_SECRET"]; else process.env["CORD_TEST_FAKE_SECRET"] = previous; await new Promise<void>(resolve => server.close(() => resolve())); await rm(private_root, { recursive: true, force: true }); }
@@ -80,7 +82,7 @@ describe("宿主检查严格只读沙箱", () => {
     const result = await runHostCheck(command("process.stdout.write(process.argv[1],()=>process.exit(3))", 5000, [literal]), root, undefined, 5000, sandbox);
     expect(result).toMatchObject({ status: "failed", exit_code: 3, stdout_hash: sha256Hex(literal), stdout_tail: literal, spawn_error: false });
     await expect(access(join(root, "SHOULD_NOT_EXIST"))).rejects.toThrow();
-    expect(await runHostCheck(command("process.kill(process.pid,'SIGTERM')"), root, undefined, 5000, sandbox)).toMatchObject({ status: "failed", exit_code: null });
+    expect(await runHostCheck(command("process.kill(process.pid,'SIGTERM')"), root, undefined, 5000, sandbox)).toMatchObject({ status: "failed", exit_code: process.platform === "linux" ? 143 : null });
     expect(await runHostCheck({ id: "missing", bin: "cord-sandbox-missing-command", args: [], timeout_ms: 5000 }, root, undefined, 5000, sandbox)).toMatchObject({ status: "failed", spawn_error: true, exit_code: null });
   });
 

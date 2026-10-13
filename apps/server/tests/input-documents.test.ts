@@ -1,8 +1,8 @@
+import { native_sandbox_available } from "../../../tests/helpers/native-sandbox.js";
 import { mkdtemp, mkdir, readFile, writeFile, readdir, rm, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
 import { execa } from "execa";
 import { stringify } from "yaml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -12,8 +12,7 @@ import { createClient, type ApiClient } from "../../console/src/api.js";
 import { readCoordinationExecutionContext } from "../src/services/execution-context.js";
 
 const fixture = fileURLToPath(new URL("../../../tests/driver/fixtures/sandbox-worker.mjs", import.meta.url));
-const [major = 0, minor = 0] = process.versions.node.split(".").map(Number);
-const native = process.platform === "darwin" && (major > 22 || major === 22 && minor >= 12) && (() => { try { createRequire(import.meta.url).resolve("@anthropic-ai/sandbox-runtime"); return true; } catch { return false; } })();
+const native = native_sandbox_available;
 const req_id = "REQ-FULL-INPUT";
 const prd = "# PRD\nHEAD_REQUIREMENT\n" + "a".repeat(30000) + "\nMID_ONLY_VALUE=7\n" + "b".repeat(30000) + "\nLATEST_TAIL\n";
 const manual = "# Manual\n" + "m".repeat(30000) + "\nMANUAL_MID_ONLY\n" + "n".repeat(30000) + "\nEND\n";

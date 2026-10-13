@@ -1,5 +1,15 @@
 # 调研发现
 
+## 2026-10-13：Linux原生执行验收
+
+- 当前代码的两个沙箱helper支持linux，但8组物理OS/TCP测试只以process.platform===darwin开启；没有证据证明Linux实际执行。
+- 本机orb status=Stopped，docker socket不存在。选择独立isolated Linux machine，普通用户执行bubblewrap与固定Sandbox Runtime，不共享宿主项目或需求数据。
+- 此轮继续完整自主Goal/最新协调/最终人工边界，不把代码平台枚举或测试skip视为实际通过。
+- Lima专用Ubuntu22.04/ARM64/UID501/Node24.21.0/runtime0.0.79/bubblewrap0.6.1实际namespace探针通过；宿主挂载与凭据共享关闭。OrbStack外盘symlink未动。
+- Linux首严格114项=91通过/23失败；定向36项=32通过/4失败。Git2.34.1实际stderr确认worktree list -z未知；denyRead tmpfs可写让事实/Git遮罩创建成功，宿主拒写也失败；SIGTERM被bubblewrap表示为143仍failed。
+- 已增加严格argv适配/最终tmpfs只读挂载与旧Git登记兼容，升级worker/宿主策略身份（资产hash也绑定），保留拒写断言，待两平台实测。
+- 实际定向36项与完整八组原生验收通过；macOS/Node26.8.2与Ubuntu22.04 ARM64/Node24.21.0各114项、8文件、0skip。CI仍未核验，不能扩大到x86_64/其他发行版/真实厂商。
+
 ## 阶段93（2026-10-12）：冻结检查必须使用同一源码身份
 
 - 复用server扫描器到workflow，不改变原source_hash或范围排除；按manifest最外层声明项重扫能保留目录新增/删除检测，也兼容单文件声明。

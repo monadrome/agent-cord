@@ -97,7 +97,7 @@ flowchart LR
 | 固定独立验证资产 | 可选检查assets外部root/文件内容pin，只在原严格检查的只读副本运行；本地tests改写不替代这些验收，当前pin漂移拒绝执行/ready/人审/cold复用，未配置测试不冒称可信（[ADR-0102](./adr/ADR-0102-pinned-verification-assets.md)、[人审指南](./research/2026-10-12-pinned-verification-assets.md)） |
 | 冻结声明源码检查 | 可选 `check_workspace: frozen_inputs` 与严格只读沙箱；检查cwd是同一source_hash清单的物理副本，原目录/未声明文件不可读，检查后重验原源码；旧实时证据不能复用，不等于可信工具链或完整hermetic build（[ADR-0103](./adr/ADR-0103-frozen-check-workspace.md)、[人审指南](./research/2026-10-12-frozen-check-workspace.md)） |
 | `verification.completed`、源码范围、验证 checker 与证据新鲜度 | 已实现；接入结果事实不等于自动运行并可信观察测试 |
-| 宿主检查原生限制 | 可选 `run.goal.check_sandbox=readonly_workspace`，每检查独立helper/临时环境，只读源码、保护事件/Git并禁止网络，缺依赖fail-closed；macOS实测，Linux仍待实际验收，不改变worker能力（[ADR-0097](./adr/ADR-0097-sandboxed-host-checks.md)） |
+| 宿主检查原生限制 | 可选 `run.goal.check_sandbox=readonly_workspace`，每检查独立helper/临时环境，只读源码、保护事件/Git并禁止网络，缺依赖fail-closed；macOS与Ubuntu22.04 ARM64已实测，不改变worker能力（[ADR-0097](./adr/ADR-0097-sandboxed-host-checks.md)、[跨平台验收](./research/2026-10-13-native-sandbox-validation.md)） |
 | `run.retry` 的失败摘要、次数与退避 | 已实现；成功任务后的验证失败尚不会自动触发实现修复闭环 |
 | 节点内 Goal、宿主实际验证/修复、指南结构审计与实际证据、次数/时长/无进展边界 | 原型已实现；显式 run.goal，推荐 Agent 模板默认采用 |
 | 声明验收条件覆盖 | 原型已实现；acceptance 绑定已发布检查，宿主生成逐项实测矩阵与事件引用，恢复/协调共用核验；不证明业务测试充分性（[ADR-0064](./adr/ADR-0064-goal-acceptance-coverage.md)） |
@@ -127,7 +127,7 @@ flowchart LR
 | 通道 | `kind: acp/headless` 或显式 driver 前缀；裸 agent 名遵循 registry 选择规则 |
 | 任务输入 | 内置Codex以固定`-`+stdin发送完整prompt；custom args可显式`prompt_input: stdin`，禁止prompt占位，通道绑定身份且与通信协议分开 |
 | 工作区隔离 | 普通根为 `shared_lease`；`cord worktree` 创建独立工作树，server核验实际linked根后包装为 `worktree`，执行/源码/验证/审批绑定同一root；Git公共元数据仍共享，不冒称OS沙箱（[ADR-0096](./adr/ADR-0096-linked-worktree-execution.md)） |
-| Worker OS限制 | 可选Agent `sandbox.kind=workspace`，ACP/headless实际启动强制限制本工作区/只读模式、cord/Git保护、显式网络/env白名单与独立HOME；配置身份/协调/查询共用，当前macOS真实反例通过，Linux及真实厂商兼容待验收（[ADR-0100](./adr/ADR-0100-worker-os-sandbox.md)、[人审指南](./research/2026-10-12-worker-os-sandbox.md)） |
+| Worker OS限制 | 可选Agent `sandbox.kind=workspace`，ACP/headless实际启动强制限制本工作区/只读模式、cord/Git保护、显式网络/env白名单与独立HOME；配置身份/协调/查询共用，macOS与Ubuntu22.04 ARM64真实反例通过，真实厂商兼容待验收（[ADR-0100](./adr/ADR-0100-worker-os-sandbox.md)、[人审指南](./research/2026-10-12-worker-os-sandbox.md)） |
 | 沙箱Worker全文输入 | 最新snapshot的允许文档按完整hash复制到本次只读目录，排除自产输出与事实；保留原prompt预算、scope、新resume输入和执行后漂移核验，独立协调禁工具不变（[ADR-0101](./adr/ADR-0101-sandbox-input-documents.md)、[人审指南](./research/2026-10-12-sandbox-input-documents.md)） |
 | 上下文 | Claude `launch.bare` 明确关闭部分自动加载；会改变仓库指令/认证加载，不默认开启 |
 | 执行生命周期 | `run.goal` 由宿主控制代码、自测、修复与 review 交付；普通单次调用仍可显式配置 |
@@ -162,7 +162,7 @@ flowchart LR
 | 原生 Goal / checkpoint | 核验厂商实际支持的持续执行、session/turn checkpoint 与恢复回执；恢复范围明确区分原生会话、当前未退出流程节点和历史 rewind |
 | LLM 可用性 | 区分 provider/model/effort 的声明、协议候选、账户可访问与实际执行回执；有成本的探测遵循单独授权与预算 |
 | 权限与工具 | 精确描述 read/edit/execute/network、MCP、认证和审批策略；分别声明执行前拦截、执行后审计与 OS 强制隔离 |
-| 运行隔离 | 整个server-root的linked worktree、可选宿主检查与worker原生限制、全文只读输入、显式独立验证资产pin与声明源码冻结检查已实现；单server内按节点分配、可信工具链与worktree自动清理仍待实现，Linux与真实厂商沙箱兼容待实际验收 |
+| 运行隔离 | 整个server-root的linked worktree、可选宿主检查与worker原生限制、全文只读输入、显式独立验证资产pin与声明源码冻结检查已实现；macOS与Ubuntu22.04 ARM64各114项原生测试零skip，其他Linux/真实厂商兼容、单server按节点分配、可信工具链与worktree自动清理仍待完善 |
 | 资源限制 | 区分声明预算、实际 usage 观察和底层强制限制，注明未知计量、总时长与取消收束行为 |
 
 对用户想法的评价：默认围绕目标交付、由宿主运行测试并整理 review 指南，能让人工集中到事实、权限和最终审查，适合作为核心 feature。落地时 Goal 属于宿主生命周期，ACP、bare、auto、模型/effort 与恢复分属独立控制轴；“多数 happy path 无中途干预”需要真实任务样本度量，不能靠关闭约束实现。当前推荐模板已经默认采用 `run.goal`，既有发布流程不会被隐式迁移。

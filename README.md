@@ -14,7 +14,7 @@ agent-cord 是一个多 agent 共识协作基座：把需求、决策、证据�
 
 最终评审可声明`goal-ready {node_id: deliver}`，核验当前run上游的完整Goal交付；代码、需求、配置或指南过期时旧审批409，冷恢复重检原run，不增加Goal预算。[Goal→只读评审示例](./examples/goal-review-sdlc.yaml)与[人审指南](./docs/research/2026-10-12-upstream-goal-ready-gate.md)说明配置及边界。
 
-ACP/headless可以显式声明`sandbox: {kind: workspace}`，实际限制worker源码写入、保护cord/Git，网络与环境采用白名单；可选持久HOME支持原生session缓存。沙箱需要独立可信安装与固定可选runtime，缺依赖拒绝裸执行；macOS离线实测，Linux/真实厂商兼容待验收。配置、状态与审查见[Worker沙箱指南](./docs/research/2026-10-12-worker-os-sandbox.md)。
+ACP/headless可以显式声明`sandbox: {kind: workspace}`，实际限制worker源码写入、保护cord/Git，网络与环境采用白名单；可选持久HOME支持原生session缓存。沙箱需要独立可信安装与固定可选runtime，缺依赖拒绝裸执行；macOS与Ubuntu22.04 ARM64已通过原生验收，真实厂商兼容待验收。配置、状态与审查见[Worker沙箱指南](./docs/research/2026-10-12-worker-os-sandbox.md)。
 
 沙箱节点Worker现在获得按当前snapshot完整hash核验的只读全文副本，能按需读取prompt省略的中段；排除自产输出和事实，保留输入scope、原预算与执行后漂移核验。独立协调仍禁工具，能力不表示模型已读完全文。[全文输入人审指南](./docs/research/2026-10-12-sandbox-input-documents.md)说明定位、恢复和限制。
 
@@ -22,7 +22,9 @@ Goal检查可显式固定工作区之外的验证文件内容pin，在`readonly_
 
 需要固定被测源码时，可叠加`check_workspace: frozen_inputs`：只复制声明输入，保持原字节/权限，在物理副本中执行严格只读检查，原目录不可读，运行后重验原源码。未声明依赖不会自动挂载；旧实时工作区结果不能满足新模式。[冻结源码检查指南](./docs/research/2026-10-12-frozen-check-workspace.md)提供配置与人审路径。
 
-适合无网络、源码只读验证的Goal可显式配置`check_sandbox: readonly_workspace`，宿主每检查使用独立原生沙箱/临时HOME，不继承凭据、不修改源码或事件；缺依赖拒绝裸执行。严格模式需要Node>=22.12和可选Sandbox Runtime0.0.79，本轮macOS实测，Linux待实际验收；默认工程模板保持原模式。配置与限制见[宿主检查人审指南](./docs/research/2026-10-12-sandboxed-host-checks.md)。
+适合无网络、源码只读验证的Goal可显式配置`check_sandbox: readonly_workspace`，宿主每检查使用独立原生沙箱/临时HOME，不继承凭据、不修改源码或事件；缺依赖拒绝裸执行。严格模式需要Node>=22.12和可选Sandbox Runtime0.0.79，macOS与Ubuntu22.04 ARM64已实测；默认工程模板保持原模式。配置与限制见[宿主检查人审指南](./docs/research/2026-10-12-sandboxed-host-checks.md)。
+
+`npm run test:native-sandbox`提供普通用户原生依赖/namespace探针与8组实际OS/TCP验收，必须零skip。Linux隐藏目录也拒写，兼容Git2.34工作树登记；[跨平台人审指南](./docs/research/2026-10-13-native-sandbox-validation.md)记录策略身份迁移、环境与CI未核验范围。
 
 ## 能做什么
 

@@ -28,6 +28,7 @@
     "build": "tsc -p tsconfig.json",
     "build:all": "npm run build && npm run build -w @agent-cord/console",
     "test": "vitest run",
+    "test:native-sandbox": "node scripts/test-native-sandbox.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit && npm run typecheck --workspaces --if-present",
     "cord": "tsx src/cli.ts",
     "serve": "node --conditions=development --import tsx apps/server/src/main.ts",

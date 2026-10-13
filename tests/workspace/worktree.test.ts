@@ -29,6 +29,13 @@ function mock_driver(): AgentDriver & { calls: string[] } {
 }
 
 describe("显式独立Git工作树", () => {
+  it("登记核验兼容空格/中文/引用路径和Git默认quotePath", async () => {
+    await git(source, ["config", "core.quotePath", "true"]);
+    const target = join(directory, 'draft 空格 "quoted" \\literal');
+    const workspace = await create_worktree(source, target);
+    expect((await read_worktree(target))?.identity_hash).toBe(workspace.identity_hash);
+    await expect(create_worktree(source, join(directory, "bad\npath"))).rejects.toThrow(/控制字符/);
+  });
   it("base包含已跟踪的旧session时拒绝，不把旧授权复制进新工作单元", async () => {
     await mkdir(join(source, "cord/REQ-OLD"), { recursive: true }); await writeFile(join(source, "cord/REQ-OLD/events.jsonl"), "OLD_AUTHORIZATION\n");
     await git(source, ["add", "--force", "cord/REQ-OLD/events.jsonl"]);

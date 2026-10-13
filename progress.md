@@ -1,5 +1,15 @@
 # 工作进度
 
+## 2026-10-13（阶段94）
+
+- 当前工作区干净、HEAD/远端tracking=5133c56。最新阶段93已实现冻结源码验证并同步，属于progress；旧session 51662已不存在，不重复启动旧操作。
+- 复核当前131测试文件与helper，Linux支持尚未实际验收且native tests仅macOS开启。开始专用隔离Linux环境与可复现原生验收入口，不操作7306原真实Draft或付费模型。
+- 严格入口/共享开关/UbuntuCI/ADR已实现；macOS114项零skip与全量1897项、typecheck/build:all/diff通过。专用Lima普通用户probe通过，但Linux首轮23失败，不能宣称Linux已验收。
+- 接续诊断9633已结束，32/36通过。实际Git2.34.1 probe确认-z不支持；runtime目录遮罩tmpfs允许创建而不落宿主。增加可信argv适配器对最终遮罩remount-ro，保持子挂载可写；兼容porcelain行登记核验与143信号证据，新增解析/引用路径回归，进入定向重验。
+- 首适配实测46/67通过，Git22项与参数9项通过；启动脚本缺Node的--边界，bubblewrap选项被Node误接收而拒绝启动。补显式边界，不放宽隔离或测试预算，继续定向验证。
+- 修复后Linux36项定向全绿；完整macOS与Ubuntu22.04 ARM64各114项/8文件/0skip通过。typecheck/build:all/diff通过。入口补唯一非空报告/数量一致与SIGINT/SIGTERM→1秒SIGKILL收束，并增加离线入口反例；同步人审指南与明确CI未核验范围，进入最终全量回归。
+- 最终全量1913项/133文件通过（/tmp/cord-stage94-final-tests.json），最终typecheck/diff绿；更新入口后Linux再次114项/8文件/0skip，Linux入口/参数15项通过。两平台compiled Worker/宿主检查真实限制通过；Linux实际fd9 NUL参数文件证实只读遮罩与可写子cache，pack210文件含适配器/两个helper，856文档链接无缺失。无UI行为变更，不重复浏览器截图；不操作7306/真实凭据/付费模型/人工gate。准备小步提交与有界推送，完整目标active。
+
 ## 2026-10-12（阶段93）
 
 - 接续3307809干净/tracking同步，独立ls-remote核验330780936522d1cd9afcbe9e777cffdbe261e101，阶段92推送已成功。共享源码扫描器与source_manifest_hash已有相同身份域；选择显式冻结检查cwd、严格沙箱和运行后原源码重验。ADR-0103与实现前调研先于契约修改；保持无子agent/付费模型/7306操作。

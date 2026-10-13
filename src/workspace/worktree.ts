@@ -48,6 +48,7 @@ export async function read_worktree(root: string, signal?: AbortSignal, timeout_
   let canonical_root: string;
   try { canonical_root = await plain_directory(resolve(root)); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
+  valid_path(canonical_root);
   const query = (args: string[]) => {
     if (Date.now() >= deadline) throw new WorktreeError("工作树查询超时");
     return git(canonical_root, args, signal, Math.min(5000, deadline - Date.now()));
@@ -66,7 +67,13 @@ export async function read_worktree(root: string, signal?: AbortSignal, timeout_
   if (!backlink_info.isFile() || backlink_info.nlink !== 1 || backlink_info.size > 4096) throw new WorktreeError("工作树Git反向引用不可验证");
   const backlink_path = (await readFile(backlink, "utf8")).replace(/\r?\n$/, "");
   if (await realpath(backlink_path) !== join(canonical_root, ".git")) throw new WorktreeError("工作树Git反向引用与当前根不匹配");
-  const registered = (await query(["worktree", "list", "--porcelain", "-z"])).split("\0\0").map(record => record.split("\0").find(field => field.startsWith("worktree "))?.slice("worktree ".length)).filter((path): path is string => path !== undefined);
+  // Git2.34不支持此处-z；禁用非ASCII引用，当前根拒绝控制字符，引用路径严格解码。
+  const registered = (await query(["-c", "core.quotePath=false", "worktree", "list", "--porcelain"])).split("\n\n").map(record => {
+    const value = record.split("\n").find(field => field.startsWith("worktree "))?.slice("worktree ".length);
+    if (value === undefined) return undefined;
+    try { const path: unknown = value.startsWith('"') ? JSON.parse(value) : value; return typeof path === "string" && !CONTROL.test(path) ? path : undefined; }
+    catch { return undefined; }
+  }).filter((path): path is string => path !== undefined);
   let found = false;
   for (const path of registered) {
     try { if (await realpath(path) === canonical_root) found = true; }

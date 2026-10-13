@@ -1,7 +1,7 @@
+import { native_sandbox_available } from "../helpers/native-sandbox.js";
 import * as fs from "node:fs/promises";
 import * as child_process from "node:child_process";
 import { createHash } from "node:crypto";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,8 +12,7 @@ import { runHostCheck, goalCommandHash } from "../../src/workflow/host-verificat
 vi.mock("node:fs/promises", async original => { const actual = await original<typeof import("node:fs/promises")>(); return { ...actual, writeFile: vi.fn(actual.writeFile) }; });
 vi.mock("node:child_process", async original => { const actual = await original<typeof import("node:child_process")>(); return { ...actual, spawn: vi.fn(actual.spawn) }; });
 let directory: string; let root: string; let scratch: string;
-const [major = 0, minor = 0] = process.versions.node.split(".").map(Number);
-const native = process.platform === "darwin" && (major > 22 || major === 22 && minor >= 12) && (() => { try { createRequire(import.meta.url).resolve("@anthropic-ai/sandbox-runtime"); return true; } catch { return false; } })();
+const native = native_sandbox_available;
 const command = (script = "process.exit(0)", args: string[] = [], timeout_ms = 5000): GoalCommand => ({ id: "frozen", bin: process.execPath, args: ["-e", script, ...args], timeout_ms });
 const source = async (inputs = ["src"]): Promise<FrozenCheckSource> => {
   const value = await readVerificationSource(root, inputs, true); return { source_hash: value.source_hash!, source_manifest: value.source_manifest! };

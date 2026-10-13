@@ -1,5 +1,7 @@
 # 宿主检查只读沙箱：Human Review指南
 
+2026-10-13更新：macOS与专用Ubuntu22.04 ARM64各114项原生验收零skip。当前检查策略升级readonly-workspace.srt-0.0.79.v2，固定资产命令也绑定该策略；下文Linux待验收为2026-10-12历史状态，见[跨平台指南](./2026-10-13-native-sandbox-validation.md)。
+
 ## 配置与行为
 
 ```yaml

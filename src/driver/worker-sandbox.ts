@@ -11,7 +11,7 @@ import type { AgentTask } from "../core/ports.js";
 import { read_worktree } from "../workspace/worktree.js";
 import { prepare_input_documents, input_documents_prompt, unlock_input_documents } from "./input-documents.js";
 
-export const WORKER_SANDBOX_POLICY = "workspace.srt-0.0.79.v2";
+export const WORKER_SANDBOX_POLICY = "workspace.srt-0.0.79.v3";
 const absolute_path = z.string().min(1).max(4096).refine(value => isAbsolute(value) && value !== "/" && !/[\x00-\x1f\x7f]/.test(value), "沙箱路径必须是明确绝对路径");
 const env_name = z.string().regex(/^[A-Z_][A-Z0-9_]{0,63}$/).refine(value => !/^(HOME|TMPDIR|TMP|TEMP|PATH|LANG|NODE_.*|LD_.*|DYLD_.*|PYTHON.*|BASH_ENV|ENV|SHELL|.*_PROXY|CLOUDSDK_PROXY_.*|JAVA_TOOL_OPTIONS|GIT_SSH_COMMAND|SANDBOX_.*|CORD_INPUT_.*)$/i.test(value), "不能覆盖运行时或沙箱环境");
 const domain = z.string().min(1).max(253).regex(/^(?:[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)(?::[1-9][0-9]{0,4})?$/).refine(value => !value.includes("..") && (!value.includes(":") || Number(value.split(":")[1]) <= 65535), "网络域名或端口无效");

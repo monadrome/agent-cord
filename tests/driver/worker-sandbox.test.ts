@@ -1,3 +1,4 @@
+import { native_sandbox_available } from "../helpers/native-sandbox.js";
 import { mkdtemp, mkdir, readFile, writeFile, rm, access, cp, symlink } from "node:fs/promises";
 import { fork } from "node:child_process";
 import { tmpdir, homedir } from "node:os";
@@ -17,8 +18,7 @@ import { sha256Hex } from "../../src/core/hash.js";
 import { stringify } from "yaml";
 
 const fixture = fileURLToPath(new URL("./fixtures/sandbox-worker.mjs", import.meta.url));
-const [major = 0, minor = 0] = process.versions.node.split(".").map(Number);
-const native = process.platform === "darwin" && (major > 22 || major === 22 && minor >= 12) && (() => { try { createRequire(import.meta.url).resolve("@anthropic-ai/sandbox-runtime"); return true; } catch { return false; } })();
+const native = native_sandbox_available;
 let directory: string; let root: string;
 beforeEach(async () => { directory = await mkdtemp(join(tmpdir(), "cord-worker-native-")); root = join(directory, "workspace"); await mkdir(root); await writeFile(join(root, "value.txt"), "initial"); await mkdir(join(root, "cord")); await writeFile(join(root, "cord/events.jsonl"), "PROTECTED_FACTS"); await mkdir(join(root, ".git")); await writeFile(join(root, ".git/config"), "PROTECTED_GIT"); });
 afterEach(async () => { await rm(directory, { recursive: true, force: true }); });

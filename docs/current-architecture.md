@@ -43,7 +43,9 @@ worker agent 子进程（ACP / 裸 headless CLI）
 
 最终评审的`goal-ready` checker复用协调/runner的完整ready来源，宿主RunService读取上游当前输入/源码/指南并在读取前后对账。证据摘要进入原gate evaluation，人审REST与冷恢复按同一配置/来源重检；过期等待恢复原run，保留Goal预算与退出事实，不再因报告存在放行旧代码（[ADR-0099](./adr/ADR-0099-upstream-goal-ready-gate.md)、[人审指南](./research/2026-10-12-upstream-goal-ready-gate.md)）。
 
-可选worker-sandbox在driver实际spawn之前准备私有环境，独立helper初始化固定runtime后才启动agent。受限bootstrap只规范runtime代理地址，真实agent保持原stdio；宿主ACP SDK、NodeRunner产物代写、Goal实测与人工gate职责不变。强制源码/cord/Git/外部用户路径与网络/env名单约束，state HOME按workspace/config分区；可信安装不允许位于可写源码根，worktree仍做物理身份检查且保留os_sandbox能力。readonly工具审计继续独立工作，Linux/实际厂商兼容仍待验收（[ADR-0100](./adr/ADR-0100-worker-os-sandbox.md)、[人审指南](./research/2026-10-12-worker-os-sandbox.md)）。
+可选worker-sandbox在driver实际spawn之前准备私有环境，独立helper初始化固定runtime后才启动agent。受限bootstrap只规范runtime代理地址，真实agent保持原stdio；宿主ACP SDK、NodeRunner产物代写、Goal实测与人工gate职责不变。强制源码/cord/Git/外部用户路径与网络/env名单约束，state HOME按workspace/config分区；可信安装不允许位于可写源码根，worktree仍做物理身份检查且保留os_sandbox能力。readonly工具审计继续独立工作，macOS与Ubuntu22.04 ARM64已实际验收，其他Linux/真实厂商待验证（[ADR-0100](./adr/ADR-0100-worker-os-sandbox.md)、[人审指南](./research/2026-10-12-worker-os-sandbox.md)）。
+
+ADR-0104：两个helper在Linux使用可信bubblewrap argv适配器，对最终denyRead tmpfs追加只读remount，scratch/代码子挂载保持原权限；未知选项/有界NUL参数文件格式失败拒绝启动。Worker策略v3、宿主策略v2及固定资产命令hash绑定新的限制。Git2.34兼容porcelain行登记且继续禁止当前根控制字符/核验反向引用与物理身份。严格原生入口要求普通用户/namespace探针及8文件全passed零skip，CI未核验；[复现与限制](./research/2026-10-13-native-sandbox-validation.md)。
 
 | 目录 | 当前职责 |
 |---|---|
@@ -68,7 +70,7 @@ worker agent 子进程（ACP / 裸 headless CLI）
 
 ACP/headless 保持任务调用。coordinator/goal.ts 在 NodeRunner 内承载 run.goal：worker 产出代码与指南 → 宿主按声明 argv 执行检查 → 输入重检与指南审计 → 失败反馈修复或 ready。host-verification.ts 计算完整输出 hash、有界内存尾部并回收超时/取消进程组；失败原文不持久化。指南补入实际结果事件与命令元信息，当前源码与最终指南绑定验证输入。连续无进展、时长与尝试从 goal.attempt 事实恢复；卡点归 run failed 并公开原因。Context Session Agent 现在读取受限 Goal 状态；blocked/invalid/cancelled 会使 eligible_nodes 为空，只能产生带当前 Goal 事件证据的 ask_human/wait Draft，不会扩预算或放行 gate。
 
-`run.goal.check_sandbox=readonly_workspace`是可选宿主检查隔离：host-verification准备独立scratch/最小env，每检查通过独立sandbox-check-helper初始化固定runtime并原生执行。源码只读、cord/Git保护、网络关闭、HOME/TMPDIR私有；helper IPC与测试输出分开，真实退出/信号决定结果，缺依赖或setup失败不裸执行。模式/版本策略绑定command_hash与共享ready核验，指南展示实测隔离。macOS实际回归通过，Linux依赖/执行仍待实测；worker能力与最终人工gate不因该字段放宽（[ADR-0097](./adr/ADR-0097-sandboxed-host-checks.md)、[人审指南](./research/2026-10-12-sandboxed-host-checks.md)）。
+`run.goal.check_sandbox=readonly_workspace`是可选宿主检查隔离：host-verification准备独立scratch/最小env，每检查通过独立sandbox-check-helper初始化固定runtime并原生执行。源码只读、cord/Git保护、网络关闭、HOME/TMPDIR私有；helper IPC与测试输出分开，真实退出/信号决定结果，缺依赖或setup失败不裸执行。模式/版本策略绑定command_hash与共享ready核验，指南展示实测隔离。macOS与Ubuntu22.04 ARM64实际回归通过；worker能力与最终人工gate不因该字段放宽（[ADR-0097](./adr/ADR-0097-sandboxed-host-checks.md)、[人审指南](./research/2026-10-12-sandboxed-host-checks.md)）。
 
 Goal 声明 `supervisor_agent` 时，RunService 在 blocked 事实和 failed run 落盘、executor 收束与活动槽位/lease 释放后调用 CoordinationService 自动发起 `goal_blocked` 轮次。请求事实绑定 blocker event、run、node 和 workflow revision，服务重启补缺失首次请求且不重放已有 supervisor 请求或继续旧重试链；在途人工协调先等待。协调失败不改变 run failed，输入变化使轮次 stale，人工回答仍走既有澄清接口。没有声明 supervisor 的流程保持旧行为。
 

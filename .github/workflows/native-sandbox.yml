@@ -1,0 +1,44 @@
+name: Native Sandbox
+
+on:
+  push:
+    paths:
+      - '.github/workflows/native-sandbox.yml'
+      - 'scripts/test-native-sandbox.mjs'
+      - 'src/**'
+      - 'apps/server/**'
+      - 'tests/**'
+      - 'package*.json'
+  pull_request:
+    paths:
+      - '.github/workflows/native-sandbox.yml'
+      - 'scripts/test-native-sandbox.mjs'
+      - 'src/**'
+      - 'apps/server/**'
+      - 'tests/**'
+      - 'package*.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-sandbox-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install Native Dependencies
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap socat ripgrep
+      - run: npm ci
+      - run: npm run build
+      - name: Verify Native Isolation And Goal Recovery
+        run: npm run test:native-sandbox

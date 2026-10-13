@@ -7,6 +7,7 @@ import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "no
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { GoalCommandSchema } from "../core/schema.js";
+import { prepare_linux_bwrap } from "../sandbox/linux-bwrap.js";
 
 const input_schema = z.strictObject({ command: GoalCommandSchema, cwd: z.string().min(1), scratch: z.string().min(1), git_paths: z.array(z.string()), assets_dir: z.string().optional(), original_cwd: z.string().optional() });
 let received = false;
@@ -55,6 +56,7 @@ process.once("message", async raw => {
       filesystem: { denyRead: [literal("/"), literal(join(input.cwd, "cord")), ...input.git_paths.map(literal), ...(original_assets_root === undefined ? [] : [literal(original_assets_root)]), ...(input.original_cwd === undefined ? [] : [literal(input.original_cwd)])],
         allowRead: [input.cwd, input.scratch, ...system].map(literal), allowWrite: [literal(input.scratch)],
         denyWrite: ["/tmp/claude", "/private/tmp/claude", ...(input.assets_dir === undefined ? [] : [input.assets_dir]), ...(input.original_cwd === undefined ? [] : [input.cwd])].map(literal) },
+      ...(process.platform === "linux" ? { bwrapPath: await prepare_linux_bwrap(input.scratch, quote) } : {}),
       enableWeakerNestedSandbox: false, enableWeakerNetworkIsolation: false, allowAppleEvents: false, allowPty: false,
     }, undefined, false);
     if (!SandboxManager.isSandboxingEnabled()) throw new Error("disabled");

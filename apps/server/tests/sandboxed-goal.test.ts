@@ -1,8 +1,8 @@
+import { native_sandbox_available } from "../../../tests/helpers/native-sandbox.js";
 import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
 import { execa } from "execa";
 import { stringify } from "yaml";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,9 +14,7 @@ import { readCoordinationExecutionContext } from "../src/services/execution-cont
 const worker = fileURLToPath(new URL("../../../tests/driver/fixtures/goal-worker.mjs", import.meta.url));
 const coordinator = fileURLToPath(new URL("../../../tests/driver/fixtures/fake-cli.mjs", import.meta.url));
 const req_id = "REQ-SANDBOX-GOAL";
-const [node_major = 0, node_minor = 0] = process.versions.node.split(".").map(Number);
-const native_available = process.platform === "darwin" && (node_major > 22 || node_major === 22 && node_minor >= 12)
-  && (() => { try { createRequire(import.meta.url).resolve("@anthropic-ai/sandbox-runtime"); return true; } catch { return false; } })();
+const native_available = native_sandbox_available;
 let root: string; let server: BuiltServer | undefined; let client: ApiClient;
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), "cord-sandbox-goal-http-")); await mkdir(join(root, "cord")); await writeFile(join(root, "value.txt"), "initial"); });
 afterEach(async () => { vi.restoreAllMocks(); if (server !== undefined) { await server.app.close(); server.index.close(); server = undefined; } await rm(root, { recursive: true, force: true }); });

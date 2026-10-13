@@ -27,13 +27,13 @@ export interface HostCheckResult {
   spawn_error: boolean;
 }
 
-export const HOST_CHECK_SANDBOX_POLICY = "readonly-workspace.srt-0.0.79.v1";
+export const HOST_CHECK_SANDBOX_POLICY = "readonly-workspace.srt-0.0.79.v2";
 export function goalCommandHash(command: GoalCommand, sandbox?: GoalCheckSandbox, workspace?: GoalCheckWorkspace): string {
   if (sandbox !== undefined) GoalCheckSandboxSchema.parse(sandbox);
   if (workspace !== undefined) GoalCheckWorkspaceSchema.parse(workspace);
   return sha256Hex(canonicalJson(workspace !== undefined ? { domain: "cord.goal-command.v4", command, sandbox: sandbox ?? null, workspace, policy: HOST_CHECK_SANDBOX_POLICY,
     source_policy: FROZEN_CHECK_SOURCE_POLICY, ...(command.assets === undefined ? {} : { assets_policy: CHECK_ASSETS_POLICY, assets_hash: check_assets_hash(command.assets) }) }
-    : command.assets !== undefined ? { domain: "cord.goal-command.v3", command, sandbox: sandbox ?? null, policy: CHECK_ASSETS_POLICY, assets_hash: check_assets_hash(command.assets) }
+    : command.assets !== undefined ? { domain: "cord.goal-command.v3", command, sandbox: sandbox ?? null, policy: CHECK_ASSETS_POLICY, sandbox_policy: HOST_CHECK_SANDBOX_POLICY, assets_hash: check_assets_hash(command.assets) }
     : sandbox === undefined ? { domain: "cord.goal-command.v1", command }
     : { domain: "cord.goal-command.v2", command, sandbox, policy: HOST_CHECK_SANDBOX_POLICY }));
 }

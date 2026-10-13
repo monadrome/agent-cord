@@ -1,9 +1,9 @@
+import { native_sandbox_available } from "../helpers/native-sandbox.js";
 import { mkdtemp, mkdir, readFile, writeFile, rm, access, symlink, link, open, chmod } from "node:fs/promises";
 import * as fs from "node:fs/promises";
 import * as child_process from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createRequire } from "node:module";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GoalCommandSchema, GoalConfigSchema, type GoalCommand } from "../../src/core/schema.js";
 import { canonicalJson, sha256Hex } from "../../src/core/hash.js";
@@ -11,8 +11,7 @@ import { verify_check_assets, check_assets_hash, prepare_check_assets, unlock_ch
 import { runHostCheck, goalCommandHash } from "../../src/workflow/host-verification.js";
 
 let directory: string; let root: string; let assets_root: string; let scratch: string;
-const [major = 0, minor = 0] = process.versions.node.split(".").map(Number);
-const native = process.platform === "darwin" && (major > 22 || major === 22 && minor >= 12) && (() => { try { createRequire(import.meta.url).resolve("@anthropic-ai/sandbox-runtime"); return true; } catch { return false; } })();
+const native = native_sandbox_available;
 const verifier = "const fs=require('node:fs');if(fs.readFileSync('value.txt','utf8')!=='fixed')process.exit(3);console.log('TRUSTED_ASSET_PASSED');";
 const pin = (text = verifier) => ({ root: assets_root, files: [{ file: "verify.cjs", content_hash: sha256Hex(text) }] });
 const command = (text = verifier): GoalCommand => ({ id: "business", bin: process.execPath, args: ["{{check_assets}}/verify.cjs"], timeout_ms: 5000, assets: pin(text) });
@@ -32,6 +31,8 @@ describe("固定独立验证资产", () => {
     expect(goalCommandHash(plain)).toBe(sha256Hex(canonicalJson({ domain: "cord.goal-command.v1", command: plain })));
     expect(goalCommandHash(command(), "readonly_workspace")).not.toBe(goalCommandHash({ ...command(), assets: undefined, args: [] }, "readonly_workspace"));
     expect(goalCommandHash(command(), "readonly_workspace")).not.toBe(goalCommandHash(command(verifier + "\n"), "readonly_workspace"));
+    const old_sandbox_hash = sha256Hex(canonicalJson({ domain: "cord.goal-command.v3", command: command(), sandbox: "readonly_workspace", policy: "pinned-check-assets.v1", assets_hash: check_assets_hash(pin()) }));
+    expect(goalCommandHash(command(), "readonly_workspace")).not.toBe(old_sandbox_hash);
   });
   it.each(["bin", "missing-token", "unlisted-token", "embedded-token", "no-assets", "root", "duplicate", "traversal", "management", "hash"])("严格契约拒绝%s", mode => {
     const changed = structuredClone(command());
