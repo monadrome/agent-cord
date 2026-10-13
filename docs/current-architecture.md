@@ -35,7 +35,9 @@ worker agent 子进程（ACP / 裸 headless CLI）
 
 ## 2. 仓库边界
 
-带assets的Goal检查消费独立root/发布文件内容pin，宿主check-assets在每检查前核验并复制为真实OS只读树；解释器不从可写workspace加载，原cwd读取被测源码。新commandHash/Guide与当前Goal输入在执行、人审/恢复/协调共用pin核验，本地可写tests不认证为可信。该边界未冻结源码或动态依赖，原无pin检查保持语义（[ADR-0102](./adr/ADR-0102-pinned-verification-assets.md)、[人审指南](./research/2026-10-12-pinned-verification-assets.md)）。
+带assets的Goal检查消费独立root/发布文件内容pin，宿主check-assets在每检查前核验并复制为真实OS只读树；解释器不从可写workspace加载，默认原cwd读取被测源码。新commandHash/Guide与当前Goal输入在执行、人审/恢复/协调共用pin核验，本地可写tests不认证为可信；原无pin检查保持语义（[ADR-0102](./adr/ADR-0102-pinned-verification-assets.md)、[人审指南](./research/2026-10-12-pinned-verification-assets.md)）。
+
+可选frozen_inputs把同次输入manifest交给workflow/verification-source共享scanner，在每检查scratch复制声明源码为独立cwd。副本保持内容/模式，OS denyWrite整树且原workspace denyRead；未声明依赖不挂载，准备与后验计入原预算，检查后重验原工作区。Goal命令v4来源在ready/恢复共用，source_hash域不变，review_changes不成为必要条件。该冻结不证明工具链或业务覆盖可信（[ADR-0103](./adr/ADR-0103-frozen-check-workspace.md)、[人审指南](./research/2026-10-12-frozen-check-workspace.md)）。
 
 沙箱节点Worker接收当前snapshot的严格input_documents描述，排除自产artifact；driver在实际派发前复制完整hash匹配的UTF-8文本到只读树并追加真实定位，原cord/Git禁令保持。ContextPack预留原预算，NodeRunner执行后重检源输入，私有副本不能冒称变化后的当前交付；独立Context Session Agent仍禁工具，只分析其已有有界投影（[ADR-0101](./adr/ADR-0101-sandbox-input-documents.md)、[人审指南](./research/2026-10-12-sandbox-input-documents.md)）。
 

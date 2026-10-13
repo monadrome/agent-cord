@@ -20,6 +20,8 @@ ACP/headless可以显式声明`sandbox: {kind: workspace}`，实际限制worker�
 
 Goal检查可显式固定工作区之外的验证文件内容pin，在`readonly_workspace`内运行其只读副本；worker把本地tests改为exit0也不能替代这些验收。当前pin漂移会拒绝执行或旧人审/ready，原无pin检查保持原语义。[固定验证资产指南](./docs/research/2026-10-12-pinned-verification-assets.md)列出配置、实测与可信依赖限制。
 
+需要固定被测源码时，可叠加`check_workspace: frozen_inputs`：只复制声明输入，保持原字节/权限，在物理副本中执行严格只读检查，原目录不可读，运行后重验原源码。未声明依赖不会自动挂载；旧实时工作区结果不能满足新模式。[冻结源码检查指南](./docs/research/2026-10-12-frozen-check-workspace.md)提供配置与人审路径。
+
 适合无网络、源码只读验证的Goal可显式配置`check_sandbox: readonly_workspace`，宿主每检查使用独立原生沙箱/临时HOME，不继承凭据、不修改源码或事件；缺依赖拒绝裸执行。严格模式需要Node>=22.12和可选Sandbox Runtime0.0.79，本轮macOS实测，Linux待实际验收；默认工程模板保持原模式。配置与限制见[宿主检查人审指南](./docs/research/2026-10-12-sandboxed-host-checks.md)。
 
 ## 能做什么

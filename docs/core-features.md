@@ -95,6 +95,7 @@ flowchart LR
 | Goal ready 来源与当前新鲜度 | 已实现；恢复/协调共用 worker/宿主验证来源，过期/不可读/取消不冒称当前交付 |
 | 最终评审的上游 Goal 证明 | `goal-ready {node_id}` 要求自身/传递上游、同 run 的最新完整交付与当前源码/输入/指南一致；严格 all/block，旧审批失效后重检原 run，不重授预算（[ADR-0099](./adr/ADR-0099-upstream-goal-ready-gate.md)、[人审指南](./research/2026-10-12-upstream-goal-ready-gate.md)） |
 | 固定独立验证资产 | 可选检查assets外部root/文件内容pin，只在原严格检查的只读副本运行；本地tests改写不替代这些验收，当前pin漂移拒绝执行/ready/人审/cold复用，未配置测试不冒称可信（[ADR-0102](./adr/ADR-0102-pinned-verification-assets.md)、[人审指南](./research/2026-10-12-pinned-verification-assets.md)） |
+| 冻结声明源码检查 | 可选 `check_workspace: frozen_inputs` 与严格只读沙箱；检查cwd是同一source_hash清单的物理副本，原目录/未声明文件不可读，检查后重验原源码；旧实时证据不能复用，不等于可信工具链或完整hermetic build（[ADR-0103](./adr/ADR-0103-frozen-check-workspace.md)、[人审指南](./research/2026-10-12-frozen-check-workspace.md)） |
 | `verification.completed`、源码范围、验证 checker 与证据新鲜度 | 已实现；接入结果事实不等于自动运行并可信观察测试 |
 | 宿主检查原生限制 | 可选 `run.goal.check_sandbox=readonly_workspace`，每检查独立helper/临时环境，只读源码、保护事件/Git并禁止网络，缺依赖fail-closed；macOS实测，Linux仍待实际验收，不改变worker能力（[ADR-0097](./adr/ADR-0097-sandboxed-host-checks.md)） |
 | `run.retry` 的失败摘要、次数与退避 | 已实现；成功任务后的验证失败尚不会自动触发实现修复闭环 |
@@ -161,7 +162,7 @@ flowchart LR
 | 原生 Goal / checkpoint | 核验厂商实际支持的持续执行、session/turn checkpoint 与恢复回执；恢复范围明确区分原生会话、当前未退出流程节点和历史 rewind |
 | LLM 可用性 | 区分 provider/model/effort 的声明、协议候选、账户可访问与实际执行回执；有成本的探测遵循单独授权与预算 |
 | 权限与工具 | 精确描述 read/edit/execute/network、MCP、认证和审批策略；分别声明执行前拦截、执行后审计与 OS 强制隔离 |
-| 运行隔离 | 整个server-root的linked worktree、可选宿主检查与worker原生限制、全文只读输入与显式独立验证资产pin已实现；单server内按节点分配、冻结代码快照/可信工具链与worktree自动清理仍待实现，Linux与真实厂商沙箱兼容待实际验收 |
+| 运行隔离 | 整个server-root的linked worktree、可选宿主检查与worker原生限制、全文只读输入、显式独立验证资产pin与声明源码冻结检查已实现；单server内按节点分配、可信工具链与worktree自动清理仍待实现，Linux与真实厂商沙箱兼容待实际验收 |
 | 资源限制 | 区分声明预算、实际 usage 观察和底层强制限制，注明未知计量、总时长与取消收束行为 |
 
 对用户想法的评价：默认围绕目标交付、由宿主运行测试并整理 review 指南，能让人工集中到事实、权限和最终审查，适合作为核心 feature。落地时 Goal 属于宿主生命周期，ACP、bare、auto、模型/effort 与恢复分属独立控制轴；“多数 happy path 无中途干预”需要真实任务样本度量，不能靠关闭约束实现。当前推荐模板已经默认采用 `run.goal`，既有发布流程不会被隐式迁移。

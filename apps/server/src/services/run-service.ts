@@ -209,7 +209,7 @@ export class RunService {
     const inputs = verificationSourceInputs(node);
     if (inputs.length > 0 && this.options.workspaceRoot === undefined) throw new VerificationInputError("声明源码输入需要验证工作区根目录");
     let source;
-    try { await this.options.assert_workspace?.(); source = await readVerificationSource(this.options.workspaceRoot ?? "", inputs, node.run?.goal?.review_changes === true); }
+    try { await this.options.assert_workspace?.(); source = await readVerificationSource(this.options.workspaceRoot ?? "", inputs, node.run?.goal?.review_changes === true || node.run?.goal?.check_workspace === "frozen_inputs"); }
     catch (error) {
       if (error instanceof VerificationInputError) throw error;
       throw new VerificationInputError("无法读取声明的验证输入，请检查工作区文件与访问权限");

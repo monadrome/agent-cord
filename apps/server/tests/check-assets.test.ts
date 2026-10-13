@@ -15,7 +15,7 @@ const fixture = fileURLToPath(new URL("../../../tests/driver/fixtures/sandbox-wo
 const [major = 0, minor = 0] = process.versions.node.split(".").map(Number);
 const native = process.platform === "darwin" && (major > 22 || major === 22 && minor >= 12) && (() => { try { createRequire(import.meta.url).resolve("@anthropic-ai/sandbox-runtime"); return true; } catch { return false; } })();
 const req_id = "REQ-PINNED-CHECK";
-const verifier = "const fs=require('node:fs');if(fs.readFileSync('value.txt','utf8')!=='fixed'){console.error('PINNED_VALUE_FAILURE');process.exit(3)}console.log('PINNED_VALUE_PASSED');";
+const verifier = "const fs=require('node:fs');if(fs.readFileSync('value.txt','utf8')!=='fixed'){console.error('PINNED_VALUE_FAILURE');process.exit(3)}if(process.argv[2]){if(process.cwd()===process.argv[2]||fs.existsSync('unlisted'))process.exit(8);for(const f of [()=>fs.readFileSync(process.argv[2]+'/value.txt'),()=>fs.writeFileSync('value.txt','bad'),()=>fs.chmodSync('value.txt',0o600)]){let blocked=false;try{f()}catch{blocked=true}if(!blocked)process.exit(9)}}console.log('PINNED_VALUE_PASSED');";
 let directory: string; let root: string; let assets_root: string; let server: BuiltServer; let client: ApiClient;
 beforeEach(async () => {
   server = undefined as unknown as BuiltServer; directory = await mkdtemp(join(tmpdir(), "cord-pinned-http-")); const source = join(directory, "source"); assets_root = join(directory, "trusted"); await mkdir(source); await mkdir(assets_root); await writeFile(join(assets_root, "verify.cjs"), verifier);
@@ -29,7 +29,7 @@ async function close() { await server.app.close(); server.index.close(); }
 async function wait_for(check: () => Promise<boolean>) { const deadline = Date.now() + 15000; while (!await check()) { if (Date.now() >= deadline) throw Error("固定验证TCP等待超时"); await new Promise(resolve => setTimeout(resolve, 25)); } }
 async function facts() { return (await server.sessions.open(req_id)).events.readOrdered(); }
 async function calls() { let count = 0; try { for (const path of await readdir(join(directory, "state"))) { try { count += Number(await readFile(join(directory, "state", path, "session.txt"), "utf8")); } catch {} } } catch {} return count; }
-async function prepare(protocol: "headless" | "acp", never_fix = false, review = true, invalid = false) {
+async function prepare(protocol: "headless" | "acp", never_fix = false, review = true, invalid = false, frozen = false) {
   await mkdir(join(root, "cord")); const sandbox = { kind: "workspace", read_paths: [dirname(fixture)], state_dir: join(directory, "state") };
   const args = [fixture, "--first-broken", "--tamper-local-tests", "--asset-file", join(assets_root, "verify.cjs"), ...(never_fix ? ["--never-fix"] : []), "--operation", "workflow"];
   const agent = protocol === "acp" ? { kind: "acp", bin: process.execPath, args: [...args, "--acp"], sandbox, launch: { mode: "code", option_ids: { mode: "workflow" } }, readonly_launch: { mode: "plan", option_ids: { mode: "workflow" } } }
@@ -38,9 +38,9 @@ async function prepare(protocol: "headless" | "acp", never_fix = false, review =
   const gate = (node: string) => ({ id: "final-review", role: {}, attach: { node, when: "post" }, checks: [{ ref: "goal-ready", with: { node_id: "deliver" } }, { ref: "file-nonempty", with: { path: review ? "findings.md" : "review.md" } }], pass: { human_confirm: true }, on_fail: "block" });
   const yaml = stringify({ apiVersion: "agent-cord.dev/v1alpha1", kind: "Workflow", metadata: { id: "pinned-goal" }, spec: { nodes: [
     { id: "deliver", artifact: "review.md", run: { agent: "worker", output: "text", input_scope: { kind: "dependencies" }, require_capabilities: { workspace_isolation: "os_sandbox" }, goal: {
-      inputs: ["value.txt", "local-tests.cjs"], max_attempts: 3, review_changes: true, check_sandbox: "readonly_workspace",
+      inputs: ["value.txt", "local-tests.cjs"], max_attempts: 3, review_changes: !frozen, check_sandbox: "readonly_workspace", ...(frozen ? { check_workspace: "frozen_inputs" } : {}),
       acceptance: [{ id: "value-fixed", criterion: "独立pin验证业务值fixed", checks: ["business"] }],
-      checks: [{ id: "business", bin: process.execPath, args: ["{{check_assets}}/verify.cjs"], timeout_ms: 5000, assets: { root: assets_root, files: [{ file: "verify.cjs", content_hash: sha256Hex(verifier) }] } }],
+      checks: [{ id: "business", bin: process.execPath, args: ["{{check_assets}}/verify.cjs", ...(frozen ? [root] : [])], timeout_ms: 5000, assets: { root: assets_root, files: [{ file: "verify.cjs", content_hash: sha256Hex(verifier) }] } }],
     } }, gates: review ? [] : [gate("deliver")] },
     ...(review ? [{ id: "review", artifact: "findings.md", depends_on: ["deliver"], run: { agent: "worker", readonly: true, output: "text", input_scope: { kind: "dependencies" } }, gates: [gate("review")] }] : []),
     { id: "done", depends_on: [review ? "review" : "deliver"] },
@@ -93,5 +93,32 @@ describe("固定独立验证资产的Goal实际TCP", () => {
     await expect(client.decideApproval(req_id, approval.approval_id, approval.options[0]!)).rejects.toMatchObject({ status: 409 }); const binding = await server.sdlcs.get("pinned-goal", 1);
     expect((await readCoordinationExecutionContext(binding.def, await server.sessions.open(req_id), binding.workflow_revision, server.runs)).goals[0]?.current).not.toBe(true);
     expect((await facts()).filter(event => event.type === "workflow.run.started")).toHaveLength(1); expect((await facts()).filter(event => event.type === "goal.attempt.started")).toHaveLength(2); expect((await facts()).filter(event => event.type === "human.decision.recorded")).toHaveLength(0);
+  });
+  native_it.each(["headless", "acp"] as const)("%s冻结输入独立于review_changes，失败自动修复→只读评审→cold保留来源与最终人工gate", async protocol => {
+    await writeFile(join(root, "unlisted"), "PRIVATE_UNDECLARED"); const run = await prepare(protocol, false, true, false, true);
+    await wait_for(async () => (await client.getApprovals(req_id)).approvals.length === 1); const binding = await server.sdlcs.get("pinned-goal", 1); const node = binding.def.spec.nodes[0]!;
+    let history = await facts(); expect(history.filter(event => event.type === "verification.completed").map(event => event.payload["status"])).toEqual(["failed", "passed"]);
+    expect(history.filter(event => event.type === "goal.attempt.started").every(event => event.payload["source_manifest"] === undefined)).toBe(true);
+    const ready = history.filter(event => event.type === "goal.attempt.completed").at(-1)!; expect(ready.payload["change_evidence"]).toBeUndefined();
+    expect(resolveGoalReadiness(ready, history, node, { workflow_id: binding.def.metadata.id, workflow_revision: binding.workflow_revision, run_id: run.run_id })).not.toBeNull();
+    const goal = node.run!.goal!; const latest = history.filter(event => event.type === "verification.completed").at(-1)!;
+    expect(latest.payload["command_hash"]).toBe(goalCommandHash(goal.checks[0]!, goal.check_sandbox, goal.check_workspace));
+    const live_proof = history.map(event => event.type === "verification.completed" ? { ...event, payload: { ...event.payload, command_hash: goalCommandHash(goal.checks[0]!, goal.check_sandbox) } } : event);
+    expect(resolveGoalReadiness(ready, live_proof, node, { workflow_id: binding.def.metadata.id, workflow_revision: binding.workflow_revision, run_id: run.run_id })).toBeNull();
+    expect((await client.readArtifact(req_id, "review.md")).content).toContain("被测工作区：frozen_inputs"); expect(await readFile(join(root, "value.txt"), "utf8")).toBe("fixed");
+    const count = await calls(); const approval = (await client.getApprovals(req_id)).approvals[0]!; await close(); await boot(); expect(await calls()).toBe(count);
+    expect((await client.getApprovals(req_id)).approvals[0]?.approval_id).toBe(approval.approval_id);
+    expect((await readCoordinationExecutionContext(binding.def, await server.sessions.open(req_id), binding.workflow_revision, server.runs)).goals[0]).toMatchObject({ current: true });
+    history = await facts(); expect(history.filter(event => event.type === "workflow.run.started")).toHaveLength(1); expect(history.filter(event => event.type === "human.decision.recorded")).toHaveLength(0);
+    expect(history.filter(event => event.type === "workflow.node.exited").map(event => event.payload["node_id"])).toEqual(["deliver"]);
+    await client.decideApproval(req_id, approval.approval_id, approval.options[0]!); await wait_for(async () => !server.runs.isActive(req_id)); expect((await server.runs.getRun(run.run_id)).status).toBe("completed"); expect((await client.doctor()).ok).toBe(true);
+  });
+  native_it("冻结副本清理后原源码漂移使跨节点审批409，cold保留原run预算并阻断", async () => {
+    const run = await prepare("acp", false, true, false, true); await wait_for(async () => (await client.getApprovals(req_id)).approvals.length === 1);
+    const approval = (await client.getApprovals(req_id)).approvals[0]!; const count = await calls(); await close(); await writeFile(join(root, "value.txt"), "changed-after-check"); await boot();
+    await wait_for(async () => !server.runs.isActive(req_id)); expect((await server.runs.getRun(run.run_id)).status).toBe("blocked"); expect(await calls()).toBe(count);
+    await expect(client.decideApproval(req_id, approval.approval_id, approval.options[0]!)).rejects.toMatchObject({ status: 409 }); const history = await facts();
+    expect(history.filter(event => event.type === "workflow.run.started")).toHaveLength(1); expect(history.filter(event => event.type === "goal.attempt.started")).toHaveLength(2); expect(history.filter(event => event.type === "human.decision.recorded")).toHaveLength(0);
+    const binding = await server.sdlcs.get("pinned-goal", 1); expect((await readCoordinationExecutionContext(binding.def, await server.sessions.open(req_id), binding.workflow_revision, server.runs)).goals[0]?.current).not.toBe(true);
   });
 });

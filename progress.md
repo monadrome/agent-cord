@@ -1,5 +1,13 @@
 # 工作进度
 
+## 2026-10-12（阶段93）
+
+- 接续3307809干净/tracking同步，独立ls-remote核验330780936522d1cd9afcbe9e777cffdbe261e101，阶段92推送已成功。共享源码扫描器与source_manifest_hash已有相同身份域；选择显式冻结检查cwd、严格沙箱和运行后原源码重验。ADR-0103与实现前调研先于契约修改；保持无子agent/付费模型/7306操作。
+- 共享scanner/物理副本、冻结配置v4命令身份、Goal/ready/当前输入已接通；首build提示清理helper目录名union未包含冻结树，扩展明确目录后build通过。21项新物理/OS反例和64项旧scanner/资产/host回归通过；原源码运行期间变化仍读取冻结原字节并拒绝passed，复制/后验使用原预算取消。
+- 87项Goal/ready/TCP回归与完整typecheck通过；两协议冻结独立于review_changes，真实failed→passed自主修复/readonly/cold保持原run与审批；旧实时command_hash拒绝，原源码交付后漂移cold阻断且审批409。补准备取消/timeout/IO与无资产解释器反例，核心Feature/README/架构/协议同步，转入全量验证。
+- 最终全量1897项/131文件通过（/tmp/cord-stage93-tests.json），build:all/diff与193文档链接通过，compiled冻结实际OS/二进制/清理与pack207文件入口通过。隔离预览首次最后doctor失败，定位为协调后未通过既有ledger读API刷新磁盘投影（仅input_hash漂移、事件/血统全部一致）；按原验收路径先读取ledger，不修改源码验证或事实。
+- 最终typecheck通过；25项新物理/准备/OS反例与3项两协议冻结TCP均绿。隔离预览PID73642，headless55733/ACP55747真实failed→passed/readonly/cold、current Goal/协调/doctor=true，审批各1/人工决定0/仅deliver退出，源主树initial未改。18张1440/390/320截图无pageerror/溢出，桌面guide与320审批已查看；人审指南/ADR同步。准备审查提交，完整持续目标仍待可信工具链/Linux/真实厂商与每节点worktree等后续工作。
+
 ## 2026-10-12（阶段92）
 
 - 接续038232c干净/同步，上一轮1f04575/1834项/实际双协议全文交付为progress；读取host-verification/sandbox-helper、Goal命令/ready和RunService输入后确认可写测试资产不足。ADR-0102与实现前调研先行，选显式外部文件pin+严格检查只读副本，当前资产核验进入原人审/协调/恢复输入；无子agent/付费模型/7306操作。

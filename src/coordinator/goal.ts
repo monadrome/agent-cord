@@ -41,7 +41,7 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
     for (const command of node.run!.goal!.checks) if (command.assets !== undefined) await verify_check_assets(command.assets, options.workspaceRoot, ctx.signal);
     if (!/^[0-9a-f]{64}$/.test(input.input_hash) || input.source_hash === null || !/^[0-9a-f]{64}$/.test(input.source_hash)) throw new Error("Goal 必须提供有效输入与源码摘要");
     let source_manifest: SourceManifest | undefined;
-    if (node.run!.goal!.review_changes === true) {
+    if (node.run!.goal!.review_changes === true || node.run!.goal!.check_workspace === "frozen_inputs") {
       source_manifest = SourceManifestSchema.parse(input.source_manifest);
       if (source_manifest_hash(source_manifest) !== input.source_hash) throw new Error("Goal 源码清单与被测摘要不一致");
     }
@@ -157,6 +157,7 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
           if (goal.review_changes === true && baseline === null) baseline = { event_id: attempt_started.event_id, manifest: current.source_manifest! };
           const instructions = `## Goal 交付契约\n自主实现当前需求的代码 Draft。宿主将实际运行声明检查；一次回复结束不代表目标完成。\n源码范围：${JSON.stringify(goal.inputs)}\n检查：${JSON.stringify(goal.checks)}\n${goal.review_changes === true ? "宿主将以首次实际源码为基线生成完整变更清单；不要用自报清单替代宿主证据。\n" : ""}${goal.usage_budget === undefined ? "" : `宿主 usage 预算：${JSON.stringify(goal.usage_budget)}；只按实际 task usage 计量，未知 usage 不等于零。\n`}${goal.acceptance === undefined ? "" : `发布验收条件：${JSON.stringify(goal.acceptance)}\n逐项实现验收条件；宿主生成真实证据矩阵，不以模型自报通过放行。\n`}最终指南必须含非空的二级标题：变更、验收、风险，写明变更定位、验收依据与未覆盖项。不要合入、发布或批准 gate。\n${feedback}`;
           const sandbox_context = goal.check_sandbox === undefined ? "" : "\n宿主检查在readonly_workspace沙箱中运行：源码/事件不可写、HOME/TMPDIR为独立临时目录、禁止网络；不要降低检查要求或请求裸执行来通过测试。\n"
+            + (goal.check_workspace === "frozen_inputs" ? "检查cwd是声明源码的冻结副本；未声明依赖和原工作区不可读，依赖必须明确声明。\n" : "")
             + (goal.checks.some(command => command.assets !== undefined) ? "声明的独立验证资产固定内容pin，只在宿主只读副本运行；修改本地tests不能替代这些验收。\n" : "");
           const outcome = await task_runner(instructions + sandbox_context).runNode(node, session, { ...ctx, signal });
           const task = (await readSessionEvents(session)).filter(event => event.type === "agent.task.completed" && scoped(event, ctx)).at(-1);
@@ -177,7 +178,8 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
             try { current = await identity(node, session, ctx); guide = await readSessionDocument(session.dir, node.artifact); }
             catch { await finish("blocked", "worker 完成后无法读取当前输入或指南", { failure_kind: "environment" }); return { status: "failed" }; }
             for (const command of goal.checks) {
-              const result = await runHostCheck(command, options.workspaceRoot, signal, Math.max(0, deadline - Date.now()), goal.check_sandbox);
+              const result = await runHostCheck(command, options.workspaceRoot, signal, Math.max(0, deadline - Date.now()), goal.check_sandbox,
+                goal.check_workspace === "frozen_inputs" ? { source_hash: current.source_hash, source_manifest: current.source_manifest! } : undefined);
               checks.push({ command, result, event_id: ulid() });
               if (signal.aborted || result.spawn_error) break;
             }
@@ -206,7 +208,7 @@ export function withGoalDelivery(def: WorkflowDef, options: CoordinatorOptions, 
                   await finish("blocked", "无法生成完整宿主源码变更清单，停止交付", { failure_kind: "delivery" });
                   return { status: "failed" };
                 }
-                const delivered = guide + evidence + renderGoalAcceptance(goal, acceptance_evidence)
+                const delivered = guide + evidence + (goal.check_workspace === "frozen_inputs" ? "\n- 被测工作区：frozen_inputs；仅声明源码的物理副本，保持字节/权限，OS只读；运行后原源码重验。\n" : "") + renderGoalAcceptance(goal, acceptance_evidence)
                   + (change_evidence === undefined ? "" : render_goal_changes(change_evidence, current.source_hash));
                 try {
                   await writeSessionDocument(session.dir, node.artifact, delivered, { expected_hash: sha256Hex(guide) });

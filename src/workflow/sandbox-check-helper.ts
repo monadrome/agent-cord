@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { GoalCommandSchema } from "../core/schema.js";
 
-const input_schema = z.strictObject({ command: GoalCommandSchema, cwd: z.string().min(1), scratch: z.string().min(1), git_paths: z.array(z.string()), assets_dir: z.string().optional() });
+const input_schema = z.strictObject({ command: GoalCommandSchema, cwd: z.string().min(1), scratch: z.string().min(1), git_paths: z.array(z.string()), assets_dir: z.string().optional(), original_cwd: z.string().optional() });
 let received = false;
 process.once("message", async raw => {
   if (received || process.send === undefined) { process.exitCode = 1; return; }
@@ -28,12 +28,14 @@ process.once("message", async raw => {
     }
     if (executable === undefined) throw new Error("missing command");
     const original_assets_root = input.command.assets === undefined ? undefined : await realpath(input.command.assets.root);
-    if (input.command.assets !== undefined) {
-      if (input.assets_dir !== join(input.scratch, "pinned-check-assets")) throw new Error("missing assets copy");
+    if (input.command.assets === undefined && input.assets_dir !== undefined) throw new Error("unexpected assets");
+    if (input.command.assets !== undefined && input.assets_dir !== join(input.scratch, "pinned-check-assets")) throw new Error("missing assets copy");
+    if (input.original_cwd !== undefined && (input.cwd !== join(input.scratch, "frozen-check-workspace") || !input.command.bin.startsWith("/"))) throw new Error("invalid frozen copy");
+    if (input.command.assets !== undefined || input.original_cwd !== undefined) {
       executable = await realpath(executable);
       const inside = (path: string, parent: string) => { const suffix = relative(parent, path); return suffix === "" || suffix !== ".." && !suffix.startsWith(`..${sep}`) && !isAbsolute(suffix); };
-      if ([input.cwd, original_assets_root!, ...input.git_paths].some(path => inside(executable!, path))) throw new Error("untrusted interpreter");
-    } else if (input.assets_dir !== undefined) throw new Error("unexpected assets");
+      if ([input.cwd, ...(input.original_cwd === undefined ? [] : [input.original_cwd]), ...(original_assets_root === undefined ? [] : [original_assets_root]), ...input.git_paths].some(path => inside(executable!, path))) throw new Error("untrusted interpreter");
+    }
     const args = input.command.args.map(arg => input.assets_dir === undefined ? arg : arg === "{{check_assets}}" ? input.assets_dir
       : arg.startsWith("{{check_assets}}/") ? join(input.assets_dir, arg.slice("{{check_assets}}/".length)) : arg);
     const require_ = createRequire(import.meta.url);
@@ -50,9 +52,9 @@ process.once("message", async raw => {
       : ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/dev", "/etc", "/proc", "/sys", "/opt"];
     await SandboxManager.initialize({
       network: { allowedDomains: [], deniedDomains: ["*"], strictAllowlist: true, allowLocalBinding: false, allowUnixSockets: [], allowAllUnixSockets: false, allowMachLookup: [] },
-      filesystem: { denyRead: [literal("/"), literal(join(input.cwd, "cord")), ...input.git_paths.map(literal), ...(original_assets_root === undefined ? [] : [literal(original_assets_root)])],
+      filesystem: { denyRead: [literal("/"), literal(join(input.cwd, "cord")), ...input.git_paths.map(literal), ...(original_assets_root === undefined ? [] : [literal(original_assets_root)]), ...(input.original_cwd === undefined ? [] : [literal(input.original_cwd)])],
         allowRead: [input.cwd, input.scratch, ...system].map(literal), allowWrite: [literal(input.scratch)],
-        denyWrite: ["/tmp/claude", "/private/tmp/claude", ...(input.assets_dir === undefined ? [] : [input.assets_dir])].map(literal) },
+        denyWrite: ["/tmp/claude", "/private/tmp/claude", ...(input.assets_dir === undefined ? [] : [input.assets_dir]), ...(input.original_cwd === undefined ? [] : [input.cwd])].map(literal) },
       enableWeakerNestedSandbox: false, enableWeakerNetworkIsolation: false, allowAppleEvents: false, allowPty: false,
     }, undefined, false);
     if (!SandboxManager.isSandboxingEnabled()) throw new Error("disabled");

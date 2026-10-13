@@ -304,6 +304,9 @@ export type GoalChangeSummary = z.infer<typeof GoalChangeSummarySchema>;
 /** ADR-0097：仅限制宿主检查，未知模式不允许降级执行。 */
 export const GoalCheckSandboxSchema = z.literal("readonly_workspace");
 export type GoalCheckSandbox = z.infer<typeof GoalCheckSandboxSchema>;
+/** ADR-0103：仅显式冻结声明范围，不自动挂载实时依赖。 */
+export const GoalCheckWorkspaceSchema = z.literal("frozen_inputs");
+export type GoalCheckWorkspace = z.infer<typeof GoalCheckWorkspaceSchema>;
 export const GoalConfigSchema = z.strictObject({
   inputs: z.array(z.string().min(1).max(500)).min(1).max(64),
   checks: z.array(GoalCommandSchema).min(1).max(16).refine(values => new Set(values.map(value => value.id)).size === values.length, "Goal 检查 id 必须唯一"),
@@ -315,6 +318,7 @@ export const GoalConfigSchema = z.strictObject({
   /** ADR-0071：宿主保存源码基线并审计交付变更；推荐模板默认开启。 */
   review_changes: z.boolean().optional(),
   check_sandbox: GoalCheckSandboxSchema.optional(),
+  check_workspace: GoalCheckWorkspaceSchema.optional(),
   max_attempts: z.number().int().min(1).max(10).default(3),
   timeout_ms: z.number().int().positive().max(86_400_000).default(1_800_000),
   no_progress_limit: z.number().int().min(1).max(10).default(2),
@@ -325,6 +329,7 @@ export const GoalConfigSchema = z.strictObject({
   supervisor_max_attempts: z.number().int().min(1).max(3).optional(),
 }).refine(value => (value.supervisor_timeout_ms === undefined && value.supervisor_max_attempts === undefined) || value.supervisor_agent !== undefined, "supervisor_timeout_ms/max_attempts 必须与 supervisor_agent 一起声明")
   .refine(value => !value.checks.some(command => command.assets !== undefined) || value.check_sandbox === "readonly_workspace", "固定验证资产必须使用readonly_workspace检查沙箱")
+  .refine(value => value.check_workspace === undefined || value.check_sandbox === "readonly_workspace" && value.checks.every(command => command.bin.startsWith("/")), "冻结源码检查必须使用readonly_workspace和绝对解释器")
   .refine(value => value.acceptance === undefined || (value.acceptance.every(condition => condition.checks.every(id => value.checks.some(check => check.id === id)))
     && value.checks.every(check => value.acceptance!.some(condition => condition.checks.includes(check.id)))), "Goal 验收清单必须引用已声明检查且覆盖全部检查");
 export type GoalConfig = z.infer<typeof GoalConfigSchema>;

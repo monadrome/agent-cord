@@ -40,3 +40,4 @@ export { resolveReusedCompletion } from "./task-evidence.js";
 export { runHostCheck, goalCommandHash, type HostCheckResult } from "./host-verification.js";
 export { createGoalReadyChecker } from "./goal-ready-checker.js";
 export { CHECK_ASSETS_POLICY, check_assets_hash, verify_check_assets } from "./check-assets.js";
+export { VerificationInputError, readVerificationSource, FROZEN_CHECK_SOURCE_POLICY, type VerificationSource, type FrozenCheckSource } from "./verification-source.js";

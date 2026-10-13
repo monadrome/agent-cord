@@ -82,7 +82,7 @@ export function resolveGoalReadiness(candidate: EventEnvelope, events: readonly 
       || events.filter(item => item.event_id === result.event_id).length !== 1
       || result.correlation_id !== node.id || result.actor.kind !== "system" || result.actor.id !== "goal-runner" || result.source.adapter !== "goal-runner"
       || !value.success || value.data.status !== "passed" || value.data.exit_code !== 0 || value.data.input_hash !== ready.input_hash
-      || value.data.source_hash !== ready.source_hash || value.data.command_hash !== goalCommandHash(command, goal.check_sandbox)) return null;
+      || value.data.source_hash !== ready.source_hash || value.data.command_hash !== goalCommandHash(command, goal.check_sandbox, goal.check_workspace)) return null;
   }
   return { completion, input_hash: ready.input_hash, source_hash: ready.source_hash, artifact_hash: ready.artifact_hash,
     ...(ready.change_evidence === undefined ? {} : { change_evidence: ready.change_evidence }) };

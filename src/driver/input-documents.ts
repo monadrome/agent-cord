@@ -71,7 +71,7 @@ export function input_documents_prompt(prompt: string, root: string, max_chars =
 }
 
 /** 仅在agent进程收束后解除宿主自己设置的目录模式，保证临时副本可删除。 */
-export async function unlock_input_documents(scratch: string, directory: "input-documents" | "pinned-check-assets" = "input-documents"): Promise<void> {
+export async function unlock_input_documents(scratch: string, directory: "input-documents" | "pinned-check-assets" | "frozen-check-workspace" = "input-documents"): Promise<void> {
   const visit = async (path: string): Promise<void> => {
     let info; try { info = await lstat(path); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
     if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("invalid input cleanup path");
